@@ -37,7 +37,9 @@ Inductive type_error : Type :=
 | E_InType          (T : ident) (e : type_error)
 | E_NotRef          (t : ty)
 | E_UnboundLoc      (l : nat)
-| E_UnknownLabel    (k : nat).
+| E_UnknownLabel    (k : nat)
+| E_Effect          (ε ρ : ty)        (** raising [ε] where only [ρ] may escape *)
+| E_NotError        (T : ident).
 
 (** ** Certified building blocks *)
 
@@ -59,10 +61,27 @@ Definition expect_nat (expected got : nat) (err : type_error) : result (got = ex
   | right _ => Err err
   end.
 
-Definition as_arrow (t : ty) : result {ps : list ty & {r : ty | t = TArrow ps r}} type_error :=
-  match t as t' return result {ps : list ty & {r : ty | t' = TArrow ps r}} type_error with
-  | TArrow ps r => Ok (existT _ ps (exist _ r eq_refl))
+Definition as_arrow (t : ty) :
+    result {ps : list ty & {r : ty & {ε : ty | t = TArrow ps r ε}}} type_error :=
+  match t as t' return result {ps : list ty & {r : ty & {ε : ty | t' = TArrow ps r ε}}} type_error with
+  | TArrow ps r ε => Ok (existT _ ps (existT _ r (exist _ ε eq_refl)))
   | t' => Err (E_NotFunction t')
+  end.
+
+Definition expect_eff (ε ρ : ty) : result (eff_le ε ρ) type_error :=
+  match ty_eq_dec ε TNever with
+  | left H => Ok (or_introl H)
+  | right _ =>
+      match ty_eq_dec ε ρ with
+      | left H => Ok (or_intror H)
+      | right _ => Err (E_Effect ε ρ)
+      end
+  end.
+
+Definition check_bool (b : bool) (err : type_error) : result (b = true) type_error :=
+  match b as b' return result (b' = true) type_error with
+  | true => Ok eq_refl
+  | false => Err err
   end.
 
 Definition as_tuple (t : ty) : result {ts : list ty | t = TTuple ts} type_error :=
@@ -98,7 +117,7 @@ Section Check.
   Variables (ge : genv) (Σ : styping).
 
   (** Synthesise the types of a list of expressions. *)
-  Definition infer_list (Λ : lblctx) (Γ : ctx)
+  Definition infer_list (Λ : cctx) (Γ : ctx)
       (inf : forall e, result {τ | Γ ⊢[ge;Σ;Λ] e : τ} type_error) :
       forall es, result {τs | Γ ⊢*[ge;Σ;Λ] es : τs} type_error :=
     fix go es :=
@@ -112,7 +131,7 @@ Section Check.
 
   (** Check a list of expressions against a list of expected types.  Callers
       compare the lengths first, so that an arity error reports the totals. *)
-  Definition check_list (Λ : lblctx) (Γ : ctx)
+  Definition check_list (Λ : cctx) (Γ : ctx)
       (inf : forall e, result {τ | Γ ⊢[ge;Σ;Λ] e : τ} type_error) :
       forall es τs, result (Γ ⊢*[ge;Σ;Λ] es : τs) type_error :=
     fix go es τs :=
@@ -166,11 +185,15 @@ Section Check.
         '(exist _ τ0 Et) <- as_ref τ ;;
         '(exist _ Δ H) <- check_pat p0 τ0 ;;
         Ok (exist _ Δ (cast_pat (P_Ref ge p0 τ0 Δ H) (eq_sym Et)))
+    | PUp T p0 =>
+        Heq <- expect_ty TError τ ;;
+        '(exist _ Δ H) <- check_pat p0 (TData T []) ;;
+        Ok (exist _ Δ (cast_pat (P_Up ge T p0 Δ H) Heq))
     end.
 
   (** ** Branches of a [match] *)
 
-  Definition check_branches (Λ : lblctx)
+  Definition check_branches (Λ : cctx)
       (inf : forall Γ e, result {τ | Γ ⊢[ge;Σ;Λ] e : τ} type_error)
       (Γ : ctx) (τs τ : ty) : forall bs, result (Γ ⊢ᵇ[ge;Σ;Λ] bs : τs ⇒ τ) type_error :=
     fix go bs :=
@@ -186,7 +209,7 @@ Section Check.
 
   (** ** Expressions *)
 
-  Fixpoint infer (Λ : lblctx) (Γ : ctx) (e : expr) {struct e}
+  Fixpoint infer (Λ : cctx) (Γ : ctx) (e : expr) {struct e}
       : result {τ | Γ ⊢[ge;Σ;Λ] e : τ} type_error :=
     match e as e' return result {τ | Γ ⊢[ge;Σ;Λ] e' : τ} type_error with
     | EVar x =>
@@ -199,16 +222,17 @@ Section Check.
         Ok (exist _ _ (T_Global ge Σ Λ Γ f ts fd Hf Hlen))
     | ELit l =>
         Ok (exist _ _ (T_Lit ge Σ Λ Γ l))
-    | ELam ps r b =>
-        '(exist _ τb Hb) <- infer [] (ps ++ Γ) b ;;
+    | ELam ps r ε b =>
+        '(exist _ τb Hb) <- infer (mk_cctx [] ε) (ps ++ Γ) b ;;
         Heq <- expect_ty r τb ;;
-        Ok (exist _ _ (T_Lam ge Σ Λ Γ ps r b (cast_ty Hb (eq_sym Heq))))
+        Ok (exist _ _ (T_Lam ge Σ Λ Γ ps r ε b (cast_ty Hb (eq_sym Heq))))
     | EApp f args =>
         '(exist _ τf Hf) <- infer Λ Γ f ;;
-        '(existT _ ps (exist _ r Ef)) <- as_arrow τf ;;
+        '(existT _ ps (existT _ r (exist _ ε Ef))) <- as_arrow τf ;;
         _ <- expect_nat (length ps) (length args) (E_ArgArity (length ps) (length args)) ;;
         Hargs <- check_list Λ Γ (infer Λ Γ) args ps ;;
-        Ok (exist _ r (T_App ge Σ Λ Γ f args ps r (cast_ty Hf Ef) Hargs))
+        Heff <- expect_eff ε (cc_exn Λ) ;;
+        Ok (exist _ r (T_App ge Σ Λ Γ f args ps r ε (cast_ty Hf Ef) Hargs Heff))
     | ELet e1 e2 =>
         '(exist _ τ1 H1) <- infer Λ Γ e1 ;;
         '(exist _ τ2 H2) <- infer Λ (τ1 :: Γ) e2 ;;
@@ -258,17 +282,37 @@ Section Check.
     | ELoop e0 ps τ b =>
         '(exist _ τ0 H0) <- infer Λ Γ e0 ;;
         Heq0 <- expect_ty (TTuple ps) τ0 ;;
-        '(exist _ τb Hb) <- infer ((ps, τ) :: Λ) (ps ++ Γ) b ;;
+        '(exist _ τb Hb) <- infer (push_lbl (ps, τ) Λ) (ps ++ Γ) b ;;
         Heq <- expect_ty τ τb ;;
         Ok (exist _ τ (T_Loop ge Σ Λ Γ e0 ps τ b (cast_ty H0 (eq_sym Heq0))
                               (cast_ty Hb (eq_sym Heq))))
     | EJump c k e0 τ =>
-        '(exist _ lbl Hk) <- of_option (nth_error Λ k) (E_UnknownLabel k) ;;
+        '(exist _ lbl Hk) <- of_option (nth_error (cc_lbls Λ) k) (E_UnknownLabel k) ;;
         '(exist _ τ0 H0) <- infer Λ Γ e0 ;;
         Heq <- expect_ty (ctl_ty c lbl) τ0 ;;
         Ok (exist _ τ (T_Jump ge Σ Λ Γ c k e0 τ lbl Hk (cast_ty H0 (eq_sym Heq))))
     | EAbort τ =>
         Ok (exist _ τ (T_Abort ge Σ Λ Γ τ))
+    | EUp T e0 =>
+        '(exist _ td Htd) <- of_option (lookup_ty ge T) (E_UnknownType T) ;;
+        Herr <- check_bool (td_err td) (E_NotError T) ;;
+        '(exist _ τ0 H0) <- infer Λ Γ e0 ;;
+        Heq <- expect_ty (TData T []) τ0 ;;
+        Ok (exist _ TError (T_Up ge Σ Λ Γ T e0 td Htd Herr (cast_ty H0 (eq_sym Heq))))
+    | ERaise e0 τ =>
+        '(exist _ τe H0) <- infer Λ Γ e0 ;;
+        Heff <- expect_eff τe (cc_exn Λ) ;;
+        Ok (exist _ τ (T_Raise ge Σ Λ Γ e0 τe τ H0 Heff))
+    | ETry e0 τe h k =>
+        '(exist _ τ0 H0) <- infer (with_exn τe Λ) Γ e0 ;;
+        '(exist _ τ Hh) <- infer Λ (τe :: Γ) h ;;
+        '(exist _ τk Hk) <- infer Λ (τ0 :: Γ) k ;;
+        Heq <- expect_ty τ τk ;;
+        Ok (exist _ τ (T_Try ge Σ Λ Γ e0 τe h k τ0 τ H0 Hh (cast_ty Hk (eq_sym Heq))))
+    | EDefer b c e0 =>
+        '(exist _ τc Hc) <- infer (mk_cctx [] (cc_exn Λ)) Γ c ;;
+        '(exist _ τ H0) <- infer Λ Γ e0 ;;
+        Ok (exist _ τ (T_Defer ge Σ Λ Γ b c e0 τc τ Hc H0))
     end.
 End Check.
 
@@ -278,7 +322,7 @@ End Check.
     loops ([fdef_ok]). *)
 Definition check_fdef (ge : genv) (fd : fdef) : result (fdef_ok ge fd) type_error :=
   map_err (E_InGlobal (fd_name fd))
-    ('(exist _ τ H) <- infer ge [] [] (fd_params fd) (fd_body fd) ;;
+    ('(exist _ τ H) <- infer ge [] (mk_cctx [] (fd_eff fd)) (fd_params fd) (fd_body fd) ;;
      Heq <- expect_ty (fd_ret fd) τ ;;
      Ok (cast_ty H (eq_sym Heq))).
 
@@ -289,12 +333,6 @@ Fixpoint check_fdefs (ge : genv) (fds : list fdef) : result (Forall (fdef_ok ge)
       H <- check_fdef ge fd ;;
       Hs <- check_fdefs ge fds' ;;
       Ok (Forall_cons fd H Hs)
-  end.
-
-Definition check_bool (b : bool) (err : type_error) : result (b = true) type_error :=
-  match b as b' return result (b' = true) type_error with
-  | true => Ok eq_refl
-  | false => Err err
   end.
 
 Definition check_all {A} (P : A -> Prop) (f : forall a, result (P a) type_error) :
@@ -330,7 +368,8 @@ Definition check_fsig (ge : genv) (fd : fdef) : result (fsig_ok ge fd) type_erro
   map_err (E_InGlobal (fd_name fd))
     (Hp <- check_all (ty_wf ge (fd_tparams fd)) (check_wf ge (fd_tparams fd)) (fd_params fd) ;;
      Hr <- check_wf ge (fd_tparams fd) (fd_ret fd) ;;
-     Ok (conj Hp Hr)).
+     He <- check_bool (err_wfb ge (fd_tparams fd) (fd_eff fd)) (E_IllFormed (fd_eff fd)) ;;
+     Ok (conj Hp (conj Hr He))).
 
 Definition check_genv (ge : genv) : result (genv_ok ge) type_error :=
   Ht <- check_nodup (map td_name (ge_types ge)) E_DuplicateType ;;

@@ -368,14 +368,10 @@ fn lower_type(t : @syntax.Type) -> Sty raise Unsupported {
       }
     Tuple(tys~, loc~) => Sty::STuple(pos_of_loc(loc), lower_types(tys))
     Arrow(args~, res~, err~, is_async~, loc~, ..) => {
-      match err {
-        NoErrorType => ()
-        _ => unsupported("function type with an error type", loc)
-      }
       if is_async is Some(_) {
         unsupported("async function type", loc)
       }
-      Sty::SArrow(pos_of_loc(loc), lower_types(args), lower_type(res))
+      Sty::SArrow(pos_of_loc(loc), lower_types(args), lower_type(res), lower_eff(err, loc))
     }
     Option(ty~, loc~, ..) =>
       Sty::SName(
@@ -391,6 +387,18 @@ fn lower_type(t : @syntax.Type) -> Sty raise Unsupported {
       unsupported("trait object type", c.loc)
       Sty::STuple(pos_of_loc(c.loc), List::Nil)
     }
+  }
+}
+
+///|
+/// The effect of a signature: `None` for `noraise`, `raise` is `raise Error`,
+/// `raise?` is `raise ?` (a hidden type parameter, see `Elab.sig_tparams`).
+fn lower_eff(e : @syntax.ErrorType, loc : @basic.Location) -> Sty? raise Unsupported {
+  match e {
+    NoErrorType | Noraise(..) => None
+    DefaultErrorType(..) => Some(Sty::SName(pos_of_loc(loc), ident_of_string("Error"), List::Nil))
+    ErrorType(ty~) => Some(lower_type(ty))
+    MaybeError(..) => Some(Sty::SName(pos_of_loc(loc), ident_of_string("?"), List::Nil))
   }
 }
 
@@ -519,9 +527,10 @@ fn lower_exprs(es : @list.List[@syntax.Expr]) -> List[Sexpr] raise Unsupported {
 
 ///|
 fn lower_lambda(f : @syntax.Func, loc : @basic.Location) -> Sexpr raise Unsupported {
-  match f.error_type {
-    NoErrorType => ()
-    _ => unsupported("function with an error type", loc)
+  // `None`: not annotated (the effect comes from the expected type)
+  let eff : Sty?? = match f.error_type {
+    NoErrorType => None
+    e => Some(lower_eff(e, loc))
   }
   if f.is_async is Some(_) {
     unsupported("async function", loc)
@@ -543,7 +552,7 @@ fn lower_lambda(f : @syntax.Func, loc : @basic.Location) -> Sexpr raise Unsuppor
     Some(t) => Some(lower_type(t))
     None => None
   }
-  Sexpr::SLam(pos_of_loc(loc), list_of_array(ps), ret, lower_expr(f.body))
+  Sexpr::SLam(pos_of_loc(loc), list_of_array(ps), ret, eff, lower_expr(f.body))
 }
 
 ///|
@@ -601,16 +610,8 @@ fn lower_expr(e : @syntax.Expr) -> Sexpr raise Unsupported {
       }
       Sexpr::SRecord(pos_of_loc(loc), tq, list_of_array(fs))
     }
-    Match(expr~, cases~, loc~, ..) => {
-      let cs = []
-      for c in cases {
-        if c.guard_ is Some(_) {
-          unsupported("match guard", loc)
-        }
-        cs.push((lower_pattern(c.pattern), lower_expr(c.body)))
-      }
-      Sexpr::SMatch(pos_of_loc(loc), lower_expr(expr), list_of_array(cs))
-    }
+    Match(expr~, cases~, loc~, ..) =>
+      Sexpr::SMatch(pos_of_loc(loc), lower_expr(expr), lower_cases(cases, loc))
     Sequence(exprs~, last_expr~, loc~) => {
       let es = exprs.to_array()
       let mut r = lower_expr(last_expr)
@@ -756,6 +757,21 @@ fn lower_expr(e : @syntax.Expr) -> Sexpr raise Unsupported {
         lower_opt_expr(else_block),
       )
     }
+    // ---- milestone M4: errors ----
+    Raise(err_value~, loc~) => Sexpr::SRaise(pos_of_loc(loc), lower_expr(err_value))
+    Try(body~, catch_~, try_else~, loc~, ..) => {
+      let nr = match try_else {
+        Some(cs) => Some(lower_cases(cs, loc))
+        None => None
+      }
+      Sexpr::STry(pos_of_loc(loc), lower_expr(body), lower_cases(catch_, loc), nr)
+    }
+    TryOperator(body~, kind=Exclamation, loc~, ..) =>
+      Sexpr::STryBang(pos_of_loc(loc), lower_expr(body))
+    Defer(expr~, body~, loc~) =>
+      Sexpr::SDefer(pos_of_loc(loc), false, lower_expr(expr), lower_expr(body))
+    ErrDefer(expr~, body~, loc~) =>
+      Sexpr::SDefer(pos_of_loc(loc), true, lower_expr(expr), lower_expr(body))
     LabelledBlock(label~, body~, loc~) =>
       Sexpr::SBlock(pos_of_loc(loc), ident_of_string(label.name), lower_expr(body))
     Break(arg~, label~, loc~) =>
@@ -769,6 +785,21 @@ fn lower_expr(e : @syntax.Expr) -> Sexpr raise Unsupported {
       Sexpr::SLit(pos_of_loc(e.loc()), Slit::SLUnit)
     }
   }
+}
+
+///|
+fn lower_cases(
+  cases : @list.List[@syntax.Case],
+  loc : @basic.Location,
+) -> List[(Spat, Sexpr)] raise Unsupported {
+  let cs = []
+  for c in cases {
+    if c.guard_ is Some(_) {
+      unsupported("match guard", loc)
+    }
+    cs.push((lower_pattern(c.pattern), lower_expr(c.body)))
+  }
+  list_of_array(cs)
 }
 
 ///|
@@ -877,10 +908,6 @@ fn lower_fun(
   if d.is_async is Some(_) {
     unsupported("async function", loc)
   }
-  match d.error_type {
-    NoErrorType => ()
-    _ => unsupported("function with an error type", loc)
-  }
   let tps = []
   for q in d.quantifiers {
     if !q.constraints.is_empty() {
@@ -917,8 +944,37 @@ fn lower_fun(
     list_of_array(tps),
     list_of_array(ps),
     ret,
+    lower_eff(d.error_type, loc),
     lower_expr(body),
   )
+}
+
+///|
+fn lower_ctors(
+  cs : @list.List[@syntax.ConstrDecl],
+) -> List[(String0, List[Sty])] raise Unsupported {
+  let out = []
+  for c in cs {
+    if c.tag is Some(_) {
+      unsupported("constructor tag", c.loc)
+    }
+    let fs = []
+    match c.args {
+      Some(ps) =>
+        for p in ps {
+          if p.mut_ {
+            unsupported("mutable constructor field", c.loc)
+          }
+          if p.label is Some(_) {
+            unsupported("labelled constructor field", c.loc)
+          }
+          fs.push(lower_type(p.ty))
+        }
+      None => ()
+    }
+    out.push((ident_of_string(c.name.name), list_of_array(fs)))
+  }
+  list_of_array(out)
 }
 
 ///|
@@ -931,30 +987,7 @@ fn lower_typedecl(d : @syntax.TypeDecl) -> Stype raise Unsupported {
     }
   }
   let body = match d.components {
-    Variant(cs) => {
-      let out = []
-      for c in cs {
-        if c.tag is Some(_) {
-          unsupported("constructor tag", c.loc)
-        }
-        let fs = []
-        match c.args {
-          Some(ps) =>
-            for p in ps {
-              if p.mut_ {
-                unsupported("mutable constructor field", c.loc)
-              }
-              if p.label is Some(_) {
-                unsupported("labelled constructor field", c.loc)
-              }
-              fs.push(lower_type(p.ty))
-            }
-          None => ()
-        }
-        out.push((ident_of_string(c.name.name), list_of_array(fs)))
-      }
-      Sdecl::SDEnum(list_of_array(out))
-    }
+    Variant(cs) => Sdecl::SDEnum(lower_ctors(cs))
     Record(fields~, constr_decl~) => {
       if constr_decl is Some(_) {
         unsupported("struct constructor declaration", d.loc)
@@ -970,10 +1003,9 @@ fn lower_typedecl(d : @syntax.TypeDecl) -> Stype raise Unsupported {
       unsupported("type alias", d.loc)
       Sdecl::SDEnum(List::Nil)
     }
-    Error(_) => {
-      unsupported("suberror", d.loc)
-      Sdecl::SDEnum(List::Nil)
-    }
+    Error(NoPayload) =>
+      Sdecl::SDError(List::Cons((ident_of_string(d.tycon), List::Nil), List::Nil))
+    Error(EnumPayload(cs)) => Sdecl::SDError(lower_ctors(cs))
     _ => {
       unsupported("this kind of type declaration", d.loc)
       Sdecl::SDEnum(List::Nil)

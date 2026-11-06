@@ -72,3 +72,19 @@
 | 43 | `for .. in` | 支持整数范围 `a..<b`、`a..<=b`、`a>..b`（从 `a - 1` 降到 `b`）、`a>=..b` 和数组（一个绑定是元素，两个绑定是下标与元素；绑定可以是模式），以及状态变量 `; s = e` 与更新子句 `; s = u`。范围的两端与数组各求值一次（先 `a` 后 `b`），整数类型由起点决定（`0..<n` 而 `n : Int64` 是类型错误）；数组长度在开始时读一次，元素每轮实时读取。不带参数的 `continue` 应用更新子句，带参数的 `continue` 直接给出下一状态。包含端点的范围到达 `Int` 边界时不溢出 | 已确认（moon，2026-11：各项均做了实验） |
 | 44 | `Ref[T]` | 预先声明为 `struct Ref[T] { mut val : T }`，`Ref::new(v)` 等于 `{ val: v }`；用户不能再定义 `Ref` | 设计决定（MoonBit 中 `Ref` 是 core 库的类型，可以被遮蔽） |
 | 45 | `panic()`、`abort(msg)` | Core 表达式 `EAbort τ`：任意类型（标注 `τ` 保证类型唯一），一步归约到 `SAbort`。它不产生值，所以任意类型不破坏 soundness（`SAbort` 是终止状态）。elaborator 取期望类型（否则 `Unit`），`abort` 先求值并检查 `String` 参数；分支里的 `panic`/`abort` 像跳转一样取其他分支的类型 | 设计决定 |
+
+## M4 错误与 effect
+
+| # | 问题 | 当前决定 | 状态 |
+|---|---|---|---|
+| 46 | effect 的表示 | 函数类型 `TArrow ps r ε` 带一个"可能 raise 的错误类型" ε：`Never`（内部类型，没有值）表示 `noraise`，`Error` 或某个 suberror 表示 `raise E`，类型变量表示 `raise?`（`raise?` 签名多一个隐藏的类型参数，错误多态因此就是普通的 rank-1 多态） | 设计决定 |
+| 47 | effect 之间没有子类型 | `noraise` 函数不能用在要求 `raise` 的位置，`raise E1` 的函数里不能调用 `raise E2` 或 `raise Error` 的函数；调用与 `raise` 只要求 `ε = Never` 或 `ε =` 当前允许的错误类型（`eff_le`） | 已确认（moon，2026-11：三种情况都报错） |
+| 48 | 提升到 `Error` | Core 中显式：`EUp T e : Error`（值 `EUp T v`），匹配 `Error` 用模式 `PUp T p`。elaborator 在以下位置自动插入：期望类型是 `Error` 的 `let`/注解/实参/`return`、`raise` 一个 suberror 值而当前允许 `Error`、在允许 `Error` 处调用 `raise E` 的函数（用 `try .. catch { e => raise EUp(e) }` 包起来） | 设计决定（MoonBit 是隐式的） |
+| 49 | `fn main` | 不能 raise：程序在 `cc0`（允许的错误类型为 `Never`）下检查；所以未捕获的错误不会到达空栈 | 已确认（moon：main 中调用 raise 函数报错） |
+| 50 | lambda 的 effect | 来自注解，否则来自期望的函数类型，否则 `noraise` | 已确认（moon：没有注解、没有期望类型的 lambda 不会推出 `raise`） |
+| 51 | `try` 体的错误类型 | `catch` 的构造子模式都属于同一个错误类型 E 时取 E，属于不同类型时取 `Error`；模式不提供信息时，取唯一能让 `try` 体通过检查的错误类型，否则 `Error` | 设计决定（近似 MoonBit 的"多种错误时为 Error"，已确认 moon 对 `e => Err(e)` 给出精确类型） |
+| 52 | `catch` 不穷尽 | 没有分支匹配时 `Abort`；moon 把不穷尽的 `catch` 当作错误，穷尽性检查放到 M8 | 已知差异（moonrocq 更宽松） |
+| 53 | `defer`/`errdefer` | 帧 `FDefer` 在体正常结束、跳转（仅 `defer`）或 raise 时先运行清理代码，再继续原来的出口（帧 `FAfter` 记住它）；清理代码看不到外围循环（不能 `break`/`continue`/`return`），它 raise 的错误取代原来的结果；清理表达式必须是 `Unit`。多个 `defer` 逆序执行 | 已确认（moon：清理错误取代原错误、逆序、`errdefer` 只在 raise 时运行、`defer 1` 报错） |
+| 54 | 预先声明的类型 | `Result[T, E]`（`Ok`/`Err`）、`suberror Failure { Failure(String) }`；`fail(msg)` 即 `raise Failure(msg)`（不带位置信息） | 设计决定 |
+| 55 | `try!` | `try e catch { _ => panic() }`：任何错误都 `Abort` | 已确认（moon：`try!` 在错误时 panic） |
+| 56 | 暂不支持 | `catch` 中的 guard、`E::_` 通配构造子模式、`as` 模式、async/`nocancel`、带标签的错误构造子字段、lambda 中的 `raise?` | 已知限制（M6） |

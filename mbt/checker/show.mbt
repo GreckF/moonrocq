@@ -128,10 +128,18 @@ pub fn show_ty(t : Ty) -> String {
         BDouble => "Double"
         BFloat => "Float"
         BString => "String"
+        BNever => "Never"
       }
     TVar(i) => "T\{nat_to_int(i)}"
     TTuple(ts) => "(" + show_tys(ts) + ")"
-    TArrow(ps, r) => "(" + show_tys(ps) + ") -> " + show_ty(r)
+    TArrow(ps, r, e) => {
+      let eff = match e {
+        TBase(BNever) => ""
+        TError => " raise"
+        _ => " raise " + show_ty(e)
+      }
+      "(" + show_tys(ps) + ") -> " + show_ty(r) + eff
+    }
     TData(n, ts) =>
       if ts is Nil {
         string_of_ident(n)
@@ -141,6 +149,7 @@ pub fn show_ty(t : Ty) -> String {
     TRef(t) => "mut " + show_ty(t)
     TArray(AGrow, t) => "Array[" + show_ty(t) + "]"
     TArray(AFixed, t) => "FixedArray[" + show_ty(t) + "]"
+    TError => "Error"
   }
 }
 
@@ -175,6 +184,13 @@ pub fn show_type_error(e : Type_error) -> String {
     E_NotRef(t) => "not a mutable cell: \{show_ty(t)}"
     E_UnboundLoc(l) => "unknown store location \{nat_to_int(l)}"
     E_UnknownLabel(k) => "no enclosing loop #\{nat_to_int(k)}"
+    E_Effect(e, r) =>
+      if r is TBase(BNever) {
+        "this may raise \{show_ty(e)}, but no error may escape here"
+      } else {
+        "this may raise \{show_ty(e)}, but only \{show_ty(r)} may escape here"
+      }
+    E_NotError(t) => "`\{string_of_ident(t)}` is not an error type"
   }
 }
 
@@ -214,24 +230,30 @@ pub fn show_elab_error(e : Elab_error) -> String {
       "\{show_pos(p)}: continue expects \{nat_to_int(n)} argument(s), got \{nat_to_int(m)}"
     EE_NoMethod(p, m, t) =>
       "\{show_pos(p)}: no method `\{string_of_ident(m)}` on \{show_ty(t)}"
+    EE_NotError(p, t) => "\{show_pos(p)}: not an error type: \{show_ty(t)}"
   }
 }
 
 ///|
 fn show_fdef(fd : Fdef) -> String {
-  let Mk_fdef(name, n, ps, r, _) = fd
+  let Mk_fdef(name, n, ps, r, e, _) = fd
   let k = nat_to_int(n)
   let tps = if k == 0 {
     ""
   } else {
     "[" + Array::makei(k, i => "T\{i}").join(", ") + "]"
   }
-  "fn\{tps} \{string_of_ident(name)}(\{show_tys(ps)}) -> \{show_ty(r)}"
+  "fn\{tps} \{string_of_ident(name)}(\{show_tys(ps)}) -> \{show_ty(r)}" +
+  (match e {
+    TBase(BNever) => ""
+    TError => " raise"
+    _ => " raise " + show_ty(e)
+  })
 }
 
 ///|
 fn show_tdef(td : Tdef) -> String {
-  let Mk_tdef(name, n, cds) = td
+  let Mk_tdef(name, n, cds, err) = td
   let k = nat_to_int(n)
   let tps = if k == 0 {
     ""
@@ -246,7 +268,9 @@ fn show_tdef(td : Tdef) -> String {
       string_of_ident(c) + "(" + show_tys(fs) + ")"
     }
   })
-  "type \{string_of_ident(name)}\{tps} = " + ctors.join(" | ")
+  (if err { "suberror " } else { "type " }) +
+  "\{string_of_ident(name)}\{tps} = " +
+  ctors.join(" | ")
 }
 
 ///|
@@ -262,9 +286,9 @@ pub fn render_outcome(o : Outcome) -> (Bool, Array[String]) {
     O_Ok(Mk_genv(tds, fds), _, t) => {
       let lines = []
       for td in list_to_array(tds) {
-        let Mk_tdef(name, _, _) = td
+        let Mk_tdef(name, _, _, _) = td
         let n = string_of_ident(name)
-        if n != "Option" && n != "Ref" {
+        if !["Option", "Ref", "Result", "Failure"].contains(n) {
           lines.push(show_tdef(td))
         }
       }

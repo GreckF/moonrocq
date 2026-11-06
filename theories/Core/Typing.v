@@ -49,6 +49,9 @@ Inductive pat_typed (ge : genv) : pat -> ty -> ctx -> Prop :=
 | P_Ref p τ Δ :
     ⊢ᵖ[ge] p : τ ⇝ Δ ->
     ⊢ᵖ[ge] PRef p : TRef τ ⇝ Δ
+| P_Up T p Δ :
+    ⊢ᵖ[ge] p : TData T [] ⇝ Δ ->
+    ⊢ᵖ[ge] PUp T p : TError ⇝ Δ
 
 with pats_typed (ge : genv) : list pat -> list ty -> ctx -> Prop :=
 | Ps_nil :
@@ -76,10 +79,12 @@ Qed.
 (** ** Expressions
 
     [Γ ⊢[ge;Σ;Λ] e : τ]: under global environment [ge] and store typing
-    [Σ] (types of the store locations, milestone M3), with the enclosing
-    loops [Λ] and the variables [Γ], expression [e] has type [τ].  A λ body
-    starts with no enclosing loops: [break]/[continue] never cross a
-    function boundary. *)
+    [Σ] (types of the store locations, milestone M3), with the control
+    context [Λ] (the enclosing loops and the error type that may escape,
+    milestone M4) and the variables [Γ], expression [e] has type [τ].  A λ
+    body starts with no enclosing loops and its own effect: [break] and
+    [continue] never cross a function boundary, and a call is allowed only
+    where the callee's errors may escape ([eff_le]). *)
 
 Reserved Notation "Γ ⊢[ ge ; Σ ; Λ ] e : τ"
   (at level 70, ge at level 200, Σ at level 200, Λ at level 200,
@@ -94,7 +99,7 @@ Reserved Notation "Γ ⊢ᵇ[ ge ; Σ ; Λ ] bs : τs ⇒ τ"
    bs at level 60, τs at level 60, τ at level 60, no associativity,
    format "Γ  ⊢ᵇ[ ge ; Σ ; Λ ]  bs  :  τs  ⇒  τ").
 
-Inductive has_type (ge : genv) (Σ : styping) : lblctx -> ctx -> expr -> ty -> Prop :=
+Inductive has_type (ge : genv) (Σ : styping) : cctx -> ctx -> expr -> ty -> Prop :=
 | T_Var Λ Γ x τ :
     nth_error Γ x = Some τ ->
     Γ ⊢[ge;Σ;Λ] EVar x : τ
@@ -103,14 +108,16 @@ Inductive has_type (ge : genv) (Σ : styping) : lblctx -> ctx -> expr -> ty -> P
     length ts = fd_tparams fd ->
     Γ ⊢[ge;Σ;Λ] EGlobal f ts
         : TArrow (map (tsubst (inst ts)) (fd_params fd)) (tsubst (inst ts) (fd_ret fd))
+                 (tsubst (inst ts) (fd_eff fd))
 | T_Lit Λ Γ l :
     Γ ⊢[ge;Σ;Λ] ELit l : TBase (lit_ty l)
-| T_Lam Λ Γ ps r b :
-    ps ++ Γ ⊢[ge;Σ;[]] b : r ->
-    Γ ⊢[ge;Σ;Λ] ELam ps r b : TArrow ps r
-| T_App Λ Γ f args ps r :
-    Γ ⊢[ge;Σ;Λ] f : TArrow ps r ->
+| T_Lam Λ Γ ps r ε b :
+    ps ++ Γ ⊢[ge;Σ;mk_cctx [] ε] b : r ->
+    Γ ⊢[ge;Σ;Λ] ELam ps r ε b : TArrow ps r ε
+| T_App Λ Γ f args ps r ε :
+    Γ ⊢[ge;Σ;Λ] f : TArrow ps r ε ->
     Γ ⊢*[ge;Σ;Λ] args : ps ->
+    eff_le ε (cc_exn Λ) ->
     Γ ⊢[ge;Σ;Λ] EApp f args : r
 | T_Let Λ Γ e1 e2 τ1 τ2 :
     Γ ⊢[ge;Σ;Λ] e1 : τ1 ->
@@ -149,18 +156,39 @@ Inductive has_type (ge : genv) (Σ : styping) : lblctx -> ctx -> expr -> ty -> P
     Γ ⊢[ge;Σ;Λ] EMem op args : snd (mem_sig op)
 | T_Loop Λ Γ e ps τ b :
     Γ ⊢[ge;Σ;Λ] e : TTuple ps ->
-    ps ++ Γ ⊢[ge;Σ;(ps, τ) :: Λ] b : τ ->
+    ps ++ Γ ⊢[ge;Σ;push_lbl (ps, τ) Λ] b : τ ->
     Γ ⊢[ge;Σ;Λ] ELoop e ps τ b : τ
 | T_Jump Λ Γ c k e τ lbl :
-    nth_error Λ k = Some lbl ->
+    nth_error (cc_lbls Λ) k = Some lbl ->
     Γ ⊢[ge;Σ;Λ] e : ctl_ty c lbl ->
     Γ ⊢[ge;Σ;Λ] EJump c k e τ : τ
 (** [panic()] never returns, so it may have any type; the annotation keeps
     types unique. *)
 | T_Abort Λ Γ τ :
     Γ ⊢[ge;Σ;Λ] EAbort τ : τ
+(* ---- errors (milestone M4) ---- *)
+| T_Up Λ Γ T e td :
+    lookup_ty ge T = Some td ->
+    td_err td = true ->
+    Γ ⊢[ge;Σ;Λ] e : TData T [] ->
+    Γ ⊢[ge;Σ;Λ] EUp T e : TError
+| T_Raise Λ Γ e τe τ :
+    Γ ⊢[ge;Σ;Λ] e : τe ->
+    eff_le τe (cc_exn Λ) ->
+    Γ ⊢[ge;Σ;Λ] ERaise e τ : τ
+| T_Try Λ Γ e τe h k τ0 τ :
+    Γ ⊢[ge;Σ;with_exn τe Λ] e : τ0 ->
+    τe :: Γ ⊢[ge;Σ;Λ] h : τ ->
+    τ0 :: Γ ⊢[ge;Σ;Λ] k : τ ->
+    Γ ⊢[ge;Σ;Λ] ETry e τe h k : τ
+(** The cleanup [c] may raise (its error replaces the pending one) but not
+    jump: it sees no enclosing loops. *)
+| T_Defer Λ Γ b c e τc τ :
+    Γ ⊢[ge;Σ;mk_cctx [] (cc_exn Λ)] c : τc ->
+    Γ ⊢[ge;Σ;Λ] e : τ ->
+    Γ ⊢[ge;Σ;Λ] EDefer b c e : τ
 
-with has_types (ge : genv) (Σ : styping) : lblctx -> ctx -> list expr -> list ty -> Prop :=
+with has_types (ge : genv) (Σ : styping) : cctx -> ctx -> list expr -> list ty -> Prop :=
 | Ts_nil Λ Γ :
     Γ ⊢*[ge;Σ;Λ] [] : []
 | Ts_cons Λ Γ e es τ τs :
@@ -171,7 +199,7 @@ with has_types (ge : genv) (Σ : styping) : lblctx -> ctx -> list expr -> list t
 (** [Γ ⊢ᵇ[ge;Σ;Λ] bs : τs ⇒ τ] : every branch matches a scrutinee of type
     [τs] and its body has type [τ] under the pattern's bindings. *)
 with has_branches (ge : genv) (Σ : styping) :
-    lblctx -> ctx -> list (pat * expr) -> ty -> ty -> Prop :=
+    cctx -> ctx -> list (pat * expr) -> ty -> ty -> Prop :=
 | Bs_nil Λ Γ τs τ :
     Γ ⊢ᵇ[ge;Σ;Λ] [] : τs ⇒ τ
 | Bs_cons Λ Γ p b bs τs τ Δ :
@@ -185,10 +213,11 @@ where "Γ ⊢[ ge ; Σ ; Λ ] e : τ" := (has_type ge Σ Λ Γ e τ)
   and "Γ ⊢ᵇ[ ge ; Σ ; Λ ] bs : τs ⇒ τ" := (has_branches ge Σ Λ Γ bs τs τ).
 
 (** A top-level function is well typed when its body has the declared
-    return type in the context of its parameters (no store locations and
-    no enclosing loops: source programs mention neither). *)
+    return type in the context of its parameters, raising at most its
+    declared effect (no store locations and no enclosing loops: source
+    programs mention neither). *)
 Definition fdef_ok (ge : genv) (fd : fdef) : Prop :=
-  fd_params fd ⊢[ge;[];[]] fd_body fd : fd_ret fd.
+  fd_params fd ⊢[ge;[];mk_cctx [] (fd_eff fd)] fd_body fd : fd_ret fd.
 
 Scheme has_type_mut := Minimality for has_type Sort Prop
   with has_types_mut := Minimality for has_types Sort Prop
@@ -201,12 +230,22 @@ Combined Scheme has_type_mutind from has_type_mut, has_types_mut, has_branches_m
     right number of arguments, and type variables are below [n].  Soundness
     does not need it; it makes signatures and declarations meaningful (and
     makes [inst]'s default unreachable, decision 8). *)
+(** An effect: [TNever], [Error], an error type, or a type variable
+    ([raise?]). *)
+Definition err_wfb (ge : genv) (n : nat) (t : ty) : bool :=
+  match t with
+  | TBase BNever | TError => true
+  | TVar i => i <? n
+  | TData T [] => match lookup_ty ge T with Some td => td_err td | None => false end
+  | _ => false
+  end.
+
 Fixpoint ty_wfb (ge : genv) (n : nat) (t : ty) : bool :=
   match t with
   | TBase _ => true
   | TVar i => i <? n
   | TTuple ts => forallb (ty_wfb ge n) ts
-  | TArrow ps r => forallb (ty_wfb ge n) ps && ty_wfb ge n r
+  | TArrow ps r ε => forallb (ty_wfb ge n) ps && ty_wfb ge n r && err_wfb ge n ε
   | TData T ts =>
       match lookup_ty ge T with
       | Some td => Nat.eqb (List.length ts) (td_tparams td) && forallb (ty_wfb ge n) ts
@@ -214,6 +253,7 @@ Fixpoint ty_wfb (ge : genv) (n : nat) (t : ty) : bool :=
       end
   | TRef t => ty_wfb ge n t
   | TArray _ t => ty_wfb ge n t
+  | TError => true
   end.
 
 Definition ty_wf (ge : genv) (n : nat) (t : ty) : Prop := ty_wfb ge n t = true.
@@ -222,8 +262,11 @@ Definition tdef_ok (ge : genv) (td : tdef) : Prop :=
   NoDup (map cd_name (td_ctors td)) /\
   Forall (fun cd => Forall (ty_wf ge (td_tparams td)) (cd_fields cd)) (td_ctors td).
 
+Definition err_wf (ge : genv) (n : nat) (t : ty) : Prop := err_wfb ge n t = true.
+
 Definition fsig_ok (ge : genv) (fd : fdef) : Prop :=
-  Forall (ty_wf ge (fd_tparams fd)) (fd_params fd) /\ ty_wf ge (fd_tparams fd) (fd_ret fd).
+  Forall (ty_wf ge (fd_tparams fd)) (fd_params fd) /\ ty_wf ge (fd_tparams fd) (fd_ret fd) /\
+  err_wf ge (fd_tparams fd) (fd_eff fd).
 
 (** A well-formed global environment: names are unique, data types are
     well formed, and every function has a well-formed signature and is well
@@ -236,7 +279,7 @@ Definition genv_ok (ge : genv) : Prop :=
 (** ** Basic facts about [has_types] *)
 
 Section HasTypes.
-  Variables (ge : genv) (Σ : styping) (Λ : lblctx).
+  Variables (ge : genv) (Σ : styping) (Λ : cctx).
 
   Lemma has_types_length Γ es τs : Γ ⊢*[ge;Σ;Λ] es : τs -> length es = length τs.
   Proof. induction 1; simpl; auto. Qed.

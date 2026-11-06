@@ -117,7 +117,7 @@ checker 对尚未支持的构造直接拒绝，这样每个里程碑结束时，
 | M1.5 | 前端原型 ✅：经 rocq2mbt 抽取到 MoonBit，接上官方 parser，得到可运行的 `moonrocq` 命令（见第 7 节）。`Surface/Elab.v` 是**未经验证**的临时 elaborator，输出由 Core checker 重新检查；M6 用有规范的 certified elaborator 取代它 |
 | M2 | 名义 ADT（struct/enum/tuple struct）+ 模式匹配 ✅（Core：`TData`、`EConstr`、`EMatch`，模式为通配/变量/字面量/元组/构造子；Surface：类型声明、构造子、记录、字段访问、`match`、解构 `let`、内建 `Option`；见第 8 节） |
 | M3 | 状态与循环 ✅：`let mut`、`mut` 字段、数组、`Ref[T]`、`while`/`for`、`for .. in`（整数范围与数组）、带标签 `break`/`continue`/`nobreak`、带标签的块、`return`（Core：store + `ELoc`/`EMem`、`ELoop`/`EJump`；见第 9 节） |
-| M4 | 错误与 effect：suberror、`Error`、`raise`/`raise?`/`noraise`、`try`/`catch`/`noraise`、`defer`/`errdefer` |
+| M4 | 错误与 effect ✅：suberror、`Error`、`raise`/`raise?`/`noraise`、`try`/`catch`/`noraise`、`try!`、`defer`/`errdefer`、`fail`（Core：函数类型带 effect、`EUp`/`ERaise`/`ETry`/`EDefer`、`PUp`；见第 10 节） |
 | M5 | trait：声明/impl/supertrait/默认方法、字典 elaboration、一致性、trait object |
 | M6 | Surface + elaboration：双向检查、合一、字面量重载、标签/可选参数、方法/管道/级联、`is`/`guard`、一般的 `for .. in`（`Iter`）、推导式、插值……；并解决临时 elaborator 的已知限制（见下） |
 | M7 | 包与可见性：`priv`/抽象/`pub`/`pub(all)`、`pub(open)` trait |
@@ -132,7 +132,9 @@ correct-by-construction checker 和完备性证明。
 - 推断：lambda 参数类型只来自注解或期望类型（#11、#19）；泛型调用的类型实参求不出时报错，
   而不是默认为 `Unit`（#12、#18）；不带后缀的字面量在期望 `Double` 等类型时不重载（#16）。
 - 构造子与记录：构造子名的解析规则只是近似（#26）；没有期望类型时按字段名找唯一的 struct；
-  `Option`、`Ref` 是预先声明的，用户不能重新定义（#28、#44）。
+  `Option`、`Ref`、`Result`、`Failure` 是预先声明的，用户不能重新定义（#28、#44、#54）。
+- 错误：`try` 体的错误类型是近似推断（#51）；lambda 的 effect 不从函数体推断（#50）；
+  `catch` 中的 guard、`E::_`、`as` 模式、lambda 上的 `raise?`（#56）。
 - 跳转：带值的标签块、无条件的 `for` 循环需要期望类型才能确定结果类型（#40）。
 - 语法：带标签的构造子字段、`match` guard、或模式、`as` 模式、范围/数组模式（#31）；
   数组切片与展开、透明标签 `l~~:`（#42）；标签/可选参数、方法/管道/级联、`is`/`guard`、插值。
@@ -242,3 +244,29 @@ ref/moonbit-docs   语言文档（不入库）
   跳出循环体、然后应用更新子句；带参数的 `continue` 直接以参数作为下一状态跳出外层块。
 - `Ref[T]` 是预先声明的 `struct Ref[T] { mut val : T }`，`Ref::new(v)` 即 `{ val: v }`（决定 44）。
 - `panic()`/`abort(msg)` 是 Core 的 `EAbort τ`：可有任意类型，一步到 `SAbort`（决定 45）。
+
+## 10. M4：错误与 effect
+
+**Core**
+- 类型加 `Error`（`TError`）和内部的 `Never`；函数类型带 effect：`TArrow ps r ε`，ε 是函数可能
+  raise 的错误类型（`Never` 即 `noraise`，类型变量即 `raise?`，决定 46）。`fdef` 加 `fd_eff`，
+  `tdef` 加 `td_err`（suberror）。
+- 判断 `Γ ⊢[ge;Σ;Λ] e : τ` 中的 Λ 扩展为**控制上下文** `cctx = { cc_lbls; cc_exn }`：外围循环
+  和此处允许逃出的错误类型。λ 体在 `mk_cctx [] ε` 下检查；调用与 `raise` 要求 `eff_le ε (cc_exn Λ)`
+  （`ε = Never ∨ ε = cc_exn Λ`，没有子类型，决定 47）；`try` 体在 `with_exn τe Λ` 下检查；
+  `defer` 的清理代码在 `mk_cctx [] (cc_exn Λ)` 下检查（可以 raise，不能跳转）。
+- 新构造：`EUp T e`（提升到 `Error`，值 `EUp T v`）、`ERaise e τ`、`ETry e τe h k`（`h`、`k`
+  各绑定一个变量）、`EDefer onerr c e`；模式 `PUp T p`。
+- 语义：新增 raise 展开状态 `⟨σ ∣ K ↯ v⟩`，弹栈直到 `FTry`（进入 handler）或 `FDefer`。
+  `FDefer` 在体结束、跳转（`errdefer` 不管）、raise 时先压入 `FAfter p` 运行清理代码，`p` 记住
+  原来的出口（返回值/跳转/错误），清理结束后 `resume`。
+- soundness：`ctl_of K` 计算栈的控制上下文（循环帧加标签，`FTry` 改错误类型，`FAfter` 清空标签）；
+  raise 状态要求错误值的类型等于 `cc_exn (ctl_of K)`。空栈的控制上下文是 `cc0`（错误类型 `Never`），
+  而 `Never` 没有值（`no_never_value`），所以良类型程序的错误不会逃出程序。函数体在调用处运行时，
+  用 `cctx` 的序 `cctx_le` 做弱化（`weaken_cctx`）：标签只能在外面追加，错误类型只能从 `Never` 变大。
+
+**Surface**（临时 elaborator）
+- `suberror`、`raise`、`try .. catch .. noraise`、`e catch { .. }`、`try!`、`defer`/`errdefer`、
+  `fail`、`Result`；函数签名与函数类型上的 `raise E`/`raise`/`noraise`/`raise?`。
+- 控制环境 `cenv = { 标签; 允许的错误类型 }`；在允许 `Error` 的地方调用 `raise E` 的函数时插入提升
+  （决定 48）；`catch` 的模式在 `Error` 上按构造子名找错误类型并生成 `PUp`。

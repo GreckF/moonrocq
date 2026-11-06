@@ -8,6 +8,8 @@
     - [⟨σ ∣ K ⇑ c k v⟩] : unwind the stack for a [break] ([c = CBreak]) or
                           [continue] ([c = CCont]) to the [k]-th enclosing
                           loop, carrying [v];
+    - [⟨σ ∣ K ↯ v⟩]     : unwind the stack for the raised error [v], to the
+                          nearest handler;
     - [SAbort]          : the program panicked ([panic()], division by zero,
                           index out of bounds, no matching branch, …).
 
@@ -24,10 +26,11 @@ Import ListNotations.
 
 Inductive value : expr -> Prop :=
 | V_Lit l : value (ELit l)
-| V_Lam ps r b : value (ELam ps r b)
+| V_Lam ps r ε b : value (ELam ps r ε b)
 | V_Tuple vs : Forall value vs -> value (ETuple vs)
 | V_Constr T c ts v : value v -> value (EConstr T c ts v)
-| V_Loc l : value (ELoc l).
+| V_Loc l : value (ELoc l)
+| V_Up T v : value v -> value (EUp T v).
 
 (** ** Store *)
 
@@ -122,7 +125,19 @@ Inductive frame : Type :=
 | FMem    (op : mem_op) (done rest : list expr)       (** [op(done, □, rest)] *)
 | FLoopInit (ps : list ty) (τ : ty) (b : expr)        (** [loop □ { b }] *)
 | FLoop   (ps : list ty) (τ : ty) (b : expr)          (** a running loop: the target of jumps *)
-| FJump   (c : ctl) (k : nat).                        (** [break k □] / [continue k □] *)
+| FJump   (c : ctl) (k : nat)                         (** [break k □] / [continue k □] *)
+| FUp     (T : ident)                                 (** [EUp T □] *)
+| FRaise                                              (** [raise □] *)
+| FTry    (τe : ty) (h k : expr)                      (** [try □ catch h noraise k] *)
+| FDefer  (onerr : bool) (c : expr)                   (** [defer c; □] *)
+| FAfter  (p : pending)
+    (** running a cleanup; then resume [p] *)
+
+(** How control left the body of a [defer]: resumed after the cleanup. *)
+with pending : Type :=
+| PRet   (v : expr)
+| PJump  (c : ctl) (k : nat) (v : expr)
+| PRaise (v : expr).
 
 Definition stack : Type := list frame.
 
@@ -130,19 +145,34 @@ Inductive state : Type :=
 | SEval  (σ : store) (K : stack) (e : expr)
 | SRet   (σ : store) (K : stack) (v : expr)
 | SJump  (σ : store) (K : stack) (c : ctl) (k : nat) (v : expr)
+| SRaise (σ : store) (K : stack) (v : expr)
 | SAbort.
 
-(** The loops of a stack (innermost first): the targets of jumps. *)
-Fixpoint labels (K : stack) : lblctx :=
+(** The control context of a stack: its loops (innermost first, the targets
+    of jumps) and the error type its nearest handler catches.  A running
+    cleanup sees no loops (it may not jump) but the errors of its
+    surroundings. *)
+Fixpoint ctl_of (K : stack) : cctx :=
   match K with
-  | [] => []
-  | FLoop ps τ _ :: K' => (ps, τ) :: labels K'
-  | _ :: K' => labels K'
+  | [] => cc0
+  | FLoop ps τ _ :: K' => push_lbl (ps, τ) (ctl_of K')
+  | FTry τe _ _ :: K' => with_exn τe (ctl_of K')
+  | FAfter _ :: K' => mk_cctx [] (cc_exn (ctl_of K'))
+  | _ :: K' => ctl_of K'
   end.
 
-Definition is_loop (F : frame) : bool :=
+(** Frames that stop an unwinding jump: loops (the targets), and [defer]
+    (it runs its cleanup first). *)
+Definition stops_jump (F : frame) : bool :=
   match F with
-  | FLoop _ _ _ => true
+  | FLoop _ _ _ | FDefer false _ => true
+  | _ => false
+  end.
+
+(** Frames that stop a raised error: handlers and both kinds of [defer]. *)
+Definition stops_raise (F : frame) : bool :=
+  match F with
+  | FTry _ _ _ | FDefer _ _ => true
   | _ => false
   end.
 
@@ -191,6 +221,7 @@ Fixpoint pmatch (σ : store) (p : pat) (v : expr) {struct p} : option (list expr
       | Some (OCell w) => pmatch σ p w
       | _ => None
       end
+  | PUp T p, EUp T' v => if eqb T T' then pmatch σ p v else None
   | _, _ => None
   end.
 
@@ -221,6 +252,17 @@ Notation "⟨ σ ∣ K ◁ v ⟩" := (SRet σ K v)
 Notation "⟨ σ ∣ K ⇑ c k v ⟩" := (SJump σ K c k v)
   (at level 0, σ at level 200, K at level 200, c at level 0, k at level 0,
    v at level 200, format "⟨ σ  ∣  K  ⇑  c  k  v ⟩").
+Notation "⟨ σ ∣ K ↯ v ⟩" := (SRaise σ K v)
+  (at level 0, σ at level 200, K at level 200, v at level 200,
+   format "⟨ σ  ∣  K  ↯  v ⟩").
+
+(** Leaving a cleanup: continue the way the [defer] body was left. *)
+Definition resume (σ : store) (K : stack) (p : pending) : state :=
+  match p with
+  | PRet v => ⟨σ ∣ K ◁ v⟩
+  | PJump c k v => ⟨σ ∣ K ⇑ c k v⟩
+  | PRaise v => ⟨σ ∣ K ↯ v⟩
+  end.
 
 (** The state reached by a store operation. *)
 Definition mres_state (K : stack) (r : mres) : state :=
@@ -238,13 +280,14 @@ Inductive step (ge : genv) : state -> state -> Prop :=
 (* ---- evaluation: push a frame or produce a value ---- *)
 | S_Lit σ K l :
     ⟨σ ∣ K ▷ ELit l⟩ ⟶[ge] ⟨σ ∣ K ◁ ELit l⟩
-| S_Lam σ K ps r b :
-    ⟨σ ∣ K ▷ ELam ps r b⟩ ⟶[ge] ⟨σ ∣ K ◁ ELam ps r b⟩
+| S_Lam σ K ps r ε b :
+    ⟨σ ∣ K ▷ ELam ps r ε b⟩ ⟶[ge] ⟨σ ∣ K ◁ ELam ps r ε b⟩
 | S_Global σ K f ts fd :
     lookup_fn ge f = Some fd ->
     ⟨σ ∣ K ▷ EGlobal f ts⟩
       ⟶[ge] ⟨σ ∣ K ◁ ELam (map (tsubst (inst ts)) (fd_params fd))
                            (tsubst (inst ts) (fd_ret fd))
+                           (tsubst (inst ts) (fd_eff fd))
                            (esubst_ty (inst ts) (fd_body fd))⟩
 | S_App σ K f args :
     ⟨σ ∣ K ▷ EApp f args⟩ ⟶[ge] ⟨σ ∣ FAppFun args :: K ▷ f⟩
@@ -268,12 +311,12 @@ Inductive step (ge : genv) : state -> state -> Prop :=
     ⟨σ ∣ K ▷ EPrim op (e :: es)⟩ ⟶[ge] ⟨σ ∣ FPrim op [] es :: K ▷ e⟩
 
 (* ---- return: consume the top frame ---- *)
-| S_AppFunNil σ K ps r b :
-    ⟨σ ∣ FAppFun [] :: K ◁ ELam ps r b⟩ ⟶[ge] ⟨σ ∣ K ▷ subst (args_sub []) b⟩
+| S_AppFunNil σ K ps r ε b :
+    ⟨σ ∣ FAppFun [] :: K ◁ ELam ps r ε b⟩ ⟶[ge] ⟨σ ∣ K ▷ subst (args_sub []) b⟩
 | S_AppFunCons σ K f a args :
     ⟨σ ∣ FAppFun (a :: args) :: K ◁ f⟩ ⟶[ge] ⟨σ ∣ FAppArg f [] args :: K ▷ a⟩
-| S_AppArgLast σ K ps r b done v :
-    ⟨σ ∣ FAppArg (ELam ps r b) done [] :: K ◁ v⟩
+| S_AppArgLast σ K ps r ε b done v :
+    ⟨σ ∣ FAppArg (ELam ps r ε b) done [] :: K ◁ v⟩
       ⟶[ge] ⟨σ ∣ K ▷ subst (args_sub (done ++ [v])) b⟩
 | S_AppArgNext σ K f done v a rest :
     ⟨σ ∣ FAppArg f done (a :: rest) :: K ◁ v⟩
@@ -346,7 +389,7 @@ Inductive step (ge : genv) : state -> state -> Prop :=
     ⟨σ ∣ FJump c k :: K ◁ v⟩ ⟶[ge] ⟨σ ∣ K ⇑ c k v⟩
 (** Unwinding: discard frames up to the target loop. *)
 | S_UnwindPop σ F K c k v :
-    is_loop F = false ->
+    stops_jump F = false ->
     ⟨σ ∣ F :: K ⇑ c k v⟩ ⟶[ge] ⟨σ ∣ K ⇑ c k v⟩
 | S_UnwindOuter σ K ps τ b c k v :
     ⟨σ ∣ FLoop ps τ b :: K ⇑ c (S k) v⟩ ⟶[ge] ⟨σ ∣ K ⇑ c k v⟩
@@ -359,6 +402,40 @@ Inductive step (ge : genv) : state -> state -> Prop :=
 (* ---- explicit panic ---- *)
 | S_Abort σ K τ :
     ⟨σ ∣ K ▷ EAbort τ⟩ ⟶[ge] SAbort
+
+(* ---- errors (milestone M4) ---- *)
+| S_Up σ K T e :
+    ⟨σ ∣ K ▷ EUp T e⟩ ⟶[ge] ⟨σ ∣ FUp T :: K ▷ e⟩
+| S_UpRet σ K T v :
+    ⟨σ ∣ FUp T :: K ◁ v⟩ ⟶[ge] ⟨σ ∣ K ◁ EUp T v⟩
+| S_Raise σ K e τ :
+    ⟨σ ∣ K ▷ ERaise e τ⟩ ⟶[ge] ⟨σ ∣ FRaise :: K ▷ e⟩
+| S_RaiseRet σ K v :
+    ⟨σ ∣ FRaise :: K ◁ v⟩ ⟶[ge] ⟨σ ∣ K ↯ v⟩
+| S_RaisePop σ F K v :
+    stops_raise F = false ->
+    ⟨σ ∣ F :: K ↯ v⟩ ⟶[ge] ⟨σ ∣ K ↯ v⟩
+| S_Try σ K e τe h k :
+    ⟨σ ∣ K ▷ ETry e τe h k⟩ ⟶[ge] ⟨σ ∣ FTry τe h k :: K ▷ e⟩
+| S_TryRet σ K τe h k v :
+    ⟨σ ∣ FTry τe h k :: K ◁ v⟩ ⟶[ge] ⟨σ ∣ K ▷ subst (args_sub [v]) k⟩
+| S_Catch σ K τe h k v :
+    ⟨σ ∣ FTry τe h k :: K ↯ v⟩ ⟶[ge] ⟨σ ∣ K ▷ subst (args_sub [v]) h⟩
+| S_Defer σ K b c e :
+    ⟨σ ∣ K ▷ EDefer b c e⟩ ⟶[ge] ⟨σ ∣ FDefer b c :: K ▷ e⟩
+(** Leaving the body of a [defer] runs the cleanup first; [errdefer] only
+    on a raised error.  An error raised by the cleanup replaces the pending
+    outcome (the [FAfter] frame is simply unwound). *)
+| S_DeferRet σ K c v :
+    ⟨σ ∣ FDefer false c :: K ◁ v⟩ ⟶[ge] ⟨σ ∣ FAfter (PRet v) :: K ▷ c⟩
+| S_ErrDeferRet σ K c v :
+    ⟨σ ∣ FDefer true c :: K ◁ v⟩ ⟶[ge] ⟨σ ∣ K ◁ v⟩
+| S_DeferJump σ K c j k v :
+    ⟨σ ∣ FDefer false c :: K ⇑ j k v⟩ ⟶[ge] ⟨σ ∣ FAfter (PJump j k v) :: K ▷ c⟩
+| S_DeferRaise σ K b c v :
+    ⟨σ ∣ FDefer b c :: K ↯ v⟩ ⟶[ge] ⟨σ ∣ FAfter (PRaise v) :: K ▷ c⟩
+| S_AfterRet σ K p w :
+    ⟨σ ∣ FAfter p :: K ◁ w⟩ ⟶[ge] resume σ K p
 
 where "s ⟶[ ge ] s'" := (step ge s s').
 
@@ -380,7 +457,8 @@ Definition final (s : state) : Prop :=
   end.
 
 (** A state that is not terminal and cannot step is stuck: this is what
-    type soundness rules out.  (In particular a jump that reaches the
-    empty stack is stuck.) *)
+    type soundness rules out.  (In particular a jump, or a raised error,
+    that reaches the empty stack is stuck: well-typed programs ([main] is
+    [noraise]) never get there.) *)
 Definition stuck (ge : genv) (s : state) : Prop :=
   ~ final s /\ ~ exists s', s ⟶[ge] s'.

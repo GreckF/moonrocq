@@ -21,6 +21,17 @@ Proof.
   intros <-; unfold expect_ty. destruct (ty_eq_dec τ τ) as [H|H]; eauto. now contradiction H.
 Qed.
 
+Lemma expect_eff_ok ε ρ : eff_le ε ρ -> exists H, expect_eff ε ρ = Ok H.
+Proof.
+  intros Hle; unfold expect_eff.
+  destruct (ty_eq_dec ε TNever) as [H|Hn]; [eauto|].
+  destruct (ty_eq_dec ε ρ) as [H|Hn']; [eauto|].
+  destruct Hle; contradiction.
+Qed.
+
+Lemma check_bool_ok b err : b = true -> exists H, check_bool b err = Ok H.
+Proof. intros ->; simpl; eauto. Qed.
+
 Lemma expect_nat_ok n m err : m = n -> exists H, expect_nat n m err = Ok H.
 Proof.
   intros <-; unfold expect_nat. destruct (PeanoNat.Nat.eq_dec m m) as [H|H]; eauto.
@@ -71,6 +82,7 @@ Section Complete.
                  (E_PatArity (length (cd_fields cd)) (length ps)) Hl).
       step_ok H1. eauto.
     - step_ok H0. eauto.
+    - step_ok (expect_ty_ok TError TError eq_refl). step_ok H0. eauto.
     - eexists; reflexivity.
     - cbn [check_pats]. step_ok H0.
       fold (check_pats ge (check_pat ge) ps τs).
@@ -102,7 +114,7 @@ Section Complete.
       step_ok H0.
       step_ok (expect_nat_ok (length ps) (length args) (E_ArgArity (length ps) (length args))
                  (has_types_length _ _ _ _ _ _ H1)).
-      destruct H2 as [_ H2]. step_ok H2. eauto.
+      destruct H2 as [_ H2]. step_ok H2. step_ok (expect_eff_ok _ _ H3). eauto.
     - (* T_Let *)
       step_ok H0. step_ok H2. eauto.
     - (* T_If *)
@@ -139,6 +151,16 @@ Section Complete.
       step_ok H1. step_ok (expect_ty_ok (ctl_ty c lbl) (ctl_ty c lbl) eq_refl). eauto.
     - (* T_Abort *)
       eauto.
+    - (* T_Up *)
+      step_ok (of_option_some _ _ (E_UnknownType T) H).
+      step_ok (check_bool_ok _ (E_NotError T) H0).
+      step_ok H2. step_ok (expect_ty_ok (TData T []) _ eq_refl). eauto.
+    - (* T_Raise *)
+      step_ok H0. step_ok (expect_eff_ok _ _ H1). eauto.
+    - (* T_Try *)
+      step_ok H0. step_ok H2. step_ok H4. step_ok (expect_ty_ok τ τ eq_refl). eauto.
+    - (* T_Defer *)
+      step_ok H0. step_ok H2. eauto.
     - (* Ts_nil *)
       split; eexists; reflexivity.
     - (* Ts_cons *)
@@ -215,9 +237,6 @@ Section GlobalComplete.
   Qed.
 End GlobalComplete.
 
-Lemma check_bool_ok b err : b = true -> exists H, check_bool b err = Ok H.
-Proof. intros ->; simpl; eauto. Qed.
-
 Lemma check_all_complete {A} (P : A -> Prop) f l :
   (forall a, P a -> exists H, f a = Ok H) -> Forall P l ->
   exists H, check_all P f l = Ok H.
@@ -245,9 +264,10 @@ Qed.
 
 Lemma check_fsig_complete ge fd : fsig_ok ge fd -> exists H, check_fsig ge fd = Ok H.
 Proof.
-  intros [Hp Hr]; unfold check_fsig.
+  intros [Hp [Hr He]]; unfold check_fsig.
   step_ok (check_all_complete _ _ _ (check_wf_complete ge (fd_tparams fd)) Hp).
   step_ok (check_wf_complete _ _ _ Hr).
+  step_ok (check_bool_ok _ (E_IllFormed (fd_eff fd)) He).
   simpl; eauto.
 Qed.
 

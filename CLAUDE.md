@@ -37,8 +37,9 @@
 - 自行决定的语言细节记到 `docs/decisions.md`。
 - 相等判定统一用 `Prelude/EqDec.v` 的 `EqDec` 类。
 - 判断一律用记号书写（定义处用 `Reserved Notation` + `where`，因此判断的 `ge`、`Σ` 是 inductive 的参数，而不是 section 变量）：
-  `Γ ⊢[ge;Σ;Λ] e : τ`、`Γ ⊢*[ge;Σ;Λ] es : τs`、`Γ ⊢ᵇ[ge;Σ;Λ] bs : τs ⇒ τ`（`Σ` store typing，`Λ` 标签上下文）、
-  `⟨σ ∣ K ▷ e⟩` / `⟨σ ∣ K ◁ v⟩` / `⟨σ ∣ K ⇑ c k v⟩`、`s ⟶[ge] s'`、`s ⟶*[ge] s'`、
+  `Γ ⊢[ge;Σ;Λ] e : τ`、`Γ ⊢*[ge;Σ;Λ] es : τs`、`Γ ⊢ᵇ[ge;Σ;Λ] bs : τs ⇒ τ`（`Σ` store typing，
+  `Λ : cctx` 控制上下文 = 外围循环 + 允许逃出的错误类型；值在 `cc0` 下定型）、
+  `⟨σ ∣ K ▷ e⟩` / `⟨σ ∣ K ◁ v⟩` / `⟨σ ∣ K ⇑ c k v⟩` / `⟨σ ∣ K ↯ v⟩`、`s ⟶[ge] s'`、`s ⟶*[ge] s'`、
   `⊢ᵖ[ge] p : τ ⇝ Δ`、`⊢ᵖ*[ge] ps : τs ⇝ Δ`、
   `⊢ᶠ[ge;Σ;Λ] F : τ ⇒ τ'`、`⊢ᵏ[ge;Σ] K : τ ⇒ τ'`、`⊢ˢ[ge] s : τ`。不要用 `|-`：它会和 Ltac 的 `H : _ |- _` 冲突。
   在 section 外显式应用构造子时，要写出 `ge`、`Σ`，例如 `FT_Tuple ge Σ ...`、`T_Lit ge Σ Λ Γ l`。

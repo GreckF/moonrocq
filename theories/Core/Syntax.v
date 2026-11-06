@@ -11,12 +11,16 @@
     - Type variables are de Bruijn indices into the type parameters of the
       enclosing top-level function.  Polymorphism is rank-1: types contain
       no binders, so type substitution never needs shifting.
-    - MoonBit functions are n-ary, not curried: [TArrow ps r], [EApp f args].
+    - MoonBit functions are n-ary, not curried: [TArrow ps r ε], [EApp f args].
+      The effect [ε] of a function type is the error type it may raise:
+      [TNever] for [noraise], an error type for [raise E], a type variable
+      for [raise?] (error polymorphism is ordinary type polymorphism).
 
     Milestone M1 covers primitive types, functions, [let], [if], tuples,
     (mutually) recursive generic top-level functions and primitive
     operators; M2 adds nominal data types and pattern matching; M3 adds the
-    store (references and arrays) and loops with [break]/[continue].
+    store (references and arrays) and loops with [break]/[continue]; M4 adds
+    errors ([raise], [try]/[catch], [defer]/[errdefer]) and effects.
     Later milestones extend these inductive types. *)
 
 From Stdlib Require Import List ZArith String.
@@ -37,7 +41,8 @@ Inductive base_ty : Type :=
 | BChar
 | BDouble
 | BFloat
-| BString.
+| BString
+| BNever.     (** no values: the effect of [noraise] functions *)
 
 Definition int_kind_eq_dec (x y : int_kind) : {x = y} + {x <> y}.
 Proof. decide equality. Defined.
@@ -62,15 +67,17 @@ Inductive ty : Type :=
 | TBase  (b : base_ty)
 | TVar   (i : nat)
 | TTuple (ts : list ty)
-| TArrow (ps : list ty) (r : ty)
+| TArrow (ps : list ty) (r : ty) (ε : ty)  (** [(ps) -> r raise ε] *)
 | TData  (T : ident) (ts : list ty)        (** nominal type [T[ts]] (struct / enum) *)
 | TRef   (t : ty)                          (** mutable cell (store location) *)
-| TArray (k : array_kind) (t : ty).        (** array (store location) *)
+| TArray (k : array_kind) (t : ty)         (** array (store location) *)
+| TError.                                  (** [Error]: a value of any error type *)
 
 Abbreviation TUnit   := (TBase BUnit).
 Abbreviation TBool   := (TBase BBool).
 Abbreviation TInt k  := (TBase (BInt k)).
 Abbreviation TString := (TBase BString).
+Abbreviation TNever  := (TBase BNever).
 
 (** Induction principle that sees through the nested lists. *)
 Section ty_ind'.
@@ -78,10 +85,11 @@ Section ty_ind'.
   Hypothesis HBase  : forall b, P (TBase b).
   Hypothesis HVar   : forall i, P (TVar i).
   Hypothesis HTuple : forall ts, Forall P ts -> P (TTuple ts).
-  Hypothesis HArrow : forall ps r, Forall P ps -> P r -> P (TArrow ps r).
+  Hypothesis HArrow : forall ps r ε, Forall P ps -> P r -> P ε -> P (TArrow ps r ε).
   Hypothesis HData  : forall T ts, Forall P ts -> P (TData T ts).
   Hypothesis HRef   : forall t, P t -> P (TRef t).
   Hypothesis HArray : forall k t, P t -> P (TArray k t).
+  Hypothesis HError : P TError.
 
   Fixpoint ty_ind' (t : ty) : P t :=
     let fix go (ts : list ty) : Forall P ts :=
@@ -93,10 +101,11 @@ Section ty_ind'.
     | TBase b => HBase b
     | TVar i => HVar i
     | TTuple ts => HTuple ts (go ts)
-    | TArrow ps r => HArrow ps r (go ps) (ty_ind' r)
+    | TArrow ps r ε => HArrow ps r ε (go ps) (ty_ind' r) (ty_ind' ε)
     | TData T ts => HData T ts (go ts)
     | TRef t => HRef t (ty_ind' t)
     | TArray k t => HArray k t (ty_ind' t)
+    | TError => HError
     end.
 End ty_ind'.
 
@@ -124,22 +133,23 @@ Fixpoint ty_eqb (a b : ty) : bool :=
   | TBase x, TBase y => eqb x y
   | TVar i, TVar j => Nat.eqb i j
   | TTuple xs, TTuple ys => forall2b ty_eqb xs ys
-  | TArrow ps r, TArrow qs s => (forall2b ty_eqb ps qs && ty_eqb r s)%bool
+  | TArrow ps r ε, TArrow qs s η => (forall2b ty_eqb ps qs && ty_eqb r s && ty_eqb ε η)%bool
   | TData T ts, TData U us => (eqb T U && forall2b ty_eqb ts us)%bool
   | TRef t, TRef u => ty_eqb t u
   | TArray k t, TArray k' u => (eqb k k' && ty_eqb t u)%bool
+  | TError, TError => true
   | _, _ => false
   end.
 
 Lemma ty_eqb_eq (a b : ty) : ty_eqb a b = true <-> a = b.
 Proof.
-  revert b; induction a as [x|i|xs IH|ps r IHps IHr|T ts IH|t IH|k t IH] using ty_ind';
-    intros [y|j|ys|qs s|U us|u|k' u]; cbn [ty_eqb]; try (split; congruence).
+  revert b; induction a as [x|i|xs IH|ps r ε IHps IHr IHε|T ts IH|t IH|k t IH|] using ty_ind';
+    intros [y|j|ys|qs s η|U us|u|k' u|]; cbn [ty_eqb]; try (split; congruence).
   - rewrite eqb_eq. split; congruence.
   - rewrite Nat.eqb_eq. split; congruence.
   - rewrite (forall2b_eq _ _ IH). split; congruence.
-  - rewrite Bool.andb_true_iff, (forall2b_eq _ _ IHps), IHr. split.
-    + intros [-> ->]; reflexivity.
+  - rewrite !Bool.andb_true_iff, (forall2b_eq _ _ IHps), IHr, IHε. split.
+    + intros [[-> ->] ->]; reflexivity.
     + intros E; inversion E; auto.
   - rewrite Bool.andb_true_iff, eqb_eq, (forall2b_eq _ _ IH). split.
     + intros [-> ->]; reflexivity.
@@ -268,6 +278,28 @@ Definition ctl_ty (c : ctl) (lbl : list ty * ty) : ty :=
   | CCont => TTuple (fst lbl)
   end.
 
+(** ** Control context (milestone M4)
+
+    Where non-local control can go: the enclosing loops, and the error type
+    that may escape ([TNever]: none). *)
+Record cctx : Type := mk_cctx {
+  cc_lbls : lblctx;
+  cc_exn  : ty
+}.
+
+Definition push_lbl (lbl : list ty * ty) (Λ : cctx) : cctx :=
+  mk_cctx (lbl :: cc_lbls Λ) (cc_exn Λ).
+
+Definition with_exn (ε : ty) (Λ : cctx) : cctx := mk_cctx (cc_lbls Λ) ε.
+
+(** The empty control context: no loops, no errors. *)
+Definition cc0 : cctx := mk_cctx [] TNever.
+
+(** An effect [ε] is allowed where errors of type [ρ] may escape: it raises
+    nothing, or exactly [ρ] (MoonBit has no subtyping between effects; an
+    error is promoted to [Error] explicitly, see [EUp]). *)
+Definition eff_le (ε ρ : ty) : Prop := ε = TNever \/ ε = ρ.
+
 (** ** Patterns
 
     Pattern variables are nameless: a pattern binds its [PVar]s from left
@@ -279,14 +311,15 @@ Inductive pat : Type :=
 | PLit    (l : lit)
 | PTuple  (ps : list pat)
 | PConstr (c : ident) (ps : list pat)       (** constructor of the scrutinee's type *)
-| PRef    (p : pat).                        (** the current content of a cell *)
+| PRef    (p : pat)                         (** the current content of a cell *)
+| PUp     (T : ident) (p : pat).            (** an [Error] of error type [T] *)
 
 Fixpoint pat_arity (p : pat) : nat :=
   match p with
   | PWild | PLit _ => 0
   | PVar => 1
   | PTuple ps | PConstr _ ps => list_sum (map pat_arity ps)
-  | PRef p => pat_arity p
+  | PRef p | PUp _ p => pat_arity p
   end.
 
 (** ** Expressions *)
@@ -295,7 +328,7 @@ Inductive expr : Type :=
 | EVar    (x : nat)
 | EGlobal (f : ident) (targs : list ty)      (** instantiated top-level function *)
 | ELit    (l : lit)
-| ELam    (ps : list ty) (r : ty) (body : expr)
+| ELam    (ps : list ty) (r : ty) (ε : ty) (body : expr)
 | EApp    (f : expr) (args : list expr)
 | ELet    (e1 : expr) (e2 : expr)            (** binds one variable in [e2] *)
 | EIf     (c t e : expr)
@@ -316,8 +349,16 @@ Inductive expr : Type :=
 | EJump   (c : ctl) (k : nat) (e : expr) (τ : ty)
     (** [break]/[continue] to the [k]-th enclosing loop; [τ] is the type of
         the jump expression itself (it does not return) *)
-| EAbort  (τ : ty).
+| EAbort  (τ : ty)
     (** [panic()]: stops the program; [τ] is its type (it does not return) *)
+(* ---- milestone M4: errors ---- *)
+| EUp     (T : ident) (e : expr)             (** promote an error of type [T] to [Error] *)
+| ERaise  (e : expr) (τ : ty)                (** [raise e]; [τ] is its own type *)
+| ETry    (e : expr) (τe : ty) (h k : expr)
+    (** [try e catch { x => h } noraise { y => k }]: [e] may raise [τe];
+        [h] and [k] bind one variable *)
+| EDefer  (onerr : bool) (c e : expr).
+    (** [defer c; e] ([errdefer] when [onerr]): run [c] when leaving [e] *)
 
 Abbreviation EBreak := (EJump CBreak).
 Abbreviation EContinue := (EJump CCont).
@@ -333,6 +374,7 @@ Record fdef : Type := mk_fdef {
   fd_tparams : nat;
   fd_params  : list ty;
   fd_ret     : ty;
+  fd_eff     : ty;             (** the error type it may raise ([TNever]: none) *)
   fd_body    : expr
 }.
 
@@ -349,7 +391,8 @@ Record cdef : Type := mk_cdef {
 Record tdef : Type := mk_tdef {
   td_name    : ident;
   td_tparams : nat;
-  td_ctors   : list cdef
+  td_ctors   : list cdef;
+  td_err     : bool            (** a [suberror]: its values may be raised *)
 }.
 
 Record genv : Type := mk_genv {

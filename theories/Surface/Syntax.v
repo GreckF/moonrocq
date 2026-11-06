@@ -23,13 +23,16 @@ Import ListNotations.
 (** Source position: 1-based line and column. *)
 Record pos : Type := mk_pos { pos_line : N; pos_col : N }.
 
-(** Surface types.  Builtin type names ([Int], [Bool], ...), user data
-    types and the type parameters in scope are all [SName]s; [T?] is
-    [SName "Option" [T]]. *)
+(** Surface types.  Builtin type names ([Int], [Bool], [Error], ...), user
+    data types and the type parameters in scope are all [SName]s; [T?] is
+    [SName "Option" [T]].  The effect of a function type is [None] for
+    [noraise] (the default) and [Some t] for [raise t]; a plain [raise] is
+    [raise Error], and [raise?] is [raise ?] where [?] is a hidden type
+    parameter of the enclosing signature. *)
 Inductive sty : Type :=
 | SName  (p : pos) (n : ident) (args : list sty)
 | STuple (p : pos) (ts : list sty)
-| SArrow (p : pos) (ps : list sty) (r : sty).
+| SArrow (p : pos) (ps : list sty) (r : sty) (eff : option sty).
 
 (** Literals.  [SLInt None z] is an unsuffixed integer literal: its kind
     comes from the expected type, defaulting to [Int]. *)
@@ -65,7 +68,9 @@ Inductive sexpr : Type :=
 | SIf    (p : pos) (c t : sexpr) (e : option sexpr)
 | STup   (p : pos) (es : list sexpr)
 | SProj  (p : pos) (e : sexpr) (i : nat)
-| SLam   (p : pos) (ps : list (ident * option sty)) (ret : option sty) (body : sexpr)
+| SLam   (p : pos) (ps : list (ident * option sty)) (ret : option sty)
+         (eff : option (option sty)) (body : sexpr)
+    (** [eff]: [None] if not annotated, else the annotated effect *)
 | SAnnot (p : pos) (e : sexpr) (t : sty)
 | SConstr (p : pos) (T : option ident) (c : ident)      (** constructor [T::c] or [c] *)
 | SRecord (p : pos) (T : option ident) (fs : list (ident * sexpr))  (** [T::{ x: e, .. }] *)
@@ -91,7 +96,14 @@ Inductive sexpr : Type :=
 | SReturn   (p : pos) (arg : option sexpr)
 | SForIn    (p : pos) (l : option ident) (pats : list spat) (src : sexpr)
             (init upd : list (ident * sexpr)) (body : sexpr) (nb : option sexpr)
-    (** [l~: for p, .. in src; s = e, ..; s = u, .. { body } nobreak { nb }] *).
+    (** [l~: for p, .. in src; s = e, ..; s = u, .. { body } nobreak { nb }] *)
+(* ---- milestone M4: errors ---- *)
+| SRaise    (p : pos) (e : sexpr)
+| STry      (p : pos) (body : sexpr) (catch : list (spat * sexpr))
+            (noraise : option (list (spat * sexpr)))
+    (** [try body catch { arms } noraise { arms }] (also [body catch { .. }]) *)
+| STryBang  (p : pos) (body : sexpr)                                  (** [try! body] *)
+| SDefer    (p : pos) (onerr : bool) (c body : sexpr).                (** [defer c; body] / [errdefer] *)
 
 (** A top-level function [fn[T, ..] f(x : A, ..) -> R { body }].
     A missing return type means [Unit], as in MoonBit. *)
@@ -101,6 +113,7 @@ Record sfun : Type := mk_sfun {
   sf_tparams : list ident;
   sf_params  : list (ident * sty);
   sf_ret     : option sty;
+  sf_eff     : option sty;     (** as for [SArrow] *)
   sf_body    : sexpr
 }.
 
@@ -110,7 +123,8 @@ Record sfun : Type := mk_sfun {
 Inductive sdecl : Type :=
 | SDEnum        (cs : list (ident * list sty))
 | SDStruct      (fs : list (ident * bool * sty))
-| SDTupleStruct (ts : list sty).
+| SDTupleStruct (ts : list sty)
+| SDError       (cs : list (ident * list sty)).   (** [suberror E { C(A), .. }] *)
 
 Record stype : Type := mk_stype {
   st_pos     : pos;
@@ -130,10 +144,10 @@ Record sprog : Type := mk_sprog {
 Definition sexpr_pos (e : sexpr) : pos :=
   match e with
   | SVar p _ | SLit p _ | SApp p _ _ | SInfix p _ _ _ | SUnary p _ _
-  | SLet p _ _ _ _ | SIf p _ _ _ | STup p _ | SProj p _ _ | SLam p _ _ _
+  | SLet p _ _ _ _ | SIf p _ _ _ | STup p _ | SProj p _ _ | SLam p _ _ _ _
   | SAnnot p _ _ | SConstr p _ _ | SRecord p _ _ | SField p _ _ | SMatch p _ _
   | SLetMut p _ _ _ _ | SAssign p _ _ _ | SArray p _ | SIndex p _ _ | SIndexSet p _ _ _ _
   | SFieldSet p _ _ _ _ | SMethod p _ _ _ | SQual p _ _ | SWhile p _ _ _ _
   | SFor p _ _ _ _ _ _ | SBlock p _ _ | SBreak p _ _ | SContinue p _ _ | SReturn p _
-  | SForIn p _ _ _ _ _ _ _ => p
+  | SForIn p _ _ _ _ _ _ _ | SRaise p _ | STry p _ _ _ | STryBang p _ | SDefer p _ _ _ => p
   end.

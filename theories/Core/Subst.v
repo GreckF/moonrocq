@@ -17,10 +17,11 @@ Fixpoint tsubst (σ : nat -> ty) (t : ty) : ty :=
   | TBase b => TBase b
   | TVar i => σ i
   | TTuple ts => TTuple (map (tsubst σ) ts)
-  | TArrow ps r => TArrow (map (tsubst σ) ps) (tsubst σ r)
+  | TArrow ps r ε => TArrow (map (tsubst σ) ps) (tsubst σ r) (tsubst σ ε)
   | TData T ts => TData T (map (tsubst σ) ts)
   | TRef t => TRef (tsubst σ t)
   | TArray k t => TArray k (tsubst σ t)
+  | TError => TError
   end.
 
 (** Instantiation of the type parameters of a global with explicit type
@@ -31,7 +32,7 @@ Definition inst (ts : list ty) (i : nat) : ty := nth i ts TUnit.
 
 Lemma tsubst_ext σ σ' t : (forall i, σ i = σ' i) -> tsubst σ t = tsubst σ' t.
 Proof.
-  intros E; induction t as [b|i|ts IH|ps r IHps IHr|T ts IH|t IH|k t IH] using ty_ind';
+  intros E; induction t as [b|i|ts IH|ps r ε IHps IHr IHε|T ts IH|t IH|k t IH|] using ty_ind';
     simpl; auto.
   - f_equal. induction IH; simpl; f_equal; auto.
   - f_equal; auto. induction IHps; simpl; f_equal; auto.
@@ -42,7 +43,8 @@ Qed.
 
 Lemma tsubst_comp σ ρ t : tsubst σ (tsubst ρ t) = tsubst (fun i => tsubst σ (ρ i)) t.
 Proof.
-  induction t as [b|i|ts IH|ps r IHps IHr|T ts IH|t IH|k t IH] using ty_ind'; simpl; auto.
+  induction t as [b|i|ts IH|ps r ε IHps IHr IHε|T ts IH|t IH|k t IH|] using ty_ind';
+    simpl; auto.
   - f_equal. rewrite map_map. induction IH; simpl; f_equal; auto.
   - f_equal; auto. rewrite map_map. induction IHps; simpl; f_equal; auto.
   - f_equal. rewrite map_map. induction IH; simpl; f_equal; auto.
@@ -97,6 +99,12 @@ Definition lsubst (σ : nat -> ty) (lbl : list ty * ty) : list ty * ty :=
 Lemma ctl_ty_lsubst σ c lbl : ctl_ty c (lsubst σ lbl) = tsubst σ (ctl_ty c lbl).
 Proof. destruct c; reflexivity. Qed.
 
+Definition csubst (σ : nat -> ty) (Λ : cctx) : cctx :=
+  mk_cctx (map (lsubst σ) (cc_lbls Λ)) (tsubst σ (cc_exn Λ)).
+
+Lemma eff_le_tsubst σ ε ρ : eff_le ε ρ -> eff_le (tsubst σ ε) (tsubst σ ρ).
+Proof. intros [-> | ->]; [left | right]; reflexivity. Qed.
+
 (** Field types of constructor [c] of the data type [T[ts]]. *)
 Definition ctor_fields (ge : genv) (T c : ident) (ts : list ty) : option (list ty) :=
   match lookup_ty ge T with
@@ -125,7 +133,7 @@ Fixpoint esubst_ty (σ : nat -> ty) (e : expr) : expr :=
   | EVar x => EVar x
   | EGlobal f ts => EGlobal f (map (tsubst σ) ts)
   | ELit l => ELit l
-  | ELam ps r b => ELam (map (tsubst σ) ps) (tsubst σ r) (esubst_ty σ b)
+  | ELam ps r ε b => ELam (map (tsubst σ) ps) (tsubst σ r) (tsubst σ ε) (esubst_ty σ b)
   | EApp f args => EApp (esubst_ty σ f) (map (esubst_ty σ) args)
   | ELet e1 e2 => ELet (esubst_ty σ e1) (esubst_ty σ e2)
   | EIf c t e => EIf (esubst_ty σ c) (esubst_ty σ t) (esubst_ty σ e)
@@ -140,6 +148,10 @@ Fixpoint esubst_ty (σ : nat -> ty) (e : expr) : expr :=
   | ELoop e ps τ b => ELoop (esubst_ty σ e) (map (tsubst σ) ps) (tsubst σ τ) (esubst_ty σ b)
   | EJump c k e τ => EJump c k (esubst_ty σ e) (tsubst σ τ)
   | EAbort τ => EAbort (tsubst σ τ)
+  | EUp T e => EUp T (esubst_ty σ e)
+  | ERaise e τ => ERaise (esubst_ty σ e) (tsubst σ τ)
+  | ETry e τe h k => ETry (esubst_ty σ e) (tsubst σ τe) (esubst_ty σ h) (esubst_ty σ k)
+  | EDefer b c e => EDefer b (esubst_ty σ c) (esubst_ty σ e)
   end.
 
 (** ** Term variables *)
@@ -152,7 +164,7 @@ Fixpoint rename (ξ : nat -> nat) (e : expr) : expr :=
   | EVar x => EVar (ξ x)
   | EGlobal f ts => EGlobal f ts
   | ELit l => ELit l
-  | ELam ps r b => ELam ps r (rename (upren (length ps) ξ) b)
+  | ELam ps r ε b => ELam ps r ε (rename (upren (length ps) ξ) b)
   | EApp f args => EApp (rename ξ f) (map (rename ξ) args)
   | ELet e1 e2 => ELet (rename ξ e1) (rename (upren 1 ξ) e2)
   | EIf c t e => EIf (rename ξ c) (rename ξ t) (rename ξ e)
@@ -167,6 +179,10 @@ Fixpoint rename (ξ : nat -> nat) (e : expr) : expr :=
   | ELoop e ps τ b => ELoop (rename ξ e) ps τ (rename (upren (length ps) ξ) b)
   | EJump c k e τ => EJump c k (rename ξ e) τ
   | EAbort τ => EAbort τ
+  | EUp T e => EUp T (rename ξ e)
+  | ERaise e τ => ERaise (rename ξ e) τ
+  | ETry e τe h k => ETry (rename ξ e) τe (rename (upren 1 ξ) h) (rename (upren 1 ξ) k)
+  | EDefer b c e => EDefer b (rename ξ c) (rename ξ e)
   end.
 
 Definition upsub (n : nat) (σ : nat -> expr) (x : nat) : expr :=
@@ -177,7 +193,7 @@ Fixpoint subst (σ : nat -> expr) (e : expr) : expr :=
   | EVar x => σ x
   | EGlobal f ts => EGlobal f ts
   | ELit l => ELit l
-  | ELam ps r b => ELam ps r (subst (upsub (length ps) σ) b)
+  | ELam ps r ε b => ELam ps r ε (subst (upsub (length ps) σ) b)
   | EApp f args => EApp (subst σ f) (map (subst σ) args)
   | ELet e1 e2 => ELet (subst σ e1) (subst (upsub 1 σ) e2)
   | EIf c t e => EIf (subst σ c) (subst σ t) (subst σ e)
@@ -192,6 +208,10 @@ Fixpoint subst (σ : nat -> expr) (e : expr) : expr :=
   | ELoop e ps τ b => ELoop (subst σ e) ps τ (subst (upsub (length ps) σ) b)
   | EJump c k e τ => EJump c k (subst σ e) τ
   | EAbort τ => EAbort τ
+  | EUp T e => EUp T (subst σ e)
+  | ERaise e τ => ERaise (subst σ e) τ
+  | ETry e τe h k => ETry (subst σ e) τe (subst (upsub 1 σ) h) (subst (upsub 1 σ) k)
+  | EDefer b c e => EDefer b (subst σ c) (subst σ e)
   end.
 
 (** Substitution of the arguments [vs] for the [length vs] innermost
