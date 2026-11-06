@@ -16,7 +16,7 @@ examples/ok/traits.mbt: OK
   main : Unit
 ```
 
-## 它保证什么
+## 主要证明性质
 
 MoonRocq 对它所支持的 MoonBit 子集给出两方面的保证，都在 Rocq 中有完整的机器证明：
 
@@ -27,7 +27,7 @@ MoonRocq 对它所支持的 MoonBit 子集给出两方面的保证，都在 Rocq
 
 这些证明不依赖任何额外的公理，代码中也没有未完成的证明（`Admitted`）。
 
-## 它是怎么工作的
+## 工作流程
 
 ```
  源码 ──官方 parser──▶ 语法树 ──转换──▶ Surface ──elaborate──▶ Core ──类型检查器──▶ 结论
