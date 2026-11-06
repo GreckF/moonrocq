@@ -11,3 +11,7 @@ Print Assumptions Theorems.program_ok_dec.
 Print Assumptions Theorems.checked_program_safe.
 Print Assumptions Soundness.progress.
 Print Assumptions Soundness.preservation.
+From MoonRocq.Surface Require Import Resolve.
+Print Assumptions Resolve.resolve_complete.
+Print Assumptions Resolve.entails_unique.
+Print Assumptions Resolve.entails_typed.

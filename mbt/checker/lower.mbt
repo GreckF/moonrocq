@@ -383,10 +383,7 @@ fn lower_type(t : @syntax.Type) -> Sty raise Unsupported {
       unsupported("type placeholder `_`", loc)
       Sty::STuple(pos_of_loc(loc), List::Nil)
     }
-    Object(c) => {
-      unsupported("trait object type", c.loc)
-      Sty::STuple(pos_of_loc(c.loc), List::Nil)
-    }
+    Object(c) => Sty::SObj(pos_of_loc(c.loc), ident_of_string(long_ident(c.id, c.loc)))
   }
 }
 
@@ -400,6 +397,33 @@ fn lower_eff(e : @syntax.ErrorType, loc : @basic.Location) -> Sty? raise Unsuppo
     ErrorType(ty~) => Some(lower_type(ty))
     MaybeError(..) => Some(Sty::SName(pos_of_loc(loc), ident_of_string("?"), List::Nil))
   }
+}
+
+///|
+fn long_ident(id : @syntax.LongIdent, loc : @basic.Location) -> String raise Unsupported {
+  match id {
+    Ident(name~) => name
+    Dot(pkg~, id~) => {
+      unsupported("qualified name @\{pkg}.\{id}", loc)
+      id
+    }
+  }
+}
+
+///|
+/// Type parameters and their trait bounds `[X : Tr + ..]`.
+fn lower_quantifiers(
+  qs : @list.List[@syntax.TypeVarBinder],
+) -> (List[String0], List[(String0, String0)]) raise Unsupported {
+  let tps = []
+  let bounds = []
+  for q in qs {
+    tps.push(ident_of_string(q.name))
+    for c in q.constraints {
+      bounds.push((ident_of_string(q.name), ident_of_string(long_ident(c.trait_, c.loc))))
+    }
+  }
+  (list_of_array(tps), list_of_array(bounds))
 }
 
 ///|
@@ -643,6 +667,8 @@ fn lower_expr(e : @syntax.Expr) -> Sexpr raise Unsupported {
     Constraint(expr~, ty~, loc~) =>
       Sexpr::SAnnot(pos_of_loc(loc), lower_expr(expr), lower_type(ty))
     Group(expr~, ..) => lower_expr(expr)
+    As(expr~, trait_~, loc~) =>
+      Sexpr::SAs(pos_of_loc(loc), lower_expr(expr), ident_of_string(type_name_str(trait_)))
     // ---- milestone M3: state and loops ----
     LetMut(binder~, ty~, expr~, body~, loc~) => {
       let ann = match ty {
@@ -902,28 +928,31 @@ fn lower_fun(
   body : @syntax.Expr,
   loc : @basic.Location,
 ) -> Sfun raise Unsupported {
-  if d.type_name is Some(_) {
-    unsupported("method definition", loc)
-  }
   if d.is_async is Some(_) {
     unsupported("async function", loc)
   }
-  let tps = []
-  for q in d.quantifiers {
-    if !q.constraints.is_empty() {
-      unsupported("trait bound on type parameter \{q.name}", q.name_loc)
-    }
-    tps.push(ident_of_string(q.name))
+  let self_ty = match d.type_name {
+    Some(tn) => Some(type_name_str(tn))
+    None => None
   }
+  let (tps, bounds) = lower_quantifiers(d.quantifiers)
   let ps = []
   match d.decl_params {
     Some(params) =>
       for p in params {
         match p {
           Positional(binder~, ty~) =>
-            match ty {
-              Some(t) => ps.push((ident_of_string(binder.name), lower_type(t)))
-              None =>
+            match (ty, self_ty) {
+              (Some(t), _) => ps.push((ident_of_string(binder.name), lower_type(t)))
+              // `fn T::m(self, ..)`: the receiver has the type `T`
+              (None, Some(t)) if ps.is_empty() && binder.name == "self" =>
+                ps.push(
+                  (
+                    ident_of_string("self"),
+                    Sty::SName(pos_of_loc(binder.loc), ident_of_string(t), List::Nil),
+                  ),
+                )
+              _ =>
                 unsupported(
                   "parameter `\{binder.name}` without type annotation",
                   binder.loc,
@@ -940,8 +969,13 @@ fn lower_fun(
   }
   Sfun::Mk_sfun(
     pos_of_loc(loc),
+    match self_ty {
+      Some(t) => Some(ident_of_string(t))
+      None => None
+    },
     ident_of_string(d.name.name),
-    list_of_array(tps),
+    tps,
+    bounds,
     list_of_array(ps),
     ret,
     lower_eff(d.error_type, loc),
@@ -1020,8 +1054,53 @@ fn lower_typedecl(d : @syntax.TypeDecl) -> Stype raise Unsupported {
 }
 
 ///|
+fn lower_trait(d : @syntax.TraitDecl) -> Strait raise Unsupported {
+  let supers = []
+  for c in d.supers {
+    supers.push(ident_of_string(long_ident(c.trait_, c.loc)))
+  }
+  let ms = []
+  for m in d.methods {
+    if !m.quantifiers.is_empty() {
+      unsupported("generic trait method", m.loc)
+    }
+    if m.is_async is Some(_) {
+      unsupported("async trait method", m.loc)
+    }
+    let ps = []
+    for p in m.params {
+      match p {
+        DiscardPositional(ty=Some(t), ..) | Positional(ty=Some(t), ..) => ps.push(lower_type(t))
+        _ => unsupported("trait method parameter", m.loc)
+      }
+    }
+    let ret = match m.return_type {
+      Some(t) => lower_type(t)
+      None => Sty::SName(pos_of_loc(m.loc), ident_of_string("Unit"), List::Nil)
+    }
+    ms.push(
+      Smeth::Mk_smeth(
+        ident_of_string(m.name.name),
+        list_of_array(ps),
+        ret,
+        lower_eff(m.error_type, m.loc),
+        m.has_default is Some(_),
+      ),
+    )
+  }
+  Strait::Mk_strait(
+    pos_of_loc(d.loc),
+    ident_of_string(d.name.name),
+    list_of_array(supers),
+    list_of_array(ms),
+  )
+}
+
+///|
 fn lower_impls_exn(impls : @list.List[@syntax.Impl]) -> Sprog raise Unsupported {
   let types = []
+  let traits = []
+  let timpls = []
   let funs = []
   let mut main = None
   for i in impls {
@@ -1052,16 +1131,103 @@ fn lower_impls_exn(impls : @list.List[@syntax.Impl]) -> Sprog raise Unsupported 
       TopTest(loc~, ..) => unsupported("test block", loc)
       TopTypeDef(d) => types.push(lower_typedecl(d))
       TopLetDef(loc~, ..) => unsupported("top-level let", loc)
-      TopTrait(d) => unsupported("trait definition", d.loc)
-      TopImpl(loc~, ..) => unsupported("impl", loc)
+      TopTrait(d) => traits.push(lower_trait(d))
+      TopImpl(
+        self_ty~,
+        trait_~,
+        method_name~,
+        quantifiers~,
+        method_quantifiers~,
+        params~,
+        ret_ty~,
+        err_ty~,
+        body~,
+        loc~,
+        ..
+      ) => {
+        if !method_quantifiers.is_empty() {
+          unsupported("generic impl method", loc)
+        }
+        let body = match body {
+          DeclBody(expr~) => expr
+          _ => {
+            unsupported("impl without a body", loc)
+            panic()
+          }
+        }
+        let ps = []
+        for p in params {
+          match p {
+            Positional(binder~, ty~) => {
+              let t = match ty {
+                Some(t) => Some(lower_type(t))
+                None => None
+              }
+              ps.push((ident_of_string(binder.name), t))
+            }
+            DiscardPositional(ty~, ..) => {
+              let t = match ty {
+                Some(t) => Some(lower_type(t))
+                None => None
+              }
+              ps.push((ident_of_string("_"), t))
+            }
+            _ => unsupported("non-positional parameter", loc)
+          }
+        }
+        let (tps, bounds) = lower_quantifiers(quantifiers)
+        let self_ty = match self_ty {
+          Some(t) => Some(lower_type(t))
+          None => None
+        }
+        let ret = match ret_ty {
+          Some(t) => Some(lower_type(t))
+          None => None
+        }
+        let m = Simethod::Mk_simethod(
+          ident_of_string(method_name.name),
+          list_of_array(ps),
+          ret,
+          lower_eff(err_ty, loc),
+          lower_expr(body),
+        )
+        timpls.push(
+          Simpl::Mk_simpl(
+            pos_of_loc(loc),
+            tps,
+            bounds,
+            ident_of_string(type_name_str(trait_)),
+            self_ty,
+            Some(m),
+          ),
+        )
+      }
       TopView(loc~, ..) => unsupported("view", loc)
-      TopImplRelation(loc~, ..) => unsupported("impl", loc)
+      TopImplRelation(self_ty~, trait_~, quantifiers~, loc~, ..) => {
+        let (tps, bounds) = lower_quantifiers(quantifiers)
+        timpls.push(
+          Simpl::Mk_simpl(
+            pos_of_loc(loc),
+            tps,
+            bounds,
+            ident_of_string(type_name_str(trait_)),
+            Some(lower_type(self_ty)),
+            None,
+          ),
+        )
+      }
       TopUsing(loc~, ..) => unsupported("using", loc)
       TopExtend(loc~, ..) => unsupported("extend", loc)
       TopImport(loc~, ..) => unsupported("import", loc)
     }
   }
-  Sprog::Mk_sprog(list_of_array(types), list_of_array(funs), main)
+  Sprog::Mk_sprog(
+    list_of_array(types),
+    list_of_array(traits),
+    list_of_array(timpls),
+    list_of_array(funs),
+    main,
+  )
 }
 
 ///|

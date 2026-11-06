@@ -118,7 +118,7 @@ checker 对尚未支持的构造直接拒绝，这样每个里程碑结束时，
 | M2 | 名义 ADT（struct/enum/tuple struct）+ 模式匹配 ✅（Core：`TData`、`EConstr`、`EMatch`，模式为通配/变量/字面量/元组/构造子；Surface：类型声明、构造子、记录、字段访问、`match`、解构 `let`、内建 `Option`；见第 8 节） |
 | M3 | 状态与循环 ✅：`let mut`、`mut` 字段、数组、`Ref[T]`、`while`/`for`、`for .. in`（整数范围与数组）、带标签 `break`/`continue`/`nobreak`、带标签的块、`return`（Core：store + `ELoc`/`EMem`、`ELoop`/`EJump`；见第 9 节） |
 | M4 | 错误与 effect ✅：suberror、`Error`、`raise`/`raise?`/`noraise`、`try`/`catch`/`noraise`、`try!`、`defer`/`errdefer`、`fail`（Core：函数类型带 effect、`EUp`/`ERaise`/`ETry`/`EDefer`、`PUp`；见第 10 节） |
-| M5 | trait：声明/impl/supertrait/默认方法、字典 elaboration、一致性、trait object |
+| M5 | trait ✅：声明/impl/supertrait/默认方法、带约束的泛型与 impl、方法 `fn T::m` 与 `.` 调用、字典 elaboration、一致性、trait object（Core 不变；实例解析见 `Surface/Resolve.v` 与第 11 节） |
 | M6 | Surface + elaboration：双向检查、合一、字面量重载、标签/可选参数、方法/管道/级联、`is`/`guard`、一般的 `for .. in`（`Iter`）、推导式、插值……；并解决临时 elaborator 的已知限制（见下） |
 | M7 | 包与可见性：`priv`/抽象/`pub`/`pub(all)`、`pub(open)` trait |
 | M8 | 静态分析：穷尽性/冗余（Maranget）、未使用绑定、effect 相关检查…… |
@@ -139,6 +139,7 @@ correct-by-construction checker 和完备性证明。
 - 语法：带标签的构造子字段、`match` guard、或模式、`as` 模式、范围/数组模式（#31）；
   数组切片与展开、透明标签 `l~~:`（#42）；标签/可选参数、方法/管道/级联、`is`/`guard`、插值。
 - `for .. in` 只支持整数范围和数组（#43），一般的 `Iter`/`Iter2` 要等 trait（M5）与方法解析。
+- trait：内建 trait 的实例与运算符重载、`derive`、泛型 trait 方法、带约束的函数作为值（#64）。
 - 内建函数只有 `not`、`ignore`、`panic`、`abort`，内建方法只有数组的 `length`/`push`、`make`/`new`、`Ref::new`（#23、#35）；
   `println` 等还要 M4 的 effect。
 
@@ -270,3 +271,26 @@ ref/moonbit-docs   语言文档（不入库）
   `fail`、`Result`；函数签名与函数类型上的 `raise E`/`raise`/`noraise`/`raise?`。
 - 控制环境 `cenv = { 标签; 允许的错误类型 }`；在允许 `Error` 的地方调用 `raise E` 的函数时插入提升
   （决定 48）；`catch` 的模式在 `Error` 上按构造子名找错误类型并生成 `PUp`。
+
+## 11. M5：trait
+
+**Core 不变。** trait 在 elaboration 中消去（字典传递，决定 57），所以 M1–M4 的 soundness、checker
+可靠性与完备性直接覆盖 trait 程序：elaborate 出来的程序仍由 certified checker 重新检查。
+
+| MoonBit | Core |
+|---|---|
+| `trait Tr : S { m(Self, A) -> R }` | 数据类型 `Tr[Self] = Tr(S[Self], (Self, A) -> R)` |
+| `impl[X : B] Tr for H[X] with m(..)` | 方法 `impl$Tr$H$m[X](B[X], ..)` 与字典函数 `inst$Tr$H[X](B[X]) -> Tr[H[X]]` |
+| `impl Tr with m(..)`（默认实现） | `default$Tr$m[Self](Tr[Self], ..)`，字典函数中缺的方法调用它（把自己的字典传进去） |
+| `fn[X : Tr] f(x : X)` | `f[X](Tr[X], X)`；supertrait 字典在函数体外用 `let` 投影 |
+| `x.m(a)` / `Tr::m(x, a)` | 求出 `Tr[τ]` 的字典，投影出方法，调用 |
+| `&Tr`，`e as &Tr` | 闭包记录 `&Tr(..)`（`self` 已部分应用）；`&Tr` 自动实现 `Tr` |
+
+**形式化（`Surface/Resolve.v`）**：实例解析是 elaboration 中决定"用哪个字典"的部分，按项目方法论给出
+- 声明式规则 `entails I Θ Tr τ d`（`Θ` 是假设：约束对应的字典变量），
+- certified 的解析器 `resolve_dict` 与完备性 `resolve_complete`，因此可判定（`entails_dec`），
+- 一致性 `coherent`（同一 trait、同一类型头部至多一个 impl）及其可判定性，以及一致性下解析的唯一性
+  `entails_unique`（程序含义不依赖解析的选择），
+- `entails_typed`：解析出的字典在 Core 中良类型（给定良类型的字典函数与假设）。
+
+解析的终止性来自 impl 头部的形状（类型构造子作用于类型参数）：约束都落在类型的真子项上，燃料取 `ty_size τ`。

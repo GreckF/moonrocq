@@ -233,3 +233,35 @@ Example ex_defer :
                   (EDefer false (EJump CBreak 0 (ELit LUnit) TUnit) (ELit LUnit))))
   = (Some (TInt I32), None).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- milestone M5: instance resolution ---- *)
+From MoonRocq.Surface Require Import Resolve.
+
+(* impl Show for Int; impl[T : Show] Show for Array[T] *)
+Definition insts_ex : list idef :=
+  [ mk_idef "Show" (HBase (BInt I32)) 0 [] "inst$Show$Int";
+    mk_idef "Show" (HArray AGrow) 1 [("Show", 0)] "inst$Show$Array" ].
+
+Definition dict_ex (Θ : list assumption) (τ : ty) : option expr :=
+  match entails_dec insts_ex Θ "Show" τ with
+  | inleft (exist _ d _) => Some d
+  | inright _ => None
+  end.
+
+(* Show[Array[Array[Int]]] *)
+Example ex_resolve :
+  dict_ex [] (TArray AGrow (TArray AGrow (TInt I32))) =
+  Some (EApp (EGlobal "inst$Show$Array" [TArray AGrow (TInt I32)])
+          [EApp (EGlobal "inst$Show$Array" [TInt I32]) [EApp (EGlobal "inst$Show$Int" []) []]]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* no instance for Bool; a bound [T : Show] is used for T *)
+Example ex_resolve_bound :
+  (dict_ex [] TBool, dict_ex [("Show", TVar 0, EVar 3)] (TArray AGrow (TVar 0))) =
+  (None, Some (EApp (EGlobal "inst$Show$Array" [TVar 0]) [EVar 3])).
+Proof. vm_compute. reflexivity. Qed.
+
+Example ex_coherent :
+  (if coherent_dec insts_ex then true else false,
+   if coherent_dec (insts_ex ++ insts_ex) then true else false) = (true, false).
+Proof. vm_compute. reflexivity. Qed.

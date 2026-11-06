@@ -39,9 +39,9 @@
     [break]/[continue]/[return] to de Bruijn indices. *)
 
 From Stdlib Require Import List ZArith NArith String Bool Arith.
-From MoonRocq.Prelude Require Import Result EqDec Ident.
+From MoonRocq.Prelude Require Import Result EqDec Ident ListDec.
 From MoonRocq.Core Require Import Syntax Prim Subst Typing Check.
-From MoonRocq.Surface Require Import Syntax.
+From MoonRocq.Surface Require Import Syntax Resolve.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -68,7 +68,13 @@ Inductive elab_error : Type :=
 | EE_NoTarget      (p : pos)                   (** [break]/[continue]/[return] without a target *)
 | EE_BadContinue   (p : pos) (expected got : nat)  (** wrong number of [continue] arguments *)
 | EE_NoMethod      (p : pos) (m : ident) (t : ty)
-| EE_NotError      (p : pos) (t : ty).
+| EE_NotError      (p : pos) (t : ty)
+| EE_NoInstance    (p : pos) (Tr : ident) (t : ty)    (** no implementation of [Tr] for [t] *)
+| EE_AmbiguousMethod (p : pos) (m : ident)
+| EE_MissingMethod (p : pos) (Tr m : ident)
+| EE_Overlap       (p : pos)                         (** two [impl]s of a trait for one type *)
+| EE_NotObjectSafe (p : pos) (Tr : ident)
+| EE_Unsupported   (p : pos) (what : ident).
 
 (** ** Small utilities *)
 
@@ -160,6 +166,7 @@ Fixpoint elab_ty (tys : list (ident * nat)) (tps : list ident) (t : sty) : resul
   | STuple _ ts =>
       τs <- mapM (elab_ty tys tps) ts ;;
       Ok (TTuple τs)
+  | SObj _ Tr => Ok (TData ("&" ++ Tr) [])
   | SArrow _ ps r eff =>
       τs <- mapM (elab_ty tys tps) ps ;;
       τ <- elab_ty tys tps r ;;
@@ -459,16 +466,251 @@ Fixpoint lookup_local (x : ident) (Γ : lctx) : option nat :=
   | (None, _) :: Γ' => option_map S (lookup_local x Γ')
   end.
 
+(** ** Traits (milestone M5)
+
+    A trait is elaborated to a dictionary data type with one constructor
+    (supertrait dictionaries first, then the methods), see [Resolve.v].
+    Method signatures are over [Self = TVar 0]. *)
+
+Record msig : Type := mk_msig {
+  ms_name   : ident;
+  ms_params : list ty;
+  ms_ret    : ty;
+  ms_eff    : ty
+}.
+
+Record trinfo : Type := mk_trinfo {
+  ti_name     : ident;
+  ti_supers   : list ident;
+  ti_methods  : list msig;
+  ti_defaults : list ident        (** methods with a default implementation *)
+}.
+
+(** What the elaborator knows about traits: the traits, the instances, the
+    trait bounds of each global function, the methods [fn T::m] (type head,
+    method), the object-safe traits, and the assumptions of the current
+    definition (constraint, dictionary variable). *)
+Record xenv : Type := mk_xenv {
+  x_traits : list trinfo;
+  x_insts  : list idef;
+  x_bounds : list (ident * list (ident * nat));
+  x_meths  : list (ident * ident);
+  x_objs   : list ident;
+  x_asm    : list (ident * ty * ident)
+}.
+
+Definition find_trait (trs : list trinfo) (Tr : ident) : option trinfo :=
+  find (fun ti => eqb (ti_name ti) Tr) trs.
+
+Definition nfields (ti : trinfo) : nat :=
+  List.length (ti_supers ti) + List.length (ti_methods ti).
+
+Definition dict_fields (ti : trinfo) : list ty :=
+  List.app (map (fun Sn => TData Sn [TVar 0]) (ti_supers ti))
+           (map (fun m => TArrow (ms_params m) (ms_ret m) (ms_eff m)) (ti_methods ti)).
+
+Definition dict_tdef (ti : trinfo) : tdef :=
+  mk_tdef (ti_name ti) 1 [mk_cdef (ti_name ti) (dict_fields ti)] false.
+
+(** The field index of method [m] in the dictionary, and its signature. *)
+Definition method_of (ti : trinfo) (m : ident) : option (nat * msig) :=
+  let fix go (ms : list msig) (i : nat) :=
+    match ms with
+    | [] => None
+    | s :: ms' => if eqb (ms_name s) m then Some (i, s) else go ms' (S i)
+    end in
+  go (ti_methods ti) (List.length (ti_supers ti)).
+
+(** Field [i] of a dictionary (or object) [d] of data type [T], at type [τ]. *)
+Definition field_of (T : ident) (n i : nat) (d : expr) (τ : ty) : expr :=
+  EMatch d τ [(PConstr T (map (fun j => if Nat.eqb j i then PVar else PWild) (seq 0 n)), EVar 0)].
+
+(** A trait and its supertraits, transitively, without repetition. *)
+Fixpoint trait_closure (trs : list trinfo) (fuel : nat) (Tr : ident) : list ident :=
+  match fuel with
+  | 0 => [Tr]
+  | S f =>
+      Tr :: match find_trait trs Tr with
+            | Some ti => List.concat (map (trait_closure trs f) (ti_supers ti))
+            | None => []
+            end
+  end.
+
+Definition closure (trs : list trinfo) (Tr : ident) : list ident :=
+  nodup eq_dec (trait_closure trs (List.length trs) Tr).
+
+(** ** Trait objects
+
+    An object-safe trait [Tr] (every method of it and of its supertraits
+    takes [Self] first and nowhere else) has an object type [&Tr]: a record
+    of closures, one per method, with [self] already applied. *)
+
+Fixpoint occurs0 (t : ty) : bool :=
+  match t with
+  | TVar i => Nat.eqb i 0
+  | TBase _ | TError => false
+  | TTuple ts | TData _ ts => existsb occurs0 ts
+  | TArrow ps r ε => (existsb occurs0 ps || occurs0 r || occurs0 ε)%bool
+  | TRef t | TArray _ t => occurs0 t
+  end.
+
+Definition obj_safe_m (m : msig) : bool :=
+  match ms_params m with
+  | TVar 0 :: ps => negb (existsb occurs0 ps || occurs0 (ms_ret m) || occurs0 (ms_eff m))
+  | _ => false
+  end.
+
+Definition obj_safe (trs : list trinfo) (Tr : ident) : bool :=
+  forallb (fun Sn => match find_trait trs Sn with
+                    | Some ti => forallb obj_safe_m (ti_methods ti)
+                    | None => false
+                    end) (closure trs Tr).
+
+Definition obj_name (Tr : ident) : ident := "&" ++ Tr.
+
+(** The methods of an object: those of the trait and of its supertraits. *)
+Definition obj_fields (trs : list trinfo) (Tr : ident) : list (ident * msig) :=
+  List.concat (map (fun Sn => match find_trait trs Sn with
+                             | Some ti => map (fun m => (Sn, m)) (ti_methods ti)
+                             | None => []
+                             end) (closure trs Tr)).
+
+Definition obj_field_ty (m : msig) : ty := TArrow (tl (ms_params m)) (ms_ret m) (ms_eff m).
+
+Definition obj_tdef (trs : list trinfo) (Tr : ident) : tdef :=
+  mk_tdef (obj_name Tr) 0
+    [mk_cdef (obj_name Tr) (map (fun sm => obj_field_ty (snd sm)) (obj_fields trs Tr))] false.
+
+(** The type name of a type, for methods [fn T::m]. *)
+Definition head_name (t : ty) : option ident :=
+  match t with
+  | TData T _ => Some T
+  | TArray AGrow _ => Some "Array"
+  | TArray AFixed _ => Some "FixedArray"
+  | TBase b => option_map fst (find (fun nt => eqb (snd nt) (TBase b)) builtin_types)
+  | TError => Some "Error"
+  | _ => None
+  end.
+
+Definition dict_var (Tr X : ident) : ident := "$" ++ Tr ++ "$" ++ X.
+
+(** The supertrait dictionaries of the bounds [(Tr, X, i)] (trait, type
+    parameter, its index), as [let]s: [(S, X, i, from T, field j)]. *)
+Fixpoint super_lets (trs : list trinfo) (fuel : nat) (have : list (ident * ident))
+    (queue : list (ident * ident * nat)) : list (ident * ident * nat * ident * nat) :=
+  match fuel, queue with
+  | 0, _ | _, [] => []
+  | S f, (T, X, i) :: q =>
+      let sups := match find_trait trs T with Some ti => ti_supers ti | None => [] end in
+      let fix add (ss : list ident) (j : nat) (have : list (ident * ident)) :=
+        match ss with
+        | [] => ([], have)
+        | s :: ss' =>
+            if existsb (fun p => (eqb (fst p) s && eqb (snd p) X)%bool) have
+            then add ss' (S j) have
+            else let '(r, h) := add ss' (S j) ((s, X) :: have) in ((s, X, i, T, j) :: r, h)
+        end in
+      let '(new, have') := add sups 0 have in
+      List.app new (super_lets trs f have' (List.app q (map (fun l => let '(s, X', i', _, _) := l in (s, X', i')) new)))
+  end.
+
 Section Elab.
   Variable tys : list (ident * nat).               (** data types in scope *)
   Variable hdr : genv.                             (** data types + signatures of functions *)
   Variable sinfo : list (ident * list ident).      (** field names of record structs *)
   Variable tps : list ident.                       (** type parameters in scope *)
+  Variable gx : xenv.                              (** traits, instances, bounds, methods *)
 
   Definition type_of (p : pos) (L : cenv) (Γ : lctx) (e : expr) : result ty elab_error :=
     match infer hdr [] (mk_cctx (core_labels (ce_labs L)) (ce_exn L)) (map snd Γ) e with
     | Ok (exist _ τ _) => Ok τ
     | Err err => Err (EE_Type p err)
+    end.
+
+  (** *** Dictionaries *)
+
+  (** The dictionary of [Tr[τ]] in context [Γ]: assumptions are the
+      dictionary variables of the current definition. *)
+  Definition dict_of (p : pos) (Γ : lctx) (Tr : ident) (τ : ty) : result expr elab_error :=
+    let Θ := flat_map (fun a => let '(Tr', τ', x) := a in
+                                match lookup_local x Γ with
+                                | Some i => [(Tr', τ', EVar i)]
+                                | None => []
+                                end) (x_asm gx) in
+    match entails_dec (x_insts gx) Θ Tr τ with
+    | inleft (exist _ d _) => Ok d
+    | inright _ => Err (EE_NoInstance p Tr τ)
+    end.
+
+  Definition has_meth (T m : ident) : bool :=
+    existsb (fun tm => (eqb (fst tm) T && eqb (snd tm) m)%bool) (x_meths gx).
+
+  Definition bounds_of (g : ident) : list (ident * nat) :=
+    match assoc g (x_bounds gx) with Some b => b | None => [] end.
+
+  Definition is_obj (t : ty) : option ident :=
+    match t with
+    | TData On [] => find (fun Tr => eqb (obj_name Tr) On) (x_objs gx)
+    | _ => None
+    end.
+
+  (** The method [m] of the trait [ti] at [Self = τs], from a dictionary. *)
+  Definition trait_method (p : pos) (Γ : lctx) (ti : trinfo) (m : ident) (τs : ty) :
+      result (expr * list ty * ty * ty) elab_error :=
+    '(i, s) <- of_opt (method_of ti m) (EE_NoMethod p m τs) ;;
+    d <- dict_of p Γ (ti_name ti) τs ;;
+    let σ := tsubst (inst [τs]) in
+    let ps := map σ (ms_params s) in
+    Ok (field_of (ti_name ti) (nfields ti) i d (TArrow ps (σ (ms_ret s)) (σ (ms_eff s))),
+        ps, σ (ms_ret s), σ (ms_eff s)).
+
+  (** Build the object [&Tr] of a value [e : τ]. *)
+  Definition make_obj (p : pos) (Γ : lctx) (Tr : ident) (τ : ty) (e : expr) :
+      result expr elab_error :=
+    let Γx := (None, τ) :: Γ in
+    fs <- mapM (fun sm =>
+                  let '(Sn, s) := sm in
+                  let ps := map (tsubst (inst [τ])) (tl (ms_params s)) in
+                  let Γl := List.app (map (fun t => (None, t)) ps) Γx in
+                  ti <- of_opt (find_trait (x_traits gx) Sn) (EE_NotObjectSafe p Tr) ;;
+                  '(mv, _, r, ε) <- trait_method p Γl ti (ms_name s) τ ;;
+                  let n := List.length ps in
+                  Ok (ELam ps r ε (EApp mv (EVar n :: map EVar (seq 0 n)))))
+               (obj_fields (x_traits gx) Tr) ;;
+    Ok (ELet e (EConstr (obj_name Tr) (obj_name Tr) [] (ETuple fs))).
+
+  (** Promotions where an [Error] or a trait object is expected. *)
+  Definition coerce_to (p : pos) (Γ : lctx) (exp : option ty) (τ : ty) (e : expr) :
+      result expr elab_error :=
+    match exp with
+    | Some TError => Ok (up_err τ e)
+    | Some t =>
+        match is_obj t with
+        | Some Tr => if eqb t τ then Ok e else make_obj p Γ Tr τ e
+        | None => Ok e
+        end
+    | None => Ok e
+    end.
+
+  (** The constraint [X : Tr] (or a supertrait) of a type parameter, for
+      [x.m()] and [X::m()]. *)
+  Definition asm_traits (τ : ty) : list ident :=
+    map (fun a => fst (fst a)) (filter (fun a => eqb (snd (fst a)) τ) (x_asm gx)).
+
+  (** Traits declaring a method [m] whose constraint holds for [τ]. *)
+  Definition traits_for (p : pos) (Γ : lctx) (m : ident) (τ : ty) : list trinfo :=
+    filter (fun ti => match method_of ti m, dict_of p Γ (ti_name ti) τ with
+                      | Some _, Ok _ => true
+                      | _, _ => false
+                      end) (x_traits gx).
+
+  (** Dot calls on a trait method are allowed on type parameters and on the
+      program's own types (as in MoonBit; not on builtin types). *)
+  Definition dot_traits (τ : ty) : bool :=
+    match τ with
+    | TVar _ => true
+    | TData T _ => negb (existsb (eqb T) ["Option"; "Ref"; "Result"; "Failure"])
+    | _ => false
     end.
 
   Definition arrow_params (t : ty) (n : nat) : list (option ty) :=
@@ -481,9 +723,10 @@ Section Elab.
       come from the expected type. *)
   Definition elab_global (p : pos) (f : ident) (fd : fdef) (exp : option ty) :
       result expr elab_error :=
-    match fd_tparams fd with
-    | 0 => Ok (EGlobal f [])
-    | n =>
+    match bounds_of f, fd_tparams fd with
+    | _ :: _, _ => Err (EE_Unsupported p "a function with trait bounds used as a value")
+    | [], 0 => Ok (EGlobal f [])
+    | [], n =>
         let s := match exp with
                  | Some t => tmatch (TArrow (fd_params fd) (fd_ret fd) (fd_eff fd)) t (repeat None n)
                  | None => repeat None n
@@ -752,8 +995,14 @@ Section Elab.
           e' <- elab L Γ x e ;;
           (* an error passed where [Error] is expected is promoted *)
           e'' <- match x with
-                 | Some TError => τ <- type_of (sexpr_pos e) L Γ e' ;; Ok (coerce x τ e')
-                 | _ => Ok e'
+                 | Some t =>
+                     if match t with
+                        | TError => true
+                        | _ => match is_obj t with Some _ => true | None => false end
+                        end
+                     then τ <- type_of (sexpr_pos e) L Γ e' ;; coerce_to (sexpr_pos e) Γ x τ e'
+                     else Ok e'
+                 | None => Ok e'
                  end ;;
           es2 <- elab_args es' exps' ;;
           Ok (e'' :: es2)
@@ -817,6 +1066,59 @@ Section Elab.
                 end ;;
           '(r, s2) <- gargs2 p es' pre' ps' s' ;;
           Ok (e' :: r, s2)
+      end in
+    (* A call of the global function or method [g] (signature [fd]), with an
+       optional receiver already elaborated: type arguments by matching,
+       then the dictionaries of its trait bounds. *)
+    let fix gcall (args : list sexpr) (p q : pos) (g : ident) (fd : fdef)
+        (rcv : option (expr * ty)) {struct args} : result expr elab_error :=
+      let nb := bounds_of g in
+      let ups := skipn (List.length nb) (fd_params fd) in
+      let ps := match rcv with Some _ => tl ups | None => ups end in
+      let n := fd_tparams fd in
+      let s0 := match exp with
+                | Some t => tmatch (fd_ret fd) t (repeat None n)
+                | None => repeat None n
+                end in
+      let s0' := match rcv, ups with
+                 | Some (_, τr), p0 :: _ => tmatch p0 τr s0
+                 | _, _ => s0
+                 end in
+      '(pre, s1) <- gargs1 p args ps s0' ;;
+      '(args', s) <- gargs2 p args pre ps s1 ;;
+      ts <- of_opt (all_some s) (EE_CannotInfer q g) ;;
+      ds <- mapM (fun c => dict_of q Γ (fst c) (nth (snd c) ts TUnit)) nb ;;
+      let rargs := match rcv with Some (r, _) => r :: args' | None => args' end in
+      Ok (promote L (tsubst (inst ts) (fd_eff fd)) (tsubst (inst ts) (fd_ret fd))
+                  (EApp (EGlobal g ts) (List.app ds rargs))) in
+    (* A call of the trait method [m] of [ti]: [Self] is [self] if known,
+       else the type of the receiver or of the first argument, else the
+       expected result. *)
+    let fix tcall (args : list sexpr) (q : pos) (ti : trinfo) (m : ident) (self : option ty)
+        (rcv : option (expr * ty)) {struct args} : result expr elab_error :=
+      '(_, sg) <- of_opt (method_of ti m) (EE_NoMethod q m TUnit) ;;
+      let call (τs : ty) (all : list expr) :=
+        '(mv, _, r, ε) <- trait_method q Γ ti m τs ;;
+        Ok (promote L ε r (EApp mv all)) in
+      let exps (τs : ty) (ps : list ty) := map (fun t => Some (tsubst (inst [τs]) t)) ps in
+      match rcv, ms_params sg, args with
+      | Some (r0, τr), _ :: ps', _ =>
+          args' <- elab_args args (exps τr ps') ;;
+          call τr (r0 :: args')
+      | Some _, [], _ => Err (EE_NoMethod q m TUnit)
+      | None, TVar 0 :: ps', a0 :: rest =>
+          a0' <- elab L Γ self a0 ;;
+          τs <- match self with Some t => Ok t | None => type_of q L Γ a0' end ;;
+          rest' <- elab_args rest (exps τs ps') ;;
+          call τs (a0' :: rest')
+      | None, ps, _ =>
+          τs <- match self, ms_ret sg, exp with
+                | Some t, _, _ => Ok t
+                | None, TVar 0, Some t => Ok t
+                | _, _, _ => Err (EE_CannotInfer q m)
+                end ;;
+          args' <- elab_args args (exps τs ps) ;;
+          call τs args'
       end in
     (* Constructor [cd] of [td] applied to [args]. *)
     let ctor_app (p q : pos) (td : tdef) (cd : cdef) (args : list sexpr) :=
@@ -912,23 +1214,11 @@ Section Elab.
         | SVar q g =>
             match lookup_local g Γ, lookup_fn hdr g with
             | None, Some fd =>
-                match fd_tparams fd with
-                | 0 =>
+                match fd_tparams fd, bounds_of g with
+                | 0, [] =>
                     args' <- elab_args args (map Some (fd_params fd)) ;;
                     Ok (promote L (fd_eff fd) (fd_ret fd) (EApp (EGlobal g []) args'))
-                | n =>
-                    let s0 := match exp with
-                              | Some t => tmatch (fd_ret fd) t (repeat None n)
-                              | None => repeat None n
-                              end in
-                    '(pre, s1) <- gargs1 p args (fd_params fd) s0 ;;
-                    '(args', s) <- gargs2 p args pre (fd_params fd) s1 ;;
-                    match all_some s with
-                    | Some ts =>
-                        Ok (promote L (tsubst (inst ts) (fd_eff fd)) (tsubst (inst ts) (fd_ret fd))
-                                    (EApp (EGlobal g ts) args'))
-                    | None => Err (EE_CannotInfer q g)
-                    end
+                | _, _ => gcall args p q g fd None
                 end
             | None, None =>
                 (* builtins that are not ordinary functions in Core *)
@@ -975,6 +1265,37 @@ Section Elab.
                 end
             end
         | SQual q T m =>
+            (* [T::m(..)] for a method of [T], [Tr::m(..)] for a trait method,
+               [X::m(..)] for a type parameter with a bound *)
+            let qcall (_ : unit) :=
+              let g := T ++ "::" ++ m in
+              if has_meth T m then
+                match lookup_fn hdr g with
+                | Some fd => gcall args p q g fd None
+                | None => Err (EE_Unbound q g)
+                end
+              else
+                let with_m := filter (fun ti => match method_of ti m with
+                                                | Some _ => true
+                                                | None => false
+                                                end) in
+                match find_trait (x_traits gx) T, index_of T tps with
+                | Some ti, _ => tcall args q ti m None None
+                | None, Some i =>
+                    match with_m (flat_map (fun Tr => match find_trait (x_traits gx) Tr with
+                                                      | Some ti => [ti]
+                                                      | None => []
+                                                      end) (asm_traits (TVar i))) with
+                    | ti :: _ => tcall args q ti m (Some (TVar i)) None
+                    | [] => Err (EE_NoMethod q m (TVar i))
+                    end
+                | None, None =>
+                    match with_m (x_traits gx) with
+                    | [ti] => tcall args q ti m None None
+                    | [] => Err (EE_NoMethod q m TUnit)
+                    | _ => Err (EE_AmbiguousMethod q m)
+                    end
+                end in
             (* [Ref::new(v)], [Array::make(n, v)], [FixedArray::make(n, v)], [Array::new()] *)
             match array_kind_of T, args with
             | None, [v] =>
@@ -985,22 +1306,22 @@ Section Elab.
                                   end) v ;;
                   t <- type_of p L Γ v' ;;
                   Ok (EConstr "Ref" "Ref" [t] (ETuple [EMem (MRef t) [v']]))
-                else Err (EE_NoMethod q m TUnit)
+                else qcall tt
             | Some k, [n; v] =>
                 if eqb m "make" then
                   n' <- elab L Γ (Some TIndex) n ;;
                   v' <- elab L Γ (match exp with Some (TArray _ t) => Some t | _ => None end) v ;;
                   t <- type_of p L Γ v' ;;
                   Ok (EMem (MMake k t) [n'; v'])
-                else Err (EE_NoMethod q m TUnit)
+                else qcall tt
             | Some k, [] =>
                 if eqb m "new" then
                   match exp with
                   | Some (TArray _ t) => Ok (EMem (MArray k t 0) [])
                   | _ => Err (EE_CannotInfer q m)
                   end
-                else Err (EE_NoMethod q m TUnit)
-            | _, _ => Err (EE_NoMethod q m TUnit)
+                else qcall tt
+            | _, _ => qcall tt
             end
         | _ =>
             f' <- elab L Γ None f ;;
@@ -1102,7 +1423,7 @@ Section Elab.
                 end ;;
         e1' <- elab L Γ τann e1 ;;
         τ0 <- type_of p L Γ e1' ;;
-        let e1'' := coerce τann τ0 e1' in
+        e1'' <- coerce_to p Γ τann τ0 e1' ;;
         τ1 <- type_of p L Γ e1'' ;;
         _ <- match τann with
              | Some t => if eqb t τ1 then Ok tt else Err (EE_Annot p t τ1)
@@ -1160,7 +1481,7 @@ Section Elab.
         τ <- elab_ty tys tps t ;;
         e0' <- elab L Γ (Some τ) e0 ;;
         τ1 <- type_of p L Γ e0' ;;
-        let e0'' := coerce (Some τ) τ1 e0' in
+        e0'' <- coerce_to p Γ (Some τ) τ1 e0' ;;
         τ0 <- type_of p L Γ e0'' ;;
         if eqb τ τ0 then Ok e0'' else Err (EE_Annot p τ τ0)
     (* ---- milestone M3 ---- *)
@@ -1263,15 +1584,50 @@ Section Elab.
     | SMethod p e0 m args =>
         e0' <- elab L Γ None e0 ;;
         τ <- type_of p L Γ e0' ;;
+        (* 2. a trait object: call its closure; 3. a trait method, on a type
+           parameter or on one of the program's own types *)
+        let via_trait (_ : unit) :=
+          match is_obj τ with
+          | Some Tr =>
+              let fs := obj_fields (x_traits gx) Tr in
+              match find (fun js => eqb (ms_name (snd (snd js))) m)
+                         (combine (seq 0 (List.length fs)) fs) with
+              | Some (j, (_, sg)) =>
+                  args' <- elab_args args (map Some (tl (ms_params sg))) ;;
+                  Ok (promote L (ms_eff sg) (ms_ret sg)
+                        (EApp (field_of (obj_name Tr) (List.length fs) j e0' (obj_field_ty sg)) args'))
+              | None => Err (EE_NoMethod p m τ)
+              end
+          | None =>
+              if dot_traits τ then
+                match traits_for p Γ m τ with
+                | [ti] => tcall args p ti m None (Some (e0', τ))
+                | [] => Err (EE_NoMethod p m τ)
+                | _ => Err (EE_AmbiguousMethod p m)
+                end
+              else Err (EE_NoMethod p m τ)
+          end in
+        (* 1. a method [fn T::m] of the type *)
+        let general (_ : unit) :=
+          match head_name τ with
+          | Some H =>
+              if has_meth H m then
+                match lookup_fn hdr (H ++ "::" ++ m) with
+                | Some fd => gcall args p p (H ++ "::" ++ m) fd (Some (e0', τ))
+                | None => Err (EE_Unbound p m)
+                end
+              else via_trait tt
+          | None => via_trait tt
+          end in
         match τ, args with
         | TArray k t, [] =>
-            if eqb m "length" then Ok (EMem (MLength k t) [e0']) else Err (EE_NoMethod p m τ)
+            if eqb m "length" then Ok (EMem (MLength k t) [e0']) else general tt
         | TArray AGrow t, [a] =>
             if eqb m "push" then
               a' <- elab L Γ (Some t) a ;;
               Ok (EMem (MPush t) [e0'; a'])
-            else Err (EE_NoMethod p m τ)
-        | _, _ => Err (EE_NoMethod p m τ)
+            else general tt
+        | _, _ => general tt
         end
     | SQual p T m => Err (EE_NoMethod p m TUnit)
     | SWhile p x c body nb =>
@@ -1365,7 +1721,7 @@ Section Elab.
               | Some a =>
                   a' <- elab L Γ (Some r) a ;;
                   τa <- type_of p L Γ a' ;;
-                  Ok (coerce (Some r) τa a')
+                  coerce_to p Γ (Some r) τa a'
               | None => Ok (ELit LUnit)
               end ;;
         Ok (EJump CBreak k a' (jty exp))
@@ -1544,6 +1900,11 @@ Section Elab.
                  Ok (EMatch (EVar 0) τ kbs)
              end ;;
         Ok (ETry body' τe (EMatch (EVar 0) τ hbs) k)
+    | SAs p e0 Tr =>
+        e0' <- elab L Γ None e0 ;;
+        τ <- type_of p L Γ e0' ;;
+        if existsb (eqb Tr) (x_objs gx) then make_obj p Γ Tr τ e0'
+        else Err (EE_NotObjectSafe p Tr)
     | SDefer p onerr c body =>
         (* the cleanup may raise but not jump *)
         let Lc := mk_cenv [] (ce_exn L) in
@@ -1589,6 +1950,7 @@ Fixpoint sty_mentions (x : ident) (t : sty) {struct t} : bool :=
   | STuple _ ts => go ts
   | SArrow _ ps r eff =>
       (go ps || sty_mentions x r || match eff with Some t => sty_mentions x t | None => false end)%bool
+  | SObj _ _ => false
   end.
 
 (** The type parameters of a signature: a [raise?] signature has a hidden
@@ -1598,8 +1960,23 @@ Definition sig_tparams (f : sfun) : list ident :=
                || match sf_eff f with Some t => sty_mentions "?" t | None => false end)%bool in
   if poly then List.app (sf_tparams f) ["?"] else sf_tparams f.
 
+(** The global name of a function or method. *)
+Definition fun_name (f : sfun) : ident :=
+  match sf_self f with
+  | Some T => T ++ "::" ++ sf_name f
+  | None => sf_name f
+  end.
+
+(** Trait bounds [(X, Tr)] as constraints [(Tr, index of X)]. *)
+Definition bound_ctx (p : pos) (tps : list ident) (bs : list (ident * ident)) :
+    result (list (ident * nat)) elab_error :=
+  mapM (fun b => i <- of_opt (index_of (fst b) tps) (EE_UnknownType p (fst b)) ;; Ok (snd b, i)) bs.
+
+Definition dict_ty (c : ident * nat) : ty := TData (fst c) [TVar (snd c)].
+
 Definition elab_sig (tys : list (ident * nat)) (f : sfun) : result fdef elab_error :=
   let tps := sig_tparams f in
+  ctx <- bound_ctx (sf_pos f) tps (sf_bounds f) ;;
   τs <- mapM (fun xt => elab_ty tys tps (snd xt)) (sf_params f) ;;
   τ <- match sf_ret f with
        | Some t => elab_ty tys tps t
@@ -1609,47 +1986,306 @@ Definition elab_sig (tys : list (ident * nat)) (f : sfun) : result fdef elab_err
        | Some t => elab_ty tys tps t
        | None => Ok TNever
        end ;;
-  Ok (mk_fdef (sf_name f) (List.length tps) τs τ ε (ELit LUnit)).
+  Ok (mk_fdef (fun_name f) (List.length tps) (List.app (map dict_ty ctx) τs) τ ε (ELit LUnit)).
 
-(** The body of a function, wrapped in the block that [return] targets. *)
-Definition elab_body tys hdr sinfo tps (Γ : lctx) (r ε : ty) (body : sexpr) :
-    result expr elab_error :=
-  b <- elab tys hdr sinfo tps (mk_cenv [mk_lab None LKFun [] r] ε) Γ (Some r) body ;;
-  Ok (eblock r b).
+(** The body of a definition with trait bounds [ctx] on the type
+    parameters [tps]: the dictionary parameters are named, their
+    supertrait dictionaries are bound by [let]s around the body (which is
+    wrapped in the block that [return] targets). *)
+Definition elab_body tys hdr sinfo tps (gx : xenv) (ctx : list (ident * nat)) (Γp : lctx)
+    (r ε : ty) (body : sexpr) : result expr elab_error :=
+  let named := map (fun c => (fst c, nth (snd c) tps "", snd c)) ctx in
+  let lets := super_lets (x_traits gx) (List.length (x_traits gx) * S (List.length ctx)) []
+                         named in
+  let Γd := map (fun c => (Some (dict_var (fst c) (nth (snd c) tps "")), dict_ty c)) ctx in
+  let Γ0 := List.app Γd Γp in
+  (* the supertrait dictionaries, outermost first *)
+  let fix bind (ls : list (ident * ident * nat * ident * nat)) (Γ : lctx) :
+      result (list expr * lctx) elab_error :=
+    match ls with
+    | [] => Ok ([], Γ)
+    | (Sn, X, i, T, j) :: ls' =>
+        k <- of_opt (lookup_local (dict_var T X) Γ) (EE_Unbound (mk_pos 0%N 0%N) (dict_var T X)) ;;
+        ti <- of_opt (find_trait (x_traits gx) T) (EE_UnknownType (mk_pos 0%N 0%N) T) ;;
+        let e := field_of T (nfields ti) j (EVar k) (TData Sn [TVar i]) in
+        '(es, Γ') <- bind ls' ((Some (dict_var Sn X), TData Sn [TVar i]) :: Γ) ;;
+        Ok (e :: es, Γ')
+    end in
+  '(es, Γ) <- bind lets Γ0 ;;
+  let asm := List.app (map (fun c => (fst c, TVar (snd c), dict_var (fst c) (nth (snd c) tps ""))) ctx)
+                      (map (fun l => let '(Sn, X, i, _, _) := l in (Sn, TVar i, dict_var Sn X)) lets) in
+  let gx' := mk_xenv (x_traits gx) (x_insts gx) (x_bounds gx) (x_meths gx) (x_objs gx) asm in
+  b <- elab tys hdr sinfo tps gx' (mk_cenv [mk_lab None LKFun [] r] ε) Γ (Some r) body ;;
+  Ok (fold_right ELet (eblock r b) es).
 
-Definition elab_fun tys hdr sinfo (f : sfun) (sig : fdef) : result fdef elab_error :=
-  let Γ := combine (map (fun xt => Some (fst xt)) (sf_params f)) (fd_params sig) in
-  b <- elab_body tys hdr sinfo (sig_tparams f) Γ (fd_ret sig) (fd_eff sig) (sf_body f) ;;
+Definition elab_fun tys hdr sinfo gx (f : sfun) (sig : fdef) : result fdef elab_error :=
+  let tps := sig_tparams f in
+  ctx <- bound_ctx (sf_pos f) tps (sf_bounds f) ;;
+  let Γp := combine (map (fun xt => Some (fst xt)) (sf_params f))
+                    (skipn (List.length ctx) (fd_params sig)) in
+  b <- elab_body tys hdr sinfo tps gx ctx Γp (fd_ret sig) (fd_eff sig) (sf_body f) ;;
   Ok (mk_fdef (fd_name sig) (fd_tparams sig) (fd_params sig) (fd_ret sig) (fd_eff sig) b).
 
-Fixpoint elab_funs tys hdr sinfo (fs : list sfun) (sigs : list fdef) : result (list fdef) elab_error :=
+Fixpoint elab_funs tys hdr sinfo gx (fs : list sfun) (sigs : list fdef) : result (list fdef) elab_error :=
   match fs, sigs with
   | f :: fs', sig :: sigs' =>
-      fd <- elab_fun tys hdr sinfo f sig ;;
-      fds <- elab_funs tys hdr sinfo fs' sigs' ;;
+      fd <- elab_fun tys hdr sinfo gx f sig ;;
+      fds <- elab_funs tys hdr sinfo gx fs' sigs' ;;
       Ok (fd :: fds)
   | _, _ => Ok []
   end.
+
+(** ** Traits and impls *)
+
+Definition elab_trait (tys : list (ident * nat)) (t : strait) : result trinfo elab_error :=
+  ms <- mapM (fun m =>
+                ps <- mapM (elab_ty tys ["Self"]) (sm_params m) ;;
+                r <- elab_ty tys ["Self"] (sm_ret m) ;;
+                ε <- match sm_eff m with
+                     | Some t => elab_ty tys ["Self"] t
+                     | None => Ok TNever
+                     end ;;
+                Ok (mk_msig (sm_name m) ps r ε)) (str_methods t) ;;
+  Ok (mk_trinfo (str_name t) (str_supers t) ms (map sm_name (filter sm_default (str_methods t)))).
+
+(** The [impl]s of one trait for one type, grouped. *)
+Record igroup : Type := mk_igroup {
+  ig_pos     : pos;
+  ig_trait   : ident;
+  ig_head    : ty;
+  ig_tparams : list ident;
+  ig_bounds  : list (ident * ident);
+  ig_methods : list simethod
+}.
+
+Fixpoint add_impl (gs : list igroup) (p : pos) (Tr : ident) (τ : ty) (tps : list ident)
+    (bs : list (ident * ident)) (m : option simethod) : list igroup :=
+  match gs with
+  | [] => [mk_igroup p Tr τ tps bs (match m with Some m => [m] | None => [] end)]
+  | g :: gs' =>
+      if (eqb (ig_trait g) Tr && eqb (ig_head g) τ)%bool
+      then mk_igroup (ig_pos g) Tr τ (ig_tparams g) (ig_bounds g)
+                     (List.app (ig_methods g) (match m with Some m => [m] | None => [] end)) :: gs'
+      else g :: add_impl gs' p Tr τ tps bs m
+  end.
+
+Definition inst_name (Tr H : ident) : ident := "inst$" ++ Tr ++ "$" ++ H.
+Definition impl_name (Tr H m : ident) : ident := "impl$" ++ Tr ++ "$" ++ H ++ "$" ++ m.
+Definition default_name (Tr m : ident) : ident := "default$" ++ Tr ++ "$" ++ m.
+
+(** An instance group, checked: its head, constraints and signatures. *)
+Record iinfo : Type := mk_iinfo {
+  ii_group : igroup;
+  ii_ti    : trinfo;
+  ii_name  : ident;                (** the head's type name *)
+  ii_ctx   : list (ident * nat);
+  ii_idef  : idef
+}.
+
+Definition check_group (trs : list trinfo) (g : igroup) : result iinfo elab_error :=
+  let p := ig_pos g in
+  let n := List.length (ig_tparams g) in
+  ti <- of_opt (find_trait trs (ig_trait g)) (EE_UnknownType p (ig_trait g)) ;;
+  '(h, args) <- of_opt (head_args (ig_head g)) (EE_Unsupported p "impl for this type") ;;
+  _ <- if eqb args (map TVar (seq 0 n)) then Ok tt
+       else Err (EE_Unsupported p "impl head (type parameters in order)") ;;
+  H <- of_opt (head_name (ig_head g)) (EE_Unsupported p "impl for this type") ;;
+  ctx <- bound_ctx p (ig_tparams g) (ig_bounds g) ;;
+  (* every method must be implemented, or have a default *)
+  _ <- mapM (fun s =>
+               if existsb (fun im => eqb (sim_name im) (ms_name s)) (ig_methods g)
+                  || existsb (eqb (ms_name s)) (ti_defaults ti)
+               then Ok tt else Err (EE_MissingMethod p (ig_trait g) (ms_name s)))
+            (ti_methods ti) ;;
+  _ <- if NoDup_dec (map sim_name (ig_methods g)) then Ok tt else Err (EE_Overlap p) ;;
+  _ <- mapM (fun im => match method_of ti (sim_name im) with
+                       | Some _ => Ok tt
+                       | None => Err (EE_NoMethod p (sim_name im) (ig_head g))
+                       end) (ig_methods g) ;;
+  Ok (mk_iinfo g ti H ctx (mk_idef (ig_trait g) h n ctx (inst_name (ig_trait g) H))).
+
+(** The signatures generated for an instance: its methods and its
+    dictionary function. *)
+Definition group_sigs (ii : iinfo) : list fdef :=
+  let g := ii_group ii in
+  let σ := tsubst (inst [ig_head g]) in
+  let n := List.length (ig_tparams g) in
+  let dicts := map dict_ty (ii_ctx ii) in
+  mk_fdef (inst_name (ig_trait g) (ii_name ii)) n dicts (TData (ig_trait g) [ig_head g]) TNever (ELit LUnit)
+  :: flat_map (fun im => match method_of (ii_ti ii) (sim_name im) with
+                         | Some (_, s) =>
+                             [mk_fdef (impl_name (ig_trait g) (ii_name ii) (sim_name im)) n
+                                      (List.app dicts (map σ (ms_params s))) (σ (ms_ret s))
+                                      (σ (ms_eff s)) (ELit LUnit)]
+                         | None => []
+                         end) (ig_methods g).
+
+(** The dictionary function of an instance. *)
+Definition inst_body (insts : list idef) (trs : list trinfo) (defaults : list (ident * ident))
+    (ii : iinfo) : result expr elab_error :=
+  let g := ii_group ii in
+  let ti := ii_ti ii in
+  let p := ig_pos g in
+  let n := List.length (ig_tparams g) in
+  let nc := List.length (ii_ctx ii) in
+  let tvars := map TVar (seq 0 n) in
+  let τh := ig_head g in
+  let σ := tsubst (inst [τh]) in
+  let Θ := map (fun jc => (fst (snd jc), TVar (snd (snd jc)), EVar (fst jc)))
+               (combine (seq 0 nc) (ii_ctx ii)) in
+  sups <- mapM (fun S => match entails_dec insts Θ S τh with
+                         | inleft (exist _ d _) => Ok d
+                         | inright _ => Err (EE_NoInstance p S τh)
+                         end) (ti_supers ti) ;;
+  ms <- mapM (fun s =>
+                let ps := map σ (ms_params s) in
+                let k := List.length ps in
+                let lvars := map EVar (seq 0 k) in
+                let dvars := map (fun j => EVar (k + j)) (seq 0 nc) in
+                if existsb (fun im => eqb (sim_name im) (ms_name s)) (ig_methods g) then
+                  Ok (ELam ps (σ (ms_ret s)) (σ (ms_eff s))
+                        (EApp (EGlobal (impl_name (ig_trait g) (ii_name ii) (ms_name s)) tvars)
+                              (List.app dvars lvars)))
+                else
+                  let self := EApp (EGlobal (inst_name (ig_trait g) (ii_name ii)) tvars) dvars in
+                  Ok (ELam ps (σ (ms_ret s)) (σ (ms_eff s))
+                        (EApp (EGlobal (default_name (ig_trait g) (ms_name s)) [τh]) (self :: lvars))))
+             (ti_methods ti) ;;
+  Ok (EConstr (ig_trait g) (ig_trait g) [τh] (ETuple (List.app sups ms))).
+
+(** The automatic instance of each trait [S] of an object type [&Tr]. *)
+Definition obj_insts (trs : list trinfo) (Tr : ident) : list (idef * fdef) :=
+  let On := obj_name Tr in
+  map (fun Sn => (mk_idef Sn (HData On) 0 [] (inst_name Sn On),
+                  mk_fdef (inst_name Sn On) 0 [] (TData Sn [TData On []]) TNever (ELit LUnit)))
+      (closure trs Tr).
+
+Definition obj_inst_body (insts : list idef) (trs : list trinfo) (Tr Sn : ident) :
+    result expr elab_error :=
+  let On := obj_name Tr in
+  let τo := TData On [] in
+  let fs := obj_fields trs Tr in
+  ti <- of_opt (find_trait trs Sn) (EE_UnknownType (mk_pos 0%N 0%N) Sn) ;;
+  sups <- mapM (fun S' => match entails_dec insts [] S' τo with
+                          | inleft (exist _ d _) => Ok d
+                          | inright _ => Err (EE_NoInstance (mk_pos 0%N 0%N) S' τo)
+                          end) (ti_supers ti) ;;
+  ms <- mapM (fun s =>
+                j <- of_opt (index_of (ms_name s) (map (fun sm => ms_name (snd sm)) fs))
+                            (EE_NotObjectSafe (mk_pos 0%N 0%N) Tr) ;;
+                let ps := tl (ms_params s) in
+                let k := List.length ps in
+                Ok (ELam (τo :: ps) (ms_ret s) (ms_eff s)
+                      (EApp (field_of On (List.length fs) j (EVar 0) (obj_field_ty s))
+                            (map EVar (seq 1 k)))))
+             (ti_methods ti) ;;
+  Ok (EConstr Sn Sn [τo] (ETuple (List.app sups ms))).
+
+(** ** Programs *)
 
 (** The entry expression is the body of [fn main] (checked against [Unit]),
     or [()] when there is none.  [Option], [Ref], [Result] and [Failure]
     are predeclared. *)
 Definition elab_prog (sp : sprog) : result (genv * expr) elab_error :=
-  let tys := ("Option", 1) :: ("Ref", 1) :: ("Result", 2) :: ("Failure", 0)
-             :: map (fun st => (st_name st, List.length (st_tparams st))) (sp_types sp) in
+  let trnames := map str_name (sp_traits sp) in
+  let tys := List.app [("Option", 1); ("Ref", 1); ("Result", 2); ("Failure", 0)]
+               (List.app (map (fun st => (st_name st, List.length (st_tparams st))) (sp_types sp))
+                  (List.app (map (fun n => (n, 1)) trnames)
+                            (map (fun n => (obj_name n, 0)) trnames))) in
   let sinfo := ("Ref", ["val"]) :: flat_map (fun st => match st_body st with
                                    | SDStruct fs => [(st_name st, map (fun f => fst (fst f)) fs)]
                                    | _ => []
                                    end) (sp_types sp) in
+  trs <- mapM (elab_trait tys) (sp_traits sp) ;;
+  let objs := filter (obj_safe trs) trnames in
   tds <- mapM (elab_tdef tys) (sp_types sp) ;;
-  let types := option_tdef :: ref_tdef :: result_tdef :: failure_tdef :: tds in
+  let types := List.app [option_tdef; ref_tdef; result_tdef; failure_tdef]
+                 (List.app tds (List.app (map dict_tdef trs) (map (obj_tdef trs) objs))) in
+  (* impls: grouped by trait and type; default implementations apart *)
+  groups <- fold_left
+              (fun acc i =>
+                 gs <- acc ;;
+                 match si_self i with
+                 | Some t => τ <- elab_ty tys (si_tparams i) t ;;
+                             Ok (add_impl gs (si_pos i) (si_trait i) τ (si_tparams i) (si_bounds i)
+                                          (si_method i))
+                 | None => Ok gs
+                 end) (sp_impls sp) (Ok []) ;;
+  iis <- mapM (check_group trs) groups ;;
+  let defaults := flat_map (fun i => match si_self i, si_method i with
+                                     | None, Some m => [(si_trait i, m)]
+                                     | _, _ => []
+                                     end) (sp_impls sp) in
+  dsigs <- mapM (fun tm =>
+                   let '(Tr, im) := tm in
+                   ti <- of_opt (find_trait trs Tr) (EE_UnknownType (mk_pos 0%N 0%N) Tr) ;;
+                   '(_, s) <- of_opt (method_of ti (sim_name im)) (EE_NoMethod (mk_pos 0%N 0%N) (sim_name im) TUnit) ;;
+                   Ok (mk_fdef (default_name Tr (sim_name im)) 1
+                               (TData Tr [TVar 0] :: ms_params s) (ms_ret s) (ms_eff s) (ELit LUnit)))
+                defaults ;;
+  let oinsts := flat_map (obj_insts trs) objs in
+  let insts := List.app (map ii_idef iis) (map fst oinsts) in
+  _ <- if coherent_dec insts then Ok tt else Err (EE_Overlap (mk_pos 0%N 0%N)) ;;
+  (* signatures *)
   sigs <- mapM (elab_sig tys) (sp_funs sp) ;;
-  let hdr := mk_genv types sigs in
-  funs <- elab_funs tys hdr sinfo (sp_funs sp) sigs ;;
+  let gsigs := flat_map group_sigs iis in
+  let hdr := mk_genv types (List.app sigs (List.app gsigs (List.app dsigs (map snd oinsts)))) in
+  let bounds := List.app
+    (flat_map (fun f => match bound_ctx (sf_pos f) (sig_tparams f) (sf_bounds f) with
+                        | Ok ctx => [(fun_name f, ctx)]
+                        | Err _ => []
+                        end) (sp_funs sp))
+    (List.app
+       (flat_map (fun ii => map (fun im => (impl_name (ig_trait (ii_group ii)) (ii_name ii) (sim_name im),
+                                            ii_ctx ii))
+                                (ig_methods (ii_group ii))) iis)
+       (flat_map (fun ii => [(inst_name (ig_trait (ii_group ii)) (ii_name ii), ii_ctx ii)]) iis)) in
+  let meths := flat_map (fun f => match sf_self f with Some T => [(T, sf_name f)] | None => [] end)
+                        (sp_funs sp) in
+  let gx := mk_xenv trs insts bounds meths objs [] in
+  (* bodies *)
+  funs <- elab_funs tys hdr sinfo gx (sp_funs sp) sigs ;;
+  imfs <- mapM (fun ii =>
+                  let g := ii_group ii in
+                  let σ := tsubst (inst [ig_head g]) in
+                  mapM (fun im =>
+                          '(_, s) <- of_opt (method_of (ii_ti ii) (sim_name im))
+                                            (EE_NoMethod (ig_pos g) (sim_name im) TUnit) ;;
+                          let ps := map σ (ms_params s) in
+                          _ <- if Nat.eqb (List.length (sim_params im)) (List.length ps) then Ok tt
+                               else Err (EE_Type (ig_pos g) (E_ArgArity (List.length ps)
+                                                                        (List.length (sim_params im)))) ;;
+                          let Γp := combine (map (fun x => Some (fst x)) (sim_params im)) ps in
+                          b <- elab_body tys hdr sinfo (ig_tparams g) gx (ii_ctx ii) Γp
+                                         (σ (ms_ret s)) (σ (ms_eff s)) (sim_body im) ;;
+                          Ok (mk_fdef (impl_name (ig_trait g) (ii_name ii) (sim_name im))
+                                      (List.length (ig_tparams g))
+                                      (List.app (map dict_ty (ii_ctx ii)) ps)
+                                      (σ (ms_ret s)) (σ (ms_eff s)) b))
+                       (ig_methods g)) iis ;;
+  ifs <- mapM (fun ii =>
+                 let g := ii_group ii in
+                 b <- inst_body insts trs [] ii ;;
+                 Ok (mk_fdef (inst_name (ig_trait g) (ii_name ii)) (List.length (ig_tparams g))
+                             (map dict_ty (ii_ctx ii)) (TData (ig_trait g) [ig_head g]) TNever b)) iis ;;
+  dfs <- mapM (fun tm =>
+                 let '(Tr, im) := tm in
+                 ti <- of_opt (find_trait trs Tr) (EE_UnknownType (mk_pos 0%N 0%N) Tr) ;;
+                 '(_, s) <- of_opt (method_of ti (sim_name im)) (EE_NoMethod (mk_pos 0%N 0%N) (sim_name im) TUnit) ;;
+                 let Γp := combine (map (fun x => Some (fst x)) (sim_params im)) (ms_params s) in
+                 b <- elab_body tys hdr sinfo ["Self"] gx [(Tr, 0)] Γp (ms_ret s) (ms_eff s) (sim_body im) ;;
+                 Ok (mk_fdef (default_name Tr (sim_name im)) 1 (TData Tr [TVar 0] :: ms_params s)
+                             (ms_ret s) (ms_eff s) b)) defaults ;;
+  ofs <- mapM (fun Tr =>
+                 mapM (fun Sn =>
+                         b <- obj_inst_body insts trs Tr Sn ;;
+                         Ok (mk_fdef (inst_name Sn (obj_name Tr)) 0 [] (TData Sn [TData (obj_name Tr) []])
+                                     TNever b)) (closure trs Tr)) objs ;;
   main <- match sp_main sp with
           | Some e =>
-              elab_body tys hdr sinfo [] [] TUnit TNever
+              elab_body tys hdr sinfo [] gx [] [] TUnit TNever
                         (SAnnot (sexpr_pos e) e (SName (sexpr_pos e) "Unit" []))
           | None => Ok (ELit LUnit)
           end ;;
-  Ok (mk_genv types funs, main).
+  Ok (mk_genv types (List.app funs (List.app (List.concat imfs) (List.app ifs (List.app dfs (List.concat ofs))))),
+      main).

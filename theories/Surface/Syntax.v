@@ -32,7 +32,8 @@ Record pos : Type := mk_pos { pos_line : N; pos_col : N }.
 Inductive sty : Type :=
 | SName  (p : pos) (n : ident) (args : list sty)
 | STuple (p : pos) (ts : list sty)
-| SArrow (p : pos) (ps : list sty) (r : sty) (eff : option sty).
+| SArrow (p : pos) (ps : list sty) (r : sty) (eff : option sty)
+| SObj   (p : pos) (Tr : ident).                (** trait object [&Tr] *)
 
 (** Literals.  [SLInt None z] is an unsuffixed integer literal: its kind
     comes from the expected type, defaulting to [Int]. *)
@@ -103,14 +104,20 @@ Inductive sexpr : Type :=
             (noraise : option (list (spat * sexpr)))
     (** [try body catch { arms } noraise { arms }] (also [body catch { .. }]) *)
 | STryBang  (p : pos) (body : sexpr)                                  (** [try! body] *)
-| SDefer    (p : pos) (onerr : bool) (c body : sexpr).                (** [defer c; body] / [errdefer] *)
+| SDefer    (p : pos) (onerr : bool) (c body : sexpr)                 (** [defer c; body] / [errdefer] *)
+(* ---- milestone M5: traits ---- *)
+| SAs       (p : pos) (e : sexpr) (Tr : ident).                       (** [e as &Tr] *)
 
-(** A top-level function [fn[T, ..] f(x : A, ..) -> R { body }].
-    A missing return type means [Unit], as in MoonBit. *)
+(** A top-level function [fn[T : Tr, ..] f(x : A, ..) -> R { body }], or a
+    method [fn T::f(self : T, ..)] ([sf_self = Some T]).  A missing return
+    type means [Unit], as in MoonBit.  [sf_bounds] lists the trait bounds
+    [(type parameter, trait)]. *)
 Record sfun : Type := mk_sfun {
   sf_pos     : pos;
+  sf_self    : option ident;
   sf_name    : ident;
   sf_tparams : list ident;
+  sf_bounds  : list (ident * ident);
   sf_params  : list (ident * sty);
   sf_ret     : option sty;
   sf_eff     : option sty;     (** as for [SArrow] *)
@@ -133,10 +140,51 @@ Record stype : Type := mk_stype {
   st_body    : sdecl
 }.
 
-(** A program: type declarations, top-level functions and the body of
-    [fn main], if any. *)
+(** A trait method signature; [Self] is the type name [Self]. *)
+Record smeth : Type := mk_smeth {
+  sm_name    : ident;
+  sm_params  : list sty;
+  sm_ret     : sty;
+  sm_eff     : option sty;
+  sm_default : bool            (** declared [= _]: has a default implementation *)
+}.
+
+(** [trait Tr : S1 + S2 { methods }] *)
+Record strait : Type := mk_strait {
+  str_pos     : pos;
+  str_name    : ident;
+  str_supers  : list ident;
+  str_methods : list smeth
+}.
+
+(** One method of an [impl]: [with m(params) -> R raise E { body }]; the
+    parameter types may be omitted (they come from the trait). *)
+Record simethod : Type := mk_simethod {
+  sim_name   : ident;
+  sim_params : list (ident * option sty);
+  sim_ret    : option sty;
+  sim_eff    : option sty;
+  sim_body   : sexpr
+}.
+
+(** [impl[X : B, ..] Tr for T with m(..) { .. }]; [si_self = None] is a
+    default implementation [impl Tr with m(..)], and [si_method = None] a
+    bare [impl Tr for T]. *)
+Record simpl : Type := mk_simpl {
+  si_pos     : pos;
+  si_tparams : list ident;
+  si_bounds  : list (ident * ident);
+  si_trait   : ident;
+  si_self    : option sty;
+  si_method  : option simethod
+}.
+
+(** A program: type declarations, traits, impls, top-level functions and
+    the body of [fn main], if any. *)
 Record sprog : Type := mk_sprog {
   sp_types : list stype;
+  sp_traits : list strait;
+  sp_impls : list simpl;
   sp_funs  : list sfun;
   sp_main  : option sexpr
 }.
@@ -149,5 +197,6 @@ Definition sexpr_pos (e : sexpr) : pos :=
   | SLetMut p _ _ _ _ | SAssign p _ _ _ | SArray p _ | SIndex p _ _ | SIndexSet p _ _ _ _
   | SFieldSet p _ _ _ _ | SMethod p _ _ _ | SQual p _ _ | SWhile p _ _ _ _
   | SFor p _ _ _ _ _ _ | SBlock p _ _ | SBreak p _ _ | SContinue p _ _ | SReturn p _
-  | SForIn p _ _ _ _ _ _ _ | SRaise p _ | STry p _ _ _ | STryBang p _ | SDefer p _ _ _ => p
+  | SForIn p _ _ _ _ _ _ _ | SRaise p _ | STry p _ _ _ | STryBang p _ | SDefer p _ _ _
+  | SAs p _ _ => p
   end.

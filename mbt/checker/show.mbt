@@ -231,6 +231,16 @@ pub fn show_elab_error(e : Elab_error) -> String {
     EE_NoMethod(p, m, t) =>
       "\{show_pos(p)}: no method `\{string_of_ident(m)}` on \{show_ty(t)}"
     EE_NotError(p, t) => "\{show_pos(p)}: not an error type: \{show_ty(t)}"
+    EE_NoInstance(p, tr, t) =>
+      "\{show_pos(p)}: type \{show_ty(t)} does not implement `\{string_of_ident(tr)}`"
+    EE_AmbiguousMethod(p, m) =>
+      "\{show_pos(p)}: method `\{string_of_ident(m)}` is ambiguous; write `Trait::\{string_of_ident(m)}`"
+    EE_MissingMethod(p, tr, m) =>
+      "\{show_pos(p)}: impl of `\{string_of_ident(tr)}` is missing method `\{string_of_ident(m)}`"
+    EE_Overlap(p) => "\{show_pos(p)}: overlapping implementations of a trait"
+    EE_NotObjectSafe(p, tr) =>
+      "\{show_pos(p)}: trait `\{string_of_ident(tr)}` cannot be used as an object"
+    EE_Unsupported(p, what) => "\{show_pos(p)}: unsupported: \{string_of_ident(what)}"
   }
 }
 
@@ -292,7 +302,13 @@ pub fn render_outcome(o : Outcome) -> (Bool, Array[String]) {
           lines.push(show_tdef(td))
         }
       }
-      lines.append(list_to_array(fds).map(show_fdef))
+      // functions generated for traits (dictionaries, impl methods) have a `$`
+      for fd in list_to_array(fds) {
+        let Mk_fdef(name, _, _, _, _, _) = fd
+        if !string_of_ident(name).contains("$") {
+          lines.push(show_fdef(fd))
+        }
+      }
       lines.push("main : " + show_ty(t))
       (true, lines)
     }
