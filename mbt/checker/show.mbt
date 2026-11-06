@@ -132,6 +132,12 @@ pub fn show_ty(t : Ty) -> String {
     TVar(i) => "T\{nat_to_int(i)}"
     TTuple(ts) => "(" + show_tys(ts) + ")"
     TArrow(ps, r) => "(" + show_tys(ps) + ") -> " + show_ty(r)
+    TData(n, ts) =>
+      if ts is Nil {
+        string_of_ident(n)
+      } else {
+        string_of_ident(n) + "[" + show_tys(ts) + "]"
+      }
   }
 }
 
@@ -154,6 +160,15 @@ pub fn show_type_error(e : Type_error) -> String {
     E_TupleIndex(i, t) => "tuple \{show_ty(t)} has no field \{nat_to_int(i)}"
     E_DuplicateGlobal => "duplicate top-level definition"
     E_InGlobal(f, e) => "in `\{string_of_ident(f)}`: " + show_type_error(e)
+    E_UnknownType(t) => "unknown type `\{string_of_ident(t)}`"
+    E_UnknownCtor(t, c) =>
+      "type `\{string_of_ident(t)}` has no constructor `\{string_of_ident(c)}`"
+    E_NotData(t) => "not a data type: \{show_ty(t)}"
+    E_PatArity(n, m) => "pattern expects \{nat_to_int(n)} field(s), got \{nat_to_int(m)}"
+    E_DuplicateType => "duplicate type definition"
+    E_DuplicateCtor => "duplicate constructor"
+    E_IllFormed(t) => "ill-formed type \{show_ty(t)}"
+    E_InType(t, e) => "in type `\{string_of_ident(t)}`: " + show_type_error(e)
   }
 }
 
@@ -162,8 +177,8 @@ pub fn show_elab_error(e : Elab_error) -> String {
   match e {
     EE_Unbound(p, x) => "\{show_pos(p)}: unbound identifier `\{string_of_ident(x)}`"
     EE_UnknownType(p, n) => "\{show_pos(p)}: unknown type `\{string_of_ident(n)}`"
-    EE_TypeArgs(p, n) =>
-      "\{show_pos(p)}: type `\{string_of_ident(n)}` takes no type arguments"
+    EE_TypeArgs(p, n, k, m) =>
+      "\{show_pos(p)}: type `\{string_of_ident(n)}` expects \{nat_to_int(k)} type argument(s), got \{nat_to_int(m)}"
     EE_CannotInfer(p, f) =>
       "\{show_pos(p)}: cannot infer the type arguments of `\{string_of_ident(f)}`"
     EE_LambdaParam(p, x) =>
@@ -175,6 +190,16 @@ pub fn show_elab_error(e : Elab_error) -> String {
     EE_Annot(p, a, b) =>
       "\{show_pos(p)}: type mismatch: expected \{show_ty(a)}, found \{show_ty(b)}"
     EE_Type(p, e) => "\{show_pos(p)}: " + show_type_error(e)
+    EE_UnknownCtor(p, c) => "\{show_pos(p)}: unknown constructor `\{string_of_ident(c)}`"
+    EE_AmbiguousCtor(p, c) =>
+      "\{show_pos(p)}: constructor `\{string_of_ident(c)}` is ambiguous; write `T::\{string_of_ident(c)}`"
+    EE_CtorArity(p, c, n, m) =>
+      "\{show_pos(p)}: constructor `\{string_of_ident(c)}` expects \{nat_to_int(n)} argument(s), got \{nat_to_int(m)}"
+    EE_NotRecord(p, t) => "\{show_pos(p)}: not a struct with named fields: \{show_ty(t)}"
+    EE_UnknownField(p, f) => "\{show_pos(p)}: unknown field `\{string_of_ident(f)}`"
+    EE_MissingField(p, f) => "\{show_pos(p)}: missing field `\{string_of_ident(f)}`"
+    EE_PatType(p, t) => "\{show_pos(p)}: pattern does not match type \{show_ty(t)}"
+    EE_EmptyMatch(p) => "\{show_pos(p)}: cannot infer the type of an empty match"
   }
 }
 
@@ -191,6 +216,26 @@ fn show_fdef(fd : Fdef) -> String {
 }
 
 ///|
+fn show_tdef(td : Tdef) -> String {
+  let Mk_tdef(name, n, cds) = td
+  let k = nat_to_int(n)
+  let tps = if k == 0 {
+    ""
+  } else {
+    "[" + Array::makei(k, i => "T\{i}").join(", ") + "]"
+  }
+  let ctors = list_to_array(cds).map(cd => {
+    let Mk_cdef(c, fs) = cd
+    if fs is Nil {
+      string_of_ident(c)
+    } else {
+      string_of_ident(c) + "(" + show_tys(fs) + ")"
+    }
+  })
+  "type \{string_of_ident(name)}\{tps} = " + ctors.join(" | ")
+}
+
+///|
 /// Outcome of `check_source`, as (accepted?, message lines).
 pub fn render_outcome(o : Outcome) -> (Bool, Array[String]) {
   match o {
@@ -200,8 +245,15 @@ pub fn render_outcome(o : Outcome) -> (Bool, Array[String]) {
       (false, ["\{show_pos(p)}: unsupported: \{what}"])
     O_Elab(e) => (false, [show_elab_error(e)])
     O_Type(e) => (false, ["type error: " + show_type_error(e)])
-    O_Ok(ge, _, t) => {
-      let lines = list_to_array(ge).map(show_fdef)
+    O_Ok(Mk_genv(tds, fds), _, t) => {
+      let lines = []
+      for td in list_to_array(tds) {
+        let Mk_tdef(name, _, _) = td
+        if string_of_ident(name) != "Option" {
+          lines.push(show_tdef(td))
+        }
+      }
+      lines.append(list_to_array(fds).map(show_fdef))
       lines.push("main : " + show_ty(t))
       (true, lines)
     }

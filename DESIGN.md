@@ -115,7 +115,7 @@ checker 对尚未支持的构造直接拒绝，这样每个里程碑结束时，
 | M0 | 基础设施：dune、Prelude（Result/EqDec/Ident），构建脚本 ✅ |
 | M1 | Core λ：原始类型、函数、let、if、元组、全局（互）递归函数、rank-1 泛型、原语运算 ✅（见 `theories/Core/Theorems.v`） |
 | M1.5 | 前端原型 ✅：经 rocq2mbt 抽取到 MoonBit，接上官方 parser，得到可运行的 `moonrocq` 命令（见第 7 节）。`Surface/Elab.v` 是**未经验证**的临时 elaborator，输出由 Core checker 重新检查；M6 用有规范的 certified elaborator 取代它 |
-| M2 | 名义 ADT（struct/enum/tuple struct）+ 模式匹配 |
+| M2 | 名义 ADT（struct/enum/tuple struct）+ 模式匹配 ✅（Core：`TData`、`EConstr`、`EMatch`，模式为通配/变量/字面量/元组/构造子；Surface：类型声明、构造子、记录、字段访问、`match`、解构 `let`、内建 `Option`；见第 8 节） |
 | M3 | 状态与循环：`let mut`、`mut` 字段、数组、`while`/`for`、带标签 `break`/`continue`/`nobreak`、`return` |
 | M4 | 错误与 effect：suberror、`Error`、`raise`/`raise?`/`noraise`、`try`/`catch`/`noraise`、`defer`/`errdefer` |
 | M5 | trait：声明/impl/supertrait/默认方法、字典 elaboration、一致性、trait object |
@@ -169,3 +169,30 @@ ref/moonbit-docs   语言文档（不入库）
   parser 升级后要重跑 `extract.sh`（重新生成 `Parser.v`）和 `test_frontend.sh`；
   胶水按构造子匹配 `@syntax` AST，AST 变了要相应修改 `lower.mbt`。
 
+## 8. M2：数据类型与模式匹配
+
+**Core**
+- 类型加 `TData T ts`；全局环境改为记录 `{ ge_types; ge_funs }`。`tdef` 列出构造子及其字段类型
+  （字段类型里的 `TVar i` 指类型参数）。struct 和 tuple struct 是同名的单构造子类型，
+  字段名只在 Surface 层出现。
+- `EConstr T c ts e`：构造子的载荷 `e` 是字段元组，所以只多一种帧 `FConstr` 和一种值
+  `V_Constr`。
+- `EMatch e τ bs`：带结果类型，空 `match` 的类型也唯一。模式 `pat` 是通配、变量、字面量、元组、
+  构造子；变量无名，从左到右绑定，最左边的是分支体里的 de Bruijn 0（与 `ELam` 的参数顺序一致）。
+  模式类型 `⊢ᵖ[ge] p : τ ⇝ Δ`，分支类型 `Γ ⊢ᵇ[ge] bs : τs ⇒ τ`（与表达式类型互递归）。
+- 语义：`pmatch`/`first_match` 是函数；没有分支匹配时归约到 `SAbort`（MoonBit 的 panic），
+  所以 progress 不需要穷尽性。关键引理 `pmatch_typed`：良类型值匹配成功时，绑定的值具有 `Δ` 中的类型。
+- `genv_ok` 增加：类型名、构造子名不重复；构造子字段类型和函数签名良构（`ty_wf`：
+  数据类型存在且参数个数正确、类型变量在范围内）。soundness 不需要良构性，它让声明有意义，
+  也让 `inst` 的默认值不可达（决定 8）。
+- checker：`check_pat`/`check_pats` 与 `check_branches` 用和 `check_list` 一样的嵌套递归写法，
+  完备性逐一证明。
+
+**Surface**（临时 elaborator）
+- 构造子解析：`T::C` → 期望类型的构造子 → 唯一声明了 `C` 的类型；有名字段的 struct
+  只能用 `{ .. }` 构造。构造子的类型实参与泛型函数一样靠匹配推出。
+- 记录字面量按书写顺序求值：各字段先用 `let` 依次绑定，再构造（决定 25）。
+- 字段访问 `e.f`、tuple struct 的 `e.0` 消成单分支 `match`；`let p = e; body` 消成
+  `match e { p => body }`。
+- 模式中 `C(..)`/`{ x, .. }` 用通配补齐，字段双关 `{ x }` 是 `{ x: x }`。
+- `Option[T]`（含 `T?`）是预先声明的 `enum Option[T] { None; Some(T) }`。

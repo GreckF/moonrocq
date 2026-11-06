@@ -52,7 +52,8 @@ Inductive ty : Type :=
 | TBase  (b : base_ty)
 | TVar   (i : nat)
 | TTuple (ts : list ty)
-| TArrow (ps : list ty) (r : ty).
+| TArrow (ps : list ty) (r : ty)
+| TData  (T : ident) (ts : list ty).       (** nominal type [T[ts]] (struct / enum) *)
 
 Abbreviation TUnit   := (TBase BUnit).
 Abbreviation TBool   := (TBase BBool).
@@ -66,6 +67,7 @@ Section ty_ind'.
   Hypothesis HVar   : forall i, P (TVar i).
   Hypothesis HTuple : forall ts, Forall P ts -> P (TTuple ts).
   Hypothesis HArrow : forall ps r, Forall P ps -> P r -> P (TArrow ps r).
+  Hypothesis HData  : forall T ts, Forall P ts -> P (TData T ts).
 
   Fixpoint ty_ind' (t : ty) : P t :=
     let fix go (ts : list ty) : Forall P ts :=
@@ -78,6 +80,7 @@ Section ty_ind'.
     | TVar i => HVar i
     | TTuple ts => HTuple ts (go ts)
     | TArrow ps r => HArrow ps r (go ps) (ty_ind' r)
+    | TData T ts => HData T ts (go ts)
     end.
 End ty_ind'.
 
@@ -106,17 +109,21 @@ Fixpoint ty_eqb (a b : ty) : bool :=
   | TVar i, TVar j => Nat.eqb i j
   | TTuple xs, TTuple ys => forall2b ty_eqb xs ys
   | TArrow ps r, TArrow qs s => (forall2b ty_eqb ps qs && ty_eqb r s)%bool
+  | TData T ts, TData U us => (eqb T U && forall2b ty_eqb ts us)%bool
   | _, _ => false
   end.
 
 Lemma ty_eqb_eq (a b : ty) : ty_eqb a b = true <-> a = b.
 Proof.
-  revert b; induction a as [x|i|xs IH|ps r IHps IHr] using ty_ind';
-    intros [y|j|ys|qs s]; cbn [ty_eqb]; try (split; congruence).
+  revert b; induction a as [x|i|xs IH|ps r IHps IHr|T ts IH] using ty_ind';
+    intros [y|j|ys|qs s|U us]; cbn [ty_eqb]; try (split; congruence).
   - rewrite eqb_eq. split; congruence.
   - rewrite Nat.eqb_eq. split; congruence.
   - rewrite (forall2b_eq _ _ IH). split; congruence.
   - rewrite Bool.andb_true_iff, (forall2b_eq _ _ IHps), IHr. split.
+    + intros [-> ->]; reflexivity.
+    + intros E; inversion E; auto.
+  - rewrite Bool.andb_true_iff, eqb_eq, (forall2b_eq _ _ IH). split.
     + intros [-> ->]; reflexivity.
     + intros E; inversion E; auto.
 Qed.
@@ -140,6 +147,13 @@ Inductive lit : Type :=
 | LDouble (bits : Z)
 | LFloat  (bits : Z)
 | LString (s : list Z).
+
+Definition lit_eq_dec (x y : lit) : {x = y} + {x <> y}.
+Proof.
+  decide equality; apply eq_dec.
+Defined.
+
+#[export] Instance EqDec_lit : EqDec lit := EqDec_of_dec lit_eq_dec.
 
 Definition lit_ty (l : lit) : base_ty :=
   match l with
@@ -167,6 +181,25 @@ Inductive prim_op : Type :=
 | PStrConcat
 | PStrEq.
 
+(** ** Patterns
+
+    Pattern variables are nameless: a pattern binds its [PVar]s from left
+    to right, the leftmost becoming de Bruijn index [0] of the branch body
+    (the same convention as the parameters of [ELam]). *)
+Inductive pat : Type :=
+| PWild
+| PVar
+| PLit    (l : lit)
+| PTuple  (ps : list pat)
+| PConstr (c : ident) (ps : list pat).      (** constructor of the scrutinee's type *)
+
+Fixpoint pat_arity (p : pat) : nat :=
+  match p with
+  | PWild | PLit _ => 0
+  | PVar => 1
+  | PTuple ps | PConstr _ ps => list_sum (map pat_arity ps)
+  end.
+
 (** ** Expressions *)
 
 Inductive expr : Type :=
@@ -179,7 +212,12 @@ Inductive expr : Type :=
 | EIf     (c t e : expr)
 | ETuple  (es : list expr)
 | EProj   (e : expr) (i : nat)
-| EPrim   (op : prim_op) (args : list expr).
+| EPrim   (op : prim_op) (args : list expr)
+| EConstr (T c : ident) (ts : list ty) (e : expr)
+    (** constructor [c] of [T[ts]]; the payload [e] is the tuple of fields *)
+| EMatch  (e : expr) (τ : ty) (bs : list (pat * expr)).
+    (** [match e { p => b, .. } : τ]; the result type keeps types unique
+        even for an empty [match] *)
 
 (** ** Global environment *)
 
@@ -195,10 +233,35 @@ Record fdef : Type := mk_fdef {
   fd_body    : expr
 }.
 
-Definition genv : Type := list fdef.
+(** A constructor and the types of its fields, over the type parameters of
+    its data type. *)
+Record cdef : Type := mk_cdef {
+  cd_name   : ident;
+  cd_fields : list ty
+}.
+
+(** A nominal data type [T[X0 .. Xn-1]] with its constructors.  MoonBit
+    [enum]s map to it directly; a [struct] or tuple struct [T] is a single
+    constructor also named [T] (field names live in the Surface layer). *)
+Record tdef : Type := mk_tdef {
+  td_name    : ident;
+  td_tparams : nat;
+  td_ctors   : list cdef
+}.
+
+Record genv : Type := mk_genv {
+  ge_types : list tdef;
+  ge_funs  : list fdef
+}.
 
 Definition lookup_fn (ge : genv) (f : ident) : option fdef :=
-  find (fun fd => eqb (fd_name fd) f) ge.
+  find (fun fd => eqb (fd_name fd) f) (ge_funs ge).
 
-Lemma lookup_fn_in ge f fd : lookup_fn ge f = Some fd -> In fd ge.
+Lemma lookup_fn_in ge f fd : lookup_fn ge f = Some fd -> In fd (ge_funs ge).
 Proof. unfold lookup_fn; intros H; now apply find_some in H. Qed.
+
+Definition lookup_ty (ge : genv) (T : ident) : option tdef :=
+  find (fun td => eqb (td_name td) T) (ge_types ge).
+
+Definition lookup_ctor (td : tdef) (c : ident) : option cdef :=
+  find (fun cd => eqb (cd_name cd) c) (td_ctors td).

@@ -26,7 +26,15 @@ Inductive type_error : Type :=
 | E_NotTuple        (t : ty)
 | E_TupleIndex      (i : nat) (t : ty)
 | E_DuplicateGlobal
-| E_InGlobal        (f : ident) (e : type_error).
+| E_InGlobal        (f : ident) (e : type_error)
+| E_UnknownType     (T : ident)
+| E_UnknownCtor     (T c : ident)
+| E_NotData         (t : ty)
+| E_PatArity        (expected got : nat)
+| E_DuplicateType
+| E_DuplicateCtor
+| E_IllFormed       (t : ty)
+| E_InType          (T : ident) (e : type_error).
 
 (** ** Certified building blocks *)
 
@@ -59,6 +67,20 @@ Definition as_tuple (t : ty) : result {ts : list ty | t = TTuple ts} type_error 
   | TTuple ts => Ok (exist _ ts eq_refl)
   | t' => Err (E_NotTuple t')
   end.
+
+Definition as_data (t : ty) : result {T : ident & {ts : list ty | t = TData T ts}} type_error :=
+  match t as t' return result {T : ident & {ts : list ty | t' = TData T ts}} type_error with
+  | TData T ts => Ok (existT _ T (exist _ ts eq_refl))
+  | t' => Err (E_NotData t')
+  end.
+
+Lemma ctor_fields_intro ge T c ts td cd :
+  lookup_ty ge T = Some td -> lookup_ctor td c = Some cd ->
+  ctor_fields ge T c ts = Some (map (tsubst (inst ts)) (cd_fields cd)).
+Proof. intros H1 H2; unfold ctor_fields; now rewrite H1, H2. Qed.
+
+Lemma cast_pat {ge p τ τ' Δ} : ⊢ᵖ[ge] p : τ ⇝ Δ -> τ = τ' -> ⊢ᵖ[ge] p : τ' ⇝ Δ.
+Proof. intros H ->; exact H. Defined.
 
 Lemma cast_ty {ge Γ e τ τ'} : Γ ⊢[ge] e : τ -> τ = τ' -> Γ ⊢[ge] e : τ'.
 Proof. intros H ->; exact H. Defined.
@@ -94,6 +116,61 @@ Section Check.
           Ok (Ts_cons ge Γ e es' τ τs' (cast_ty He (eq_sym Heq)) Hs)
       | es', τs' => Err (E_ArgArity (length τs') (length es'))
       end.
+
+  (** ** Patterns *)
+
+  Definition check_pats (cp : forall p τ, result {Δ | ⊢ᵖ[ge] p : τ ⇝ Δ} type_error) :
+      forall ps τs, result {Δ | ⊢ᵖ*[ge] ps : τs ⇝ Δ} type_error :=
+    fix go ps τs :=
+      match ps as ps', τs as τs' return result {Δ | ⊢ᵖ*[ge] ps' : τs' ⇝ Δ} type_error with
+      | [], [] => Ok (exist _ [] (Ps_nil ge))
+      | p :: ps', τ :: τs' =>
+          '(exist _ Δ1 H1) <- cp p τ ;;
+          '(exist _ Δ2 H2) <- go ps' τs' ;;
+          Ok (exist _ (Δ1 ++ Δ2) (Ps_cons ge p ps' τ τs' Δ1 Δ2 H1 H2))
+      | ps', τs' => Err (E_PatArity (length τs') (length ps'))
+      end.
+
+  Fixpoint check_pat (p : pat) (τ : ty) {struct p} : result {Δ | ⊢ᵖ[ge] p : τ ⇝ Δ} type_error :=
+    match p as p' return result {Δ | ⊢ᵖ[ge] p' : τ ⇝ Δ} type_error with
+    | PWild => Ok (exist _ [] (P_Wild ge τ))
+    | PVar => Ok (exist _ [τ] (P_Var ge τ))
+    | PLit l =>
+        Heq <- expect_ty τ (TBase (lit_ty l)) ;;
+        Ok (exist _ [] (cast_pat (P_Lit ge l) (eq_sym Heq)))
+    | PTuple ps =>
+        '(exist _ τs Et) <- as_tuple τ ;;
+        _ <- expect_nat (length τs) (length ps) (E_PatArity (length τs) (length ps)) ;;
+        '(exist _ Δ H) <- check_pats check_pat ps τs ;;
+        Ok (exist _ Δ (cast_pat (P_Tuple ge ps τs Δ H) (eq_sym Et)))
+    | PConstr c ps =>
+        '(existT _ T (exist _ ts Ed)) <- as_data τ ;;
+        '(exist _ td Htd) <- of_option (lookup_ty ge T) (E_UnknownType T) ;;
+        '(exist _ cd Hcd) <- of_option (lookup_ctor td c) (E_UnknownCtor T c) ;;
+        _ <- expect_nat (length (cd_fields cd)) (length ps)
+               (E_PatArity (length (cd_fields cd)) (length ps)) ;;
+        '(exist _ Δ H) <- check_pats check_pat ps (map (tsubst (inst ts)) (cd_fields cd)) ;;
+        Ok (exist _ Δ (cast_pat (P_Constr ge c ps T ts _ Δ
+                                   (ctor_fields_intro ge T c ts td cd Htd Hcd) H)
+                                (eq_sym Ed)))
+    end.
+
+  (** ** Branches of a [match] *)
+
+  Definition check_branches (inf : forall Γ e, result {τ | Γ ⊢[ge] e : τ} type_error)
+      (Γ : ctx) (τs τ : ty) : forall bs, result (Γ ⊢ᵇ[ge] bs : τs ⇒ τ) type_error :=
+    fix go bs :=
+      match bs as bs' return result (Γ ⊢ᵇ[ge] bs' : τs ⇒ τ) type_error with
+      | [] => Ok (Bs_nil ge Γ τs τ)
+      | (p, b) :: bs' =>
+          '(exist _ Δ Hp) <- check_pat p τs ;;
+          '(exist _ τb Hb) <- inf (Δ ++ Γ) b ;;
+          Heq <- expect_ty τ τb ;;
+          Hbs <- go bs' ;;
+          Ok (Bs_cons ge Γ p b bs' τs τ Δ Hp (cast_ty Hb (eq_sym Heq)) Hbs)
+      end.
+
+  (** ** Expressions *)
 
   Fixpoint infer (Γ : ctx) (e : expr) {struct e} : result {τ | Γ ⊢[ge] e : τ} type_error :=
     match e as e' return result {τ | Γ ⊢[ge] e' : τ} type_error with
@@ -137,6 +214,19 @@ Section Check.
         '(exist _ τs Et) <- as_tuple τ0 ;;
         '(exist _ τ Hi) <- of_option (nth_error τs i) (E_TupleIndex i τ0) ;;
         Ok (exist _ τ (T_Proj ge Γ e0 i τs τ (cast_ty H0 Et) Hi))
+    | EConstr T c ts e0 =>
+        '(exist _ td Htd) <- of_option (lookup_ty ge T) (E_UnknownType T) ;;
+        Hlen <- expect_nat (td_tparams td) (length ts)
+                  (E_TypeArgArity T (td_tparams td) (length ts)) ;;
+        '(exist _ cd Hcd) <- of_option (lookup_ctor td c) (E_UnknownCtor T c) ;;
+        '(exist _ τe He) <- infer Γ e0 ;;
+        Heq <- expect_ty (TTuple (map (tsubst (inst ts)) (cd_fields cd))) τe ;;
+        Ok (exist _ (TData T ts)
+                  (T_Constr ge Γ T c ts e0 td cd Htd Hlen Hcd (cast_ty He (eq_sym Heq))))
+    | EMatch e0 τ bs =>
+        '(exist _ τs H0) <- infer Γ e0 ;;
+        Hbs <- check_branches (fun Γ' e' => infer Γ' e') Γ τs τ bs ;;
+        Ok (exist _ τ (T_Match ge Γ e0 τs τ bs H0 Hbs))
     | EPrim op args =>
         _ <- expect_nat (length (fst (prim_sig op))) (length args)
                (E_ArgArity (length (fst (prim_sig op))) (length args)) ;;
@@ -162,13 +252,53 @@ Section Check.
     end.
 End Check.
 
-Definition check_names (ge : genv) : result (NoDup (map fd_name ge)) type_error :=
-  match NoDup_dec (map fd_name ge) with
-  | left H => Ok H
-  | right _ => Err E_DuplicateGlobal
+(** ** Global environment *)
+
+Definition check_bool (b : bool) (err : type_error) : result (b = true) type_error :=
+  match b as b' return result (b' = true) type_error with
+  | true => Ok eq_refl
+  | false => Err err
   end.
 
+Definition check_all {A} (P : A -> Prop) (f : forall a, result (P a) type_error) :
+    forall l, result (Forall P l) type_error :=
+  fix go l :=
+    match l as l' return result (Forall P l') type_error with
+    | [] => Ok (Forall_nil _)
+    | a :: l' =>
+        H <- f a ;;
+        Hs <- go l' ;;
+        Ok (Forall_cons a H Hs)
+    end.
+
+Definition check_nodup (l : list ident) (err : type_error) : result (NoDup l) type_error :=
+  match NoDup_dec l with
+  | left H => Ok H
+  | right _ => Err err
+  end.
+
+Definition check_wf (ge : genv) (n : nat) (t : ty) : result (ty_wf ge n t) type_error :=
+  check_bool (ty_wfb ge n t) (E_IllFormed t).
+
+Definition check_tdef (ge : genv) (td : tdef) : result (tdef_ok ge td) type_error :=
+  map_err (E_InType (td_name td))
+    (Hn <- check_nodup (map cd_name (td_ctors td)) E_DuplicateCtor ;;
+     Hf <- check_all (fun cd => Forall (ty_wf ge (td_tparams td)) (cd_fields cd))
+             (fun cd => check_all (ty_wf ge (td_tparams td)) (check_wf ge (td_tparams td))
+                          (cd_fields cd))
+             (td_ctors td) ;;
+     Ok (conj Hn Hf)).
+
+Definition check_fsig (ge : genv) (fd : fdef) : result (fsig_ok ge fd) type_error :=
+  map_err (E_InGlobal (fd_name fd))
+    (Hp <- check_all (ty_wf ge (fd_tparams fd)) (check_wf ge (fd_tparams fd)) (fd_params fd) ;;
+     Hr <- check_wf ge (fd_tparams fd) (fd_ret fd) ;;
+     Ok (conj Hp Hr)).
+
 Definition check_genv (ge : genv) : result (genv_ok ge) type_error :=
-  Hn <- check_names ge ;;
-  Hf <- check_fdefs ge ge ;;
-  Ok (conj Hn Hf).
+  Ht <- check_nodup (map td_name (ge_types ge)) E_DuplicateType ;;
+  Htd <- check_all (tdef_ok ge) (check_tdef ge) (ge_types ge) ;;
+  Hn <- check_nodup (map fd_name (ge_funs ge)) E_DuplicateGlobal ;;
+  Hs <- check_all (fsig_ok ge) (check_fsig ge) (ge_funs ge) ;;
+  Hf <- check_fdefs ge (ge_funs ge) ;;
+  Ok (conj Ht (conj Htd (conj Hn (conj Hs Hf)))).

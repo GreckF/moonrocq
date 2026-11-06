@@ -377,10 +377,12 @@ fn lower_type(t : @syntax.Type) -> Sty raise Unsupported {
       }
       Sty::SArrow(pos_of_loc(loc), lower_types(args), lower_type(res))
     }
-    Option(loc~, ..) => {
-      unsupported("option type", loc)
-      Sty::STuple(pos_of_loc(loc), List::Nil)
-    }
+    Option(ty~, loc~, ..) =>
+      Sty::SName(
+        pos_of_loc(loc),
+        ident_of_string("Option"),
+        List::Cons(lower_type(ty), List::Nil),
+      )
     Any(loc~) => {
       unsupported("type placeholder `_`", loc)
       Sty::STuple(pos_of_loc(loc), List::Nil)
@@ -412,6 +414,97 @@ fn var_name(v : @syntax.Var) -> String raise Unsupported {
       unsupported("qualified name @\{pkg}.\{id}", v.loc)
       id
     }
+  }
+}
+
+///|
+/// The `T` of `T::C`, if written.
+fn ctor_type(c : @syntax.Constructor) -> String0? raise Unsupported {
+  match c.extra_info {
+    NoExtraInfo => None
+    TypeName(tn) => Some(ident_of_string(type_name_str(tn)))
+    _ => {
+      unsupported("constructor of another package", c.loc)
+      None
+    }
+  }
+}
+
+///|
+fn type_name_str(tn : @syntax.TypeName) -> String raise Unsupported {
+  match tn.name {
+    Ident(name~) => name
+    Dot(pkg~, id~) => {
+      unsupported("qualified type @\{pkg}.\{id}", tn.loc)
+      id
+    }
+  }
+}
+
+///|
+fn lower_patterns(ps : @list.List[@syntax.Pattern]) -> List[Spat] raise Unsupported {
+  let out = []
+  for p in ps {
+    out.push(lower_pattern(p))
+  }
+  list_of_array(out)
+}
+
+///|
+fn lower_pattern(p : @syntax.Pattern) -> Spat raise Unsupported {
+  match p {
+    Any(loc~) => Spat::SPWild(pos_of_loc(loc))
+    Var(b) => Spat::SPVar(pos_of_loc(b.loc), ident_of_string(b.name))
+    Constant(c~, loc~) => Spat::SPLit(pos_of_loc(loc), lower_constant(c, loc))
+    Tuple(pats~, loc~) => Spat::SPTuple(pos_of_loc(loc), lower_patterns(pats))
+    Constr(constr~, args~, is_open~, loc~) => {
+      let ps = []
+      match args {
+        Some(xs) =>
+          for a in xs {
+            match a.kind {
+              Positional => ps.push(lower_pattern(a.pat))
+              _ => unsupported("labelled constructor pattern", loc)
+            }
+          }
+        None => ()
+      }
+      Spat::SPConstr(
+        pos_of_loc(loc),
+        ctor_type(constr),
+        ident_of_string(constr.name.name),
+        list_of_array(ps),
+        is_open,
+      )
+    }
+    Record(fields~, is_closed~, loc~) => {
+      let fs = []
+      for f in fields {
+        let sp = if f.is_pun {
+          Spat::SPVar(pos_of_loc(f.loc), ident_of_string(f.label.name))
+        } else {
+          lower_pattern(f.pattern)
+        }
+        fs.push((ident_of_string(f.label.name), sp))
+      }
+      Spat::SPRecord(pos_of_loc(loc), list_of_array(fs), !is_closed)
+    }
+    Constraint(pat~, ty~, loc~) =>
+      Spat::SPAnnot(pos_of_loc(loc), lower_pattern(pat), lower_type(ty))
+    _ => {
+      unsupported("this kind of pattern", p.loc())
+      Spat::SPWild(pos_of_loc(p.loc()))
+    }
+  }
+}
+
+///|
+/// `let x = e` / `let _ = e` / `let x : T = e`, without destructuring.
+fn simple_let_pattern(p : @syntax.Pattern) -> Bool {
+  match p {
+    Var(_) | Any(..) => true
+    Constraint(pat~, ..) => pat is (Var(_) | Any(..))
+    _ => false
   }
 }
 
@@ -478,9 +571,45 @@ fn lower_expr(e : @syntax.Expr) -> Sexpr raise Unsupported {
       )
     Unary(op~, expr~, loc~) =>
       Sexpr::SUnary(pos_of_loc(loc), ident_of_string(var_name(op)), lower_expr(expr))
-    Let(pattern~, expr~, body~, loc~) => {
-      let (x, ann) = lower_let_pattern(pattern, loc)
-      Sexpr::SLet(pos_of_loc(loc), x, ann, lower_expr(expr), lower_expr(body))
+    Let(pattern~, expr~, body~, loc~) =>
+      if simple_let_pattern(pattern) {
+        let (x, ann) = lower_let_pattern(pattern, loc)
+        Sexpr::SLet(pos_of_loc(loc), x, ann, lower_expr(expr), lower_expr(body))
+      } else {
+        // `let p = e; body` is `match e { p => body }`
+        Sexpr::SMatch(
+          pos_of_loc(loc),
+          lower_expr(expr),
+          List::Cons((lower_pattern(pattern), lower_expr(body)), List::Nil),
+        )
+      }
+    Constr(constr~, loc~) =>
+      Sexpr::SConstr(pos_of_loc(loc), ctor_type(constr), ident_of_string(constr.name.name))
+    Record(type_name~, fields~, loc~, ..) => {
+      let tq = match type_name {
+        Some(tn) => Some(ident_of_string(type_name_str(tn)))
+        None => None
+      }
+      let fs = []
+      for f in fields {
+        let fe = if f.is_pun {
+          Sexpr::SVar(pos_of_loc(f.loc), ident_of_string(f.label.name))
+        } else {
+          lower_expr(f.expr)
+        }
+        fs.push((ident_of_string(f.label.name), fe))
+      }
+      Sexpr::SRecord(pos_of_loc(loc), tq, list_of_array(fs))
+    }
+    Match(expr~, cases~, loc~, ..) => {
+      let cs = []
+      for c in cases {
+        if c.guard_ is Some(_) {
+          unsupported("match guard", loc)
+        }
+        cs.push((lower_pattern(c.pattern), lower_expr(c.body)))
+      }
+      Sexpr::SMatch(pos_of_loc(loc), lower_expr(expr), list_of_array(cs))
     }
     Sequence(exprs~, last_expr~, loc~) => {
       let es = exprs.to_array()
@@ -502,6 +631,8 @@ fn lower_expr(e : @syntax.Expr) -> Sexpr raise Unsupported {
       match accessor {
         Index(tuple_index~, ..) =>
           Sexpr::SProj(pos_of_loc(loc), lower_expr(record), nat_of_int(tuple_index))
+        Label(l) =>
+          Sexpr::SField(pos_of_loc(loc), lower_expr(record), ident_of_string(l.name))
         _ => {
           unsupported("field access", loc)
           Sexpr::SLit(pos_of_loc(loc), Slit::SLUnit)
@@ -617,7 +748,77 @@ fn lower_fun(
 }
 
 ///|
+fn lower_typedecl(d : @syntax.TypeDecl) -> Stype raise Unsupported {
+  let tps = []
+  for b in d.params {
+    match b.name {
+      Some(n) => tps.push(ident_of_string(n))
+      None => unsupported("anonymous type parameter", b.loc)
+    }
+  }
+  let body = match d.components {
+    Variant(cs) => {
+      let out = []
+      for c in cs {
+        if c.tag is Some(_) {
+          unsupported("constructor tag", c.loc)
+        }
+        let fs = []
+        match c.args {
+          Some(ps) =>
+            for p in ps {
+              if p.mut_ {
+                unsupported("mutable constructor field", c.loc)
+              }
+              if p.label is Some(_) {
+                unsupported("labelled constructor field", c.loc)
+              }
+              fs.push(lower_type(p.ty))
+            }
+          None => ()
+        }
+        out.push((ident_of_string(c.name.name), list_of_array(fs)))
+      }
+      Sdecl::SDEnum(list_of_array(out))
+    }
+    Record(fields~, constr_decl~) => {
+      if constr_decl is Some(_) {
+        unsupported("struct constructor declaration", d.loc)
+      }
+      let out = []
+      for f in fields {
+        if f.mut_ {
+          unsupported("mutable field", f.loc)
+        }
+        out.push((ident_of_string(f.name.label), lower_type(f.ty)))
+      }
+      Sdecl::SDStruct(list_of_array(out))
+    }
+    TupleStruct(tys) => Sdecl::SDTupleStruct(lower_types(tys))
+    Alias(_) => {
+      unsupported("type alias", d.loc)
+      Sdecl::SDEnum(List::Nil)
+    }
+    Error(_) => {
+      unsupported("suberror", d.loc)
+      Sdecl::SDEnum(List::Nil)
+    }
+    _ => {
+      unsupported("this kind of type declaration", d.loc)
+      Sdecl::SDEnum(List::Nil)
+    }
+  }
+  Stype::Mk_stype(
+    pos_of_loc(d.loc),
+    ident_of_string(d.tycon),
+    list_of_array(tps),
+    body,
+  )
+}
+
+///|
 fn lower_impls_exn(impls : @list.List[@syntax.Impl]) -> Sprog raise Unsupported {
+  let types = []
   let funs = []
   let mut main = None
   for i in impls {
@@ -646,7 +847,7 @@ fn lower_impls_exn(impls : @list.List[@syntax.Impl]) -> Sprog raise Unsupported 
           unsupported("fn init", loc)
         }
       TopTest(loc~, ..) => unsupported("test block", loc)
-      TopTypeDef(d) => unsupported("type definition", d.loc)
+      TopTypeDef(d) => types.push(lower_typedecl(d))
       TopLetDef(loc~, ..) => unsupported("top-level let", loc)
       TopTrait(d) => unsupported("trait definition", d.loc)
       TopImpl(loc~, ..) => unsupported("impl", loc)
@@ -657,7 +858,7 @@ fn lower_impls_exn(impls : @list.List[@syntax.Impl]) -> Sprog raise Unsupported 
       TopImport(loc~, ..) => unsupported("import", loc)
     }
   }
-  Sprog::Mk_sprog(list_of_array(funs), main)
+  Sprog::Mk_sprog(list_of_array(types), list_of_array(funs), main)
 }
 
 ///|

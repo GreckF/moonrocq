@@ -14,13 +14,15 @@
     application and [let] substitute them into the body. *)
 
 From Stdlib Require Import List.
+From MoonRocq.Prelude Require Import EqDec Ident.
 From MoonRocq.Core Require Import Syntax Prim Subst.
 Import ListNotations.
 
 Inductive value : expr -> Prop :=
 | V_Lit l : value (ELit l)
 | V_Lam ps r b : value (ELam ps r b)
-| V_Tuple vs : Forall value vs -> value (ETuple vs).
+| V_Tuple vs : Forall value vs -> value (ETuple vs)
+| V_Constr T c ts v : value v -> value (EConstr T c ts v).
 
 Inductive frame : Type :=
 | FAppFun (args : list expr)                          (** [□(args)] *)
@@ -29,7 +31,9 @@ Inductive frame : Type :=
 | FIf     (t e : expr)                                (** [if □ {t} else {e}] *)
 | FTuple  (done rest : list expr)                     (** [(done, □, rest)] *)
 | FProj   (i : nat)                                   (** [□.i] *)
-| FPrim   (op : prim_op) (done rest : list expr).     (** [op(done, □, rest)] *)
+| FPrim   (op : prim_op) (done rest : list expr)      (** [op(done, □, rest)] *)
+| FConstr (T c : ident) (ts : list ty)                (** [T::c(□)] *)
+| FMatch  (τ : ty) (bs : list (pat * expr)).          (** [match □ { bs }] *)
 
 Definition stack : Type := list frame.
 
@@ -48,6 +52,48 @@ Fixpoint as_lits (vs : list expr) : option (list lit) :=
       | None => None
       end
   | _ :: _ => None
+  end.
+
+(** ** Pattern matching
+
+    [pmatch p v] returns the values bound by [p] (leftmost first) when the
+    value [v] matches.  [pmatch_list] takes the element matcher as an
+    argument so that its properties can be stated separately (nested
+    recursion, as for [infer_list] in [Check.v]). *)
+
+Definition pmatch_list (pm : pat -> expr -> option (list expr)) :
+    list pat -> list expr -> option (list expr) :=
+  fix go ps vs :=
+    match ps, vs with
+    | [], [] => Some []
+    | p :: ps', v :: vs' =>
+        match pm p v, go ps' vs' with
+        | Some xs, Some ys => Some (xs ++ ys)
+        | _, _ => None
+        end
+    | _, _ => None
+    end.
+
+Fixpoint pmatch (p : pat) (v : expr) {struct p} : option (list expr) :=
+  match p, v with
+  | PWild, _ => Some []
+  | PVar, _ => Some [v]
+  | PLit l, ELit l' => if eqb l l' then Some [] else None
+  | PTuple ps, ETuple vs => pmatch_list pmatch ps vs
+  | PConstr c ps, EConstr _ c' _ (ETuple vs) =>
+      if eqb c c' then pmatch_list pmatch ps vs else None
+  | _, _ => None
+  end.
+
+(** The first branch whose pattern matches, with the bound values. *)
+Fixpoint first_match (bs : list (pat * expr)) (v : expr) : option (list expr * expr) :=
+  match bs with
+  | [] => None
+  | (p, b) :: bs' =>
+      match pmatch p v with
+      | Some vs => Some (vs, b)
+      | None => first_match bs' v
+      end
   end.
 
 (** ** Notations
@@ -134,6 +180,22 @@ Inductive step (ge : genv) : state -> state -> Prop :=
     ⟨FPrim op done [] :: K ◁ v⟩ ⟶[ge] SAbort
 | S_PrimNext K op done v e rest :
     ⟨FPrim op done (e :: rest) :: K ◁ v⟩ ⟶[ge] ⟨FPrim op (done ++ [v]) rest :: K ▷ e⟩
+
+(* ---- data types (milestone M2) ---- *)
+| S_Constr K T c ts e :
+    ⟨K ▷ EConstr T c ts e⟩ ⟶[ge] ⟨FConstr T c ts :: K ▷ e⟩
+| S_Match K e τ bs :
+    ⟨K ▷ EMatch e τ bs⟩ ⟶[ge] ⟨FMatch τ bs :: K ▷ e⟩
+| S_ConstrRet K T c ts v :
+    ⟨FConstr T c ts :: K ◁ v⟩ ⟶[ge] ⟨K ◁ EConstr T c ts v⟩
+| S_MatchRet K τ bs v vs b :
+    first_match bs v = Some (vs, b) ->
+    ⟨FMatch τ bs :: K ◁ v⟩ ⟶[ge] ⟨K ▷ subst (args_sub vs) b⟩
+(** No branch matches: MoonBit panics.  Exhaustiveness is a static
+    analysis (milestone M8), not part of type soundness. *)
+| S_MatchFail K τ bs v :
+    first_match bs v = None ->
+    ⟨FMatch τ bs :: K ◁ v⟩ ⟶[ge] SAbort
 
 where "s ⟶[ ge ] s'" := (step ge s s').
 

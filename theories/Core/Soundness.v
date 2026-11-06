@@ -12,6 +12,7 @@
                        if it terminates normally its value has the program's type. *)
 
 From Stdlib Require Import List.
+From MoonRocq.Prelude Require Import EqDec Ident.
 From MoonRocq.Core Require Import Syntax Prim Subst Typing TypingLemmas Semantics.
 Import ListNotations.
 
@@ -65,6 +66,14 @@ Inductive frame_typed (ge : genv) : frame -> ty -> ty -> Prop :=
     [] ⊢*[ge] done : τsd ->
     [] ⊢*[ge] rest : τsr ->
     ⊢ᶠ[ge] FPrim op done rest : τ ⇒ snd (prim_sig op)
+| FT_Constr T c ts td cd :
+    lookup_ty ge T = Some td ->
+    length ts = td_tparams td ->
+    lookup_ctor td c = Some cd ->
+    ⊢ᶠ[ge] FConstr T c ts : TTuple (map (tsubst (inst ts)) (cd_fields cd)) ⇒ TData T ts
+| FT_Match τ bs τs :
+    [] ⊢ᵇ[ge] bs : τs ⇒ τ ->
+    ⊢ᶠ[ge] FMatch τ bs : τs ⇒ τ
 
 where "⊢ᶠ[ ge ] F : τ ⇒ τ'" := (frame_typed ge F τ τ').
 
@@ -119,6 +128,74 @@ Section Soundness.
     exists vs, v = ETuple vs /\ Forall value vs /\ [] ⊢*[ge] vs : τs.
   Proof.
     intros Hv Ht; inversion Hv; subst; inversion Ht; subst; eauto.
+  Qed.
+
+  Lemma canonical_data v T ts :
+    value v -> [] ⊢[ge] v : TData T ts ->
+    exists c w td cd, v = EConstr T c ts w /\ value w /\
+      lookup_ty ge T = Some td /\ lookup_ctor td c = Some cd /\
+      [] ⊢[ge] w : TTuple (map (tsubst (inst ts)) (cd_fields cd)).
+  Proof. intros Hv Ht; inversion Hv; subst; inversion Ht; subst; eauto 10. Qed.
+
+  (** ** Pattern matching
+
+      A successful match of a well-typed value binds values of the
+      pattern's binding types. *)
+  Lemma pmatch_typed :
+    (forall p τ Δ, ⊢ᵖ[ge] p : τ ⇝ Δ ->
+       forall v xs, value v -> [] ⊢[ge] v : τ -> pmatch p v = Some xs ->
+       [] ⊢*[ge] xs : Δ) /\
+    (forall ps τs Δ, ⊢ᵖ*[ge] ps : τs ⇝ Δ ->
+       forall vs xs, Forall value vs -> [] ⊢*[ge] vs : τs ->
+       pmatch_list pmatch ps vs = Some xs -> [] ⊢*[ge] xs : Δ).
+  Proof.
+    apply pat_typed_mutind.
+    - (* P_Wild *)
+      intros τ v xs _ _ E. simpl in E. inversion E; constructor.
+    - (* P_Var *)
+      intros τ v xs _ Ht E. simpl in E. inversion E; subst. eauto using has_types.
+    - (* P_Lit *)
+      intros l v xs _ _ E. destruct v; simpl in E; try discriminate.
+      match type of E with context [if ?t then _ else _] => destruct t end;
+        inversion E; constructor.
+    - (* P_Tuple *)
+      intros ps τs Δ _ IH v xs Hv Ht E.
+      destruct (canonical_tuple _ _ Hv Ht) as (vs & -> & Hvs & Hts).
+      exact (IH _ _ Hvs Hts E).
+    - (* P_Constr *)
+      intros c ps T ts fs Δ Hf _ IH v xs Hv Ht E.
+      destruct (canonical_data _ _ _ Hv Ht) as (c' & w & td & cd & -> & Hw & Htd & Hcd & Hwt).
+      destruct (canonical_tuple _ _ Hw Hwt) as (vs & -> & Hvs & Hts).
+      cbn [pmatch] in E. destruct (eqb c c') eqn:Ec; [|discriminate].
+      apply (proj1 (eqb_eq c c')) in Ec; subst c'.
+      unfold ctor_fields in Hf. rewrite Htd, Hcd in Hf.
+      inversion Hf; subst.
+      exact (IH _ _ Hvs Hts E).
+    - (* Ps_nil *)
+      intros vs xs _ Ht E. inversion Ht; subst. inversion E; constructor.
+    - (* Ps_cons *)
+      intros p ps τ τs Δ1 Δ2 _ IH1 _ IH2 vs xs Hv Ht E.
+      inversion Ht as [|? w ws ? ? Hw Hws]; subst.
+      inversion Hv as [|? ? Hwv Hwsv]; subst.
+      cbn [pmatch_list] in E.
+      destruct (pmatch p w) as [a|] eqn:Ea; [|discriminate].
+      fold (pmatch_list pmatch ps ws) in E.
+      destruct (pmatch_list pmatch ps ws) as [b|] eqn:Eb; [|discriminate].
+      inversion E; subst. apply has_types_app; eauto.
+  Qed.
+
+  Lemma first_match_typed bs v τs τ vs b :
+    [] ⊢ᵇ[ge] bs : τs ⇒ τ -> value v -> [] ⊢[ge] v : τs ->
+    first_match bs v = Some (vs, b) -> [] ⊢[ge] subst (args_sub vs) b : τ.
+  Proof.
+    intros H; remember (@nil ty) as Γ eqn:EΓ.
+    induction H as [|Γ p b0 bs τs τ Δ Hp Hb Hbs IH]; intros Hv Ht E; subst.
+    - discriminate.
+    - simpl in E. destruct (pmatch p v) as [xs|] eqn:Em.
+      + inversion E; subst.
+        eapply subst_args_typing; [exact Hb|].
+        exact (proj1 pmatch_typed _ _ _ Hp _ _ Hv Ht Em).
+      + exact (IH eq_refl Hv Ht E).
   Qed.
 
   (** Values of primitive types are literals, so primitive operators can
@@ -198,6 +275,8 @@ Section Soundness.
           -- eexists; eapply S_PrimNilAbort; exact Ea.
           -- eexists; eapply S_PrimNil; exact El.
         * eexists; apply S_PrimCons.
+      + eexists; apply S_Constr.
+      + eexists; apply S_Match.
     - (* SRet *)
       destruct K as [|F K]; [left; exact Hv | right].
       apply stack_cons_inv in HK as (τ2 & HF & HK).
@@ -230,6 +309,9 @@ Section Soundness.
              ++ eexists; eapply S_PrimLastAbort; eauto.
              ++ eexists; eapply S_PrimLast; eauto.
         * eexists; apply S_PrimNext.
+      + eexists; apply S_ConstrRet.
+      + destruct (first_match bs v) as [[vs b]|] eqn:E; eexists;
+          [eapply S_MatchRet | eapply S_MatchFail]; eauto.
     - left; exact I.
   Qed.
 
@@ -369,7 +451,7 @@ Section Soundness.
       constructor; [apply Forall_snoc | apply has_types_snoc | ]; assumption.
     - (* S_ProjRet *)
       open_ret Hs.
-      inversion Hv as [| | ? Hvs]; subst. inversion Hvt; subst.
+      inversion Hv as [| | ? Hvs |]; subst. inversion Hvt; subst.
       match goal with
       | Hts : has_types _ _ vs ?ts, Hn : nth_error ?ts i = Some _ |- _ =>
           destruct (has_types_nth_error _ _ _ _ _ _ Hts Hn) as (w & Ew & Hw)
@@ -398,6 +480,23 @@ Section Soundness.
           | apply has_types_snoc; assumption
           | assumption ]
       end.
+    (* ---- data types ---- *)
+    - (* S_Constr *)
+      apply eval_inv in Hs as (τ & He & HK). inversion He; subst.
+      eapply SS_Eval; [eassumption|]. eapply ST_cons; [|exact HK].
+      econstructor; eassumption.
+    - (* S_Match *)
+      apply eval_inv in Hs as (τm & He & HK). inversion He; subst.
+      eapply SS_Eval; [eassumption|]. eapply ST_cons; [|exact HK].
+      constructor; assumption.
+    - (* S_ConstrRet *)
+      open_ret Hs.
+      eapply SS_Ret; [constructor; assumption | econstructor; eassumption | exact HK].
+    - (* S_MatchRet *)
+      open_ret Hs.
+      eapply SS_Eval; [|exact HK]. eapply first_match_typed; eassumption.
+    - (* S_MatchFail *)
+      constructor.
   Qed.
 
   (** ** Soundness *)

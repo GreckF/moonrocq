@@ -8,6 +8,9 @@
   会 source `../rocq2mbt/scripts/env.sh`。旧的 switch `5.5.0`（Rocq 9.1.1）不再使用。
   rocq-stdlib 是这样装进去的：`opam pin add rocq-stdlib git+https://github.com/rocq-prover/stdlib.git#22fcaa27d17bc28ab4be728ed10a1fb73afb23ee`（与插件 pin 的 Rocq commit 同期的 master）。
   不要往这个 switch 以外装东西；改 rocq2mbt 插件要遵守 `../rocq2mbt/CLAUDE.md`。
+- 同一 switch 里装了 `vsrocq-language-server` 2.5.1（2026-11-06，供 VS Code 检阅；它会让
+  `rocq-runtime` 带上可选依赖 `memprof-limits` 重编一次）。`.vscode/settings.json`（不入库）的
+  `vsrocq.path` 指向 `~/.local/share/rocq2mbt/_opam/bin/vsrocqtop`；先 `build.sh` 生成 `.vo`。
 - 从 Windows Git Bash 运行（`<script>` 换成下面的脚本）：
   `MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu -- bash -l /mnt/c/Users/86158/Documents/projects/Claude/moonrocq/scripts/<script> 2>&1 | tr -d '\0' | grep -av -e translate -e localhost`
   - `build.sh`：dune build，最后一行 `BUILD_OK`；
@@ -35,8 +38,13 @@
 - 相等判定统一用 `Prelude/EqDec.v` 的 `EqDec` 类。
 - 判断一律用记号书写（定义处用 `Reserved Notation` + `where`，因此判断的 `ge` 是 inductive 的参数，而不是 section 变量）：
   `Γ ⊢[ge] e : τ`、`Γ ⊢*[ge] es : τs`、`⟨K ▷ e⟩` / `⟨K ◁ v⟩`、`s ⟶[ge] s'`、`s ⟶*[ge] s'`、
+  `⊢ᵖ[ge] p : τ ⇝ Δ`、`⊢ᵖ*[ge] ps : τs ⇝ Δ`、`Γ ⊢ᵇ[ge] bs : τs ⇒ τ`、
   `⊢ᶠ[ge] F : τ ⇒ τ'`、`⊢ᵏ[ge] K : τ ⇒ τ'`、`⊢ˢ[ge] s : τ`。不要用 `|-`：它会和 Ltac 的 `H : _ |- _` 冲突。
   在 section 外显式应用构造子时，要写出 `ge`，例如 `FT_Tuple ge ...`。
 - 在 Windows 上用 Python 改文件时要写 `newline='\n'`，否则会产生 CRLF。
 - 文档有歧义的语言细节，用 `moon` 做实验确认，并记到 `docs/decisions.md`。
 - 语言参考：`ref/moonbit-docs/next/language/*.md`，示例代码在 `ref/moonbit-docs/next/sources/`。
+- 用 Python 改 `.v` 文件时，脚本先用 Write 工具写成文件再运行：bash heredoc 会把行尾的 `/\` 吃掉
+  （变成续行），破坏 `/\` 合取。
+- `Surface/Elab.v` 打开了 `string_scope`，那里的 `++`、`length`、`concat` 会解析成字符串版本，
+  列表要写 `List.app`、`List.length`、`List.concat`。

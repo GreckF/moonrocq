@@ -6,6 +6,7 @@
       variables, with [upren]/[upsub] lifting under an [n]-ary binder. *)
 
 From Stdlib Require Import List Arith Lia.
+From MoonRocq.Prelude Require Import Ident.
 From MoonRocq.Core Require Import Syntax Prim.
 Import ListNotations.
 
@@ -17,6 +18,7 @@ Fixpoint tsubst (σ : nat -> ty) (t : ty) : ty :=
   | TVar i => σ i
   | TTuple ts => TTuple (map (tsubst σ) ts)
   | TArrow ps r => TArrow (map (tsubst σ) ps) (tsubst σ r)
+  | TData T ts => TData T (map (tsubst σ) ts)
   end.
 
 (** Instantiation of the type parameters of a global with explicit type
@@ -27,16 +29,18 @@ Definition inst (ts : list ty) (i : nat) : ty := nth i ts TUnit.
 
 Lemma tsubst_ext σ σ' t : (forall i, σ i = σ' i) -> tsubst σ t = tsubst σ' t.
 Proof.
-  intros E; induction t as [b|i|ts IH|ps r IHps IHr] using ty_ind'; simpl; auto.
+  intros E; induction t as [b|i|ts IH|ps r IHps IHr|T ts IH] using ty_ind'; simpl; auto.
   - f_equal. induction IH; simpl; f_equal; auto.
   - f_equal; auto. induction IHps; simpl; f_equal; auto.
+  - f_equal. induction IH; simpl; f_equal; auto.
 Qed.
 
 Lemma tsubst_comp σ ρ t : tsubst σ (tsubst ρ t) = tsubst (fun i => tsubst σ (ρ i)) t.
 Proof.
-  induction t as [b|i|ts IH|ps r IHps IHr] using ty_ind'; simpl; auto.
+  induction t as [b|i|ts IH|ps r IHps IHr|T ts IH] using ty_ind'; simpl; auto.
   - f_equal. rewrite map_map. induction IH; simpl; f_equal; auto.
   - f_equal; auto. rewrite map_map. induction IHps; simpl; f_equal; auto.
+  - f_equal. rewrite map_map. induction IH; simpl; f_equal; auto.
 Qed.
 
 Lemma tsubst_inst σ ts t :
@@ -50,6 +54,27 @@ Lemma prim_sig_closed σ op :
   map (tsubst σ) (fst (prim_sig op)) = fst (prim_sig op) /\
   tsubst σ (snd (prim_sig op)) = snd (prim_sig op).
 Proof. destruct op; split; reflexivity. Qed.
+
+(** Field types of constructor [c] of the data type [T[ts]]. *)
+Definition ctor_fields (ge : genv) (T c : ident) (ts : list ty) : option (list ty) :=
+  match lookup_ty ge T with
+  | Some td =>
+      match lookup_ctor td c with
+      | Some cd => Some (map (tsubst (inst ts)) (cd_fields cd))
+      | None => None
+      end
+  | None => None
+  end.
+
+Lemma ctor_fields_tsubst σ ge T c ts fs :
+  ctor_fields ge T c ts = Some fs ->
+  ctor_fields ge T c (map (tsubst σ) ts) = Some (map (tsubst σ) fs).
+Proof.
+  unfold ctor_fields. destruct (lookup_ty ge T) as [td|]; [|discriminate].
+  destruct (lookup_ctor td c) as [cd|]; [|discriminate].
+  intros E; inversion E; subst. f_equal.
+  rewrite map_map. apply map_ext. intros; symmetry; apply tsubst_inst.
+Qed.
 
 (** ** Type substitution in expressions *)
 
@@ -65,6 +90,9 @@ Fixpoint esubst_ty (σ : nat -> ty) (e : expr) : expr :=
   | ETuple es => ETuple (map (esubst_ty σ) es)
   | EProj e i => EProj (esubst_ty σ e) i
   | EPrim op args => EPrim op (map (esubst_ty σ) args)
+  | EConstr T c ts e => EConstr T c (map (tsubst σ) ts) (esubst_ty σ e)
+  | EMatch e τ bs =>
+      EMatch (esubst_ty σ e) (tsubst σ τ) (map (fun '(p, b) => (p, esubst_ty σ b)) bs)
   end.
 
 (** ** Term variables *)
@@ -84,6 +112,9 @@ Fixpoint rename (ξ : nat -> nat) (e : expr) : expr :=
   | ETuple es => ETuple (map (rename ξ) es)
   | EProj e i => EProj (rename ξ e) i
   | EPrim op args => EPrim op (map (rename ξ) args)
+  | EConstr T c ts e => EConstr T c ts (rename ξ e)
+  | EMatch e τ bs =>
+      EMatch (rename ξ e) τ (map (fun '(p, b) => (p, rename (upren (pat_arity p) ξ) b)) bs)
   end.
 
 Definition upsub (n : nat) (σ : nat -> expr) (x : nat) : expr :=
@@ -101,6 +132,9 @@ Fixpoint subst (σ : nat -> expr) (e : expr) : expr :=
   | ETuple es => ETuple (map (subst σ) es)
   | EProj e i => EProj (subst σ e) i
   | EPrim op args => EPrim op (map (subst σ) args)
+  | EConstr T c ts e => EConstr T c ts (subst σ e)
+  | EMatch e τ bs =>
+      EMatch (subst σ e) τ (map (fun '(p, b) => (p, subst (upsub (pat_arity p) σ) b)) bs)
   end.
 
 (** Substitution of the arguments [vs] for the [length vs] innermost

@@ -5,8 +5,8 @@
     produces derivations of it (soundness by construction) and is proved
     complete for it in [CheckComplete.v]. *)
 
-From Stdlib Require Import List.
-From MoonRocq.Prelude Require Import Ident.
+From Stdlib Require Import List Arith.
+From MoonRocq.Prelude Require Import EqDec Ident.
 From MoonRocq.Core Require Import Syntax Prim Subst.
 Import ListNotations.
 
@@ -19,12 +19,67 @@ Definition ctx : Type := list ty.
                            under global environment [ge] ([has_type]);
     - [Γ ⊢*[ge] es : τs] : pointwise typing of a list ([has_types]). *)
 
+(** ** Patterns
+
+    [⊢ᵖ[ge] p : τ ⇝ Δ] : pattern [p] matches values of type [τ] and binds
+    variables of types [Δ] (leftmost first). *)
+
+Reserved Notation "⊢ᵖ[ ge ] p : τ ⇝ Δ"
+  (at level 70, ge at level 200, p at level 60, τ at level 60, Δ at level 60,
+   no associativity, format "⊢ᵖ[ ge ]  p  :  τ  ⇝  Δ").
+Reserved Notation "⊢ᵖ*[ ge ] ps : τs ⇝ Δ"
+  (at level 70, ge at level 200, ps at level 60, τs at level 60, Δ at level 60,
+   no associativity, format "⊢ᵖ*[ ge ]  ps  :  τs  ⇝  Δ").
+
+Inductive pat_typed (ge : genv) : pat -> ty -> ctx -> Prop :=
+| P_Wild τ :
+    ⊢ᵖ[ge] PWild : τ ⇝ []
+| P_Var τ :
+    ⊢ᵖ[ge] PVar : τ ⇝ [τ]
+| P_Lit l :
+    ⊢ᵖ[ge] PLit l : TBase (lit_ty l) ⇝ []
+| P_Tuple ps τs Δ :
+    ⊢ᵖ*[ge] ps : τs ⇝ Δ ->
+    ⊢ᵖ[ge] PTuple ps : TTuple τs ⇝ Δ
+| P_Constr c ps T ts fs Δ :
+    ctor_fields ge T c ts = Some fs ->
+    ⊢ᵖ*[ge] ps : fs ⇝ Δ ->
+    ⊢ᵖ[ge] PConstr c ps : TData T ts ⇝ Δ
+
+with pats_typed (ge : genv) : list pat -> list ty -> ctx -> Prop :=
+| Ps_nil :
+    ⊢ᵖ*[ge] [] : [] ⇝ []
+| Ps_cons p ps τ τs Δ1 Δ2 :
+    ⊢ᵖ[ge] p : τ ⇝ Δ1 ->
+    ⊢ᵖ*[ge] ps : τs ⇝ Δ2 ->
+    ⊢ᵖ*[ge] p :: ps : τ :: τs ⇝ Δ1 ++ Δ2
+
+where "⊢ᵖ[ ge ] p : τ ⇝ Δ" := (pat_typed ge p τ Δ)
+  and "⊢ᵖ*[ ge ] ps : τs ⇝ Δ" := (pats_typed ge ps τs Δ).
+
+Scheme pat_typed_mut := Minimality for pat_typed Sort Prop
+  with pats_typed_mut := Minimality for pats_typed Sort Prop.
+Combined Scheme pat_typed_mutind from pat_typed_mut, pats_typed_mut.
+
+Lemma pat_typed_arity ge :
+  (forall p τ Δ, ⊢ᵖ[ge] p : τ ⇝ Δ -> List.length Δ = pat_arity p) /\
+  (forall ps τs Δ, ⊢ᵖ*[ge] ps : τs ⇝ Δ -> List.length Δ = list_sum (map pat_arity ps)).
+Proof.
+  apply pat_typed_mutind; intros; simpl; auto.
+  rewrite length_app; auto.
+Qed.
+
+(** ** Expressions *)
+
 Reserved Notation "Γ ⊢[ ge ] e : τ"
   (at level 70, ge at level 200, e at level 60, τ at level 60, no associativity,
    format "Γ  ⊢[ ge ]  e  :  τ").
 Reserved Notation "Γ ⊢*[ ge ] es : τs"
   (at level 70, ge at level 200, es at level 60, τs at level 60, no associativity,
    format "Γ  ⊢*[ ge ]  es  :  τs").
+Reserved Notation "Γ ⊢ᵇ[ ge ] bs : τs ⇒ τ"
+  (at level 70, ge at level 200, bs at level 60, τs at level 60, τ at level 60,
+   no associativity, format "Γ  ⊢ᵇ[ ge ]  bs  :  τs  ⇒  τ").
 
 Inductive has_type (ge : genv) : ctx -> expr -> ty -> Prop :=
 | T_Var Γ x τ :
@@ -63,6 +118,16 @@ Inductive has_type (ge : genv) : ctx -> expr -> ty -> Prop :=
 | T_Prim Γ op args :
     Γ ⊢*[ge] args : fst (prim_sig op) ->
     Γ ⊢[ge] EPrim op args : snd (prim_sig op)
+| T_Constr Γ T c ts e td cd :
+    lookup_ty ge T = Some td ->
+    length ts = td_tparams td ->
+    lookup_ctor td c = Some cd ->
+    Γ ⊢[ge] e : TTuple (map (tsubst (inst ts)) (cd_fields cd)) ->
+    Γ ⊢[ge] EConstr T c ts e : TData T ts
+| T_Match Γ e τs τ bs :
+    Γ ⊢[ge] e : τs ->
+    Γ ⊢ᵇ[ge] bs : τs ⇒ τ ->
+    Γ ⊢[ge] EMatch e τ bs : τ
 
 with has_types (ge : genv) : ctx -> list expr -> list ty -> Prop :=
 | Ts_nil Γ :
@@ -72,8 +137,20 @@ with has_types (ge : genv) : ctx -> list expr -> list ty -> Prop :=
     Γ ⊢*[ge] es : τs ->
     Γ ⊢*[ge] e :: es : τ :: τs
 
+(** [Γ ⊢ᵇ[ge] bs : τs ⇒ τ] : every branch matches a scrutinee of type [τs]
+    and its body has type [τ] under the pattern's bindings. *)
+with has_branches (ge : genv) : ctx -> list (pat * expr) -> ty -> ty -> Prop :=
+| Bs_nil Γ τs τ :
+    Γ ⊢ᵇ[ge] [] : τs ⇒ τ
+| Bs_cons Γ p b bs τs τ Δ :
+    ⊢ᵖ[ge] p : τs ⇝ Δ ->
+    Δ ++ Γ ⊢[ge] b : τ ->
+    Γ ⊢ᵇ[ge] bs : τs ⇒ τ ->
+    Γ ⊢ᵇ[ge] (p, b) :: bs : τs ⇒ τ
+
 where "Γ ⊢[ ge ] e : τ" := (has_type ge Γ e τ)
-  and "Γ ⊢*[ ge ] es : τs" := (has_types ge Γ es τs).
+  and "Γ ⊢*[ ge ] es : τs" := (has_types ge Γ es τs)
+  and "Γ ⊢ᵇ[ ge ] bs : τs ⇒ τ" := (has_branches ge Γ bs τs τ).
 
 (** A top-level function is well typed when its body has the declared
     return type in the context of its parameters. *)
@@ -81,13 +158,45 @@ Definition fdef_ok (ge : genv) (fd : fdef) : Prop :=
   fd_params fd ⊢[ge] fd_body fd : fd_ret fd.
 
 Scheme has_type_mut := Minimality for has_type Sort Prop
-  with has_types_mut := Minimality for has_types Sort Prop.
-Combined Scheme has_type_mutind from has_type_mut, has_types_mut.
+  with has_types_mut := Minimality for has_types Sort Prop
+  with has_branches_mut := Minimality for has_branches Sort Prop.
+Combined Scheme has_type_mutind from has_type_mut, has_types_mut, has_branches_mut.
 
-(** A well-formed global environment: names are unique and every function
-    is well typed against the whole environment (mutual recursion). *)
+(** ** Well-formed types
+
+    [ty_wf ge n t]: every data type in [t] exists and is applied to the
+    right number of arguments, and type variables are below [n].  Soundness
+    does not need it; it makes signatures and declarations meaningful (and
+    makes [inst]'s default unreachable, decision 8). *)
+Fixpoint ty_wfb (ge : genv) (n : nat) (t : ty) : bool :=
+  match t with
+  | TBase _ => true
+  | TVar i => i <? n
+  | TTuple ts => forallb (ty_wfb ge n) ts
+  | TArrow ps r => forallb (ty_wfb ge n) ps && ty_wfb ge n r
+  | TData T ts =>
+      match lookup_ty ge T with
+      | Some td => Nat.eqb (List.length ts) (td_tparams td) && forallb (ty_wfb ge n) ts
+      | None => false
+      end
+  end.
+
+Definition ty_wf (ge : genv) (n : nat) (t : ty) : Prop := ty_wfb ge n t = true.
+
+Definition tdef_ok (ge : genv) (td : tdef) : Prop :=
+  NoDup (map cd_name (td_ctors td)) /\
+  Forall (fun cd => Forall (ty_wf ge (td_tparams td)) (cd_fields cd)) (td_ctors td).
+
+Definition fsig_ok (ge : genv) (fd : fdef) : Prop :=
+  Forall (ty_wf ge (fd_tparams fd)) (fd_params fd) /\ ty_wf ge (fd_tparams fd) (fd_ret fd).
+
+(** A well-formed global environment: names are unique, data types are
+    well formed, and every function has a well-formed signature and is well
+    typed against the whole environment (mutual recursion). *)
 Definition genv_ok (ge : genv) : Prop :=
-  NoDup (map fd_name ge) /\ Forall (fdef_ok ge) ge.
+  NoDup (map td_name (ge_types ge)) /\ Forall (tdef_ok ge) (ge_types ge) /\
+  NoDup (map fd_name (ge_funs ge)) /\ Forall (fsig_ok ge) (ge_funs ge) /\
+  Forall (fdef_ok ge) (ge_funs ge).
 
 (** ** Basic facts about [has_types] *)
 
