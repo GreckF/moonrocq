@@ -642,11 +642,185 @@ fn lower_expr(e : @syntax.Expr) -> Sexpr raise Unsupported {
     Constraint(expr~, ty~, loc~) =>
       Sexpr::SAnnot(pos_of_loc(loc), lower_expr(expr), lower_type(ty))
     Group(expr~, ..) => lower_expr(expr)
+    // ---- milestone M3: state and loops ----
+    LetMut(binder~, ty~, expr~, body~, loc~) => {
+      let ann = match ty {
+        Some(t) => Some(lower_type(t))
+        None => None
+      }
+      Sexpr::SLetMut(
+        pos_of_loc(loc),
+        ident_of_string(binder.name),
+        ann,
+        lower_expr(expr),
+        lower_expr(body),
+      )
+    }
+    Assign(var_~, expr~, augmented_by~, loc~) =>
+      Sexpr::SAssign(
+        pos_of_loc(loc),
+        ident_of_string(var_name(var_)),
+        lower_op(augmented_by),
+        lower_expr(expr),
+      )
+    Array(exprs~, is_iter~, loc~) => {
+      if is_iter {
+        unsupported("iterator literal", loc)
+      }
+      Sexpr::SArray(pos_of_loc(loc), lower_exprs(exprs))
+    }
+    ArrayGet(array~, index~, loc~) =>
+      Sexpr::SIndex(pos_of_loc(loc), lower_expr(array), lower_expr(index))
+    ArraySet(array~, index~, value~, loc~) =>
+      Sexpr::SIndexSet(
+        pos_of_loc(loc),
+        lower_expr(array),
+        lower_expr(index),
+        None,
+        lower_expr(value),
+      )
+    ArrayAugmentedSet(op~, array~, index~, value~, loc~) =>
+      Sexpr::SIndexSet(
+        pos_of_loc(loc),
+        lower_expr(array),
+        lower_expr(index),
+        lower_op(Some(op)),
+        lower_expr(value),
+      )
+    Mutate(record~, accessor~, field~, augmented_by~, loc~) =>
+      match accessor {
+        Label(l) =>
+          Sexpr::SFieldSet(
+            pos_of_loc(loc),
+            lower_expr(record),
+            ident_of_string(l.name),
+            lower_op(augmented_by),
+            lower_expr(field),
+          )
+        _ => {
+          unsupported("assignment to this kind of field", loc)
+          Sexpr::SLit(pos_of_loc(loc), Slit::SLUnit)
+        }
+      }
+    DotApply(self~, method_name~, args~, return_self~, loc~) => {
+      if return_self {
+        unsupported("method cascade `..`", loc)
+      }
+      Sexpr::SMethod(
+        pos_of_loc(loc),
+        lower_expr(self),
+        ident_of_string(method_name.name),
+        lower_args(args, loc),
+      )
+    }
+    Method(type_name~, method_name~, loc~) =>
+      Sexpr::SQual(
+        pos_of_loc(loc),
+        ident_of_string(type_name_str(type_name)),
+        ident_of_string(method_name.name),
+      )
+    While(loop_cond~, loop_body~, while_else~, label~, loc~) =>
+      Sexpr::SWhile(
+        pos_of_loc(loc),
+        lower_label(label),
+        lower_expr(loop_cond),
+        lower_expr(loop_body),
+        lower_opt_expr(while_else),
+      )
+    For(binders~, condition~, continue_block~, body~, for_else~, where_clause~, label~, loc~) => {
+      if where_clause is Some(_) {
+        unsupported("where clause", loc)
+      }
+      Sexpr::SFor(
+        pos_of_loc(loc),
+        lower_label(label),
+        lower_bindings(binders),
+        lower_opt_expr(condition),
+        lower_bindings(continue_block),
+        lower_expr(body),
+        lower_opt_expr(for_else),
+      )
+    }
+    ForEach(patterns~, expr~, init~, continue_block~, body~, else_block~, where_clause~, label~, loc~) => {
+      if where_clause is Some(_) {
+        unsupported("where clause", loc)
+      }
+      Sexpr::SForIn(
+        pos_of_loc(loc),
+        lower_label(label),
+        lower_patterns(patterns),
+        lower_expr(expr),
+        lower_bindings(init),
+        lower_bindings(continue_block),
+        lower_expr(body),
+        lower_opt_expr(else_block),
+      )
+    }
+    LabelledBlock(label~, body~, loc~) =>
+      Sexpr::SBlock(pos_of_loc(loc), ident_of_string(label.name), lower_expr(body))
+    Break(arg~, label~, loc~) =>
+      Sexpr::SBreak(pos_of_loc(loc), lower_label(label), lower_opt_expr(arg))
+    Continue(args~, label~, loc~) =>
+      Sexpr::SContinue(pos_of_loc(loc), lower_label(label), lower_exprs(args))
+    Return(return_value~, loc~) =>
+      Sexpr::SReturn(pos_of_loc(loc), lower_opt_expr(return_value))
     _ => {
       unsupported(expr_kind(e), e.loc())
       Sexpr::SLit(pos_of_loc(e.loc()), Slit::SLUnit)
     }
   }
+}
+
+///|
+fn lower_opt_expr(e : @syntax.Expr?) -> Sexpr? raise Unsupported {
+  match e {
+    Some(e) => Some(lower_expr(e))
+    None => None
+  }
+}
+
+///|
+/// Operator of an augmented assignment (`+` for `+=`).
+fn lower_op(op : @syntax.Var?) -> String0? raise Unsupported {
+  match op {
+    Some(v) => Some(ident_of_string(var_name(v)))
+    None => None
+  }
+}
+
+///|
+fn lower_label(l : @syntax.Label?) -> String0? {
+  match l {
+    Some(l) => Some(ident_of_string(l.name))
+    None => None
+  }
+}
+
+///|
+fn lower_bindings(
+  bs : @list.List[(@syntax.Binder, @syntax.Expr)],
+) -> List[(String0, Sexpr)] raise Unsupported {
+  let out = []
+  for b in bs {
+    let (x, e) = b
+    out.push((ident_of_string(x.name), lower_expr(e)))
+  }
+  list_of_array(out)
+}
+
+///|
+fn lower_args(
+  args : @list.List[@syntax.Argument],
+  loc : @basic.Location,
+) -> List[Sexpr] raise Unsupported {
+  let out = []
+  for a in args {
+    match a.kind {
+      Positional => out.push(lower_expr(a.value))
+      _ => unsupported("labelled argument", loc)
+    }
+  }
+  list_of_array(out)
 }
 
 ///|
@@ -787,10 +961,7 @@ fn lower_typedecl(d : @syntax.TypeDecl) -> Stype raise Unsupported {
       }
       let out = []
       for f in fields {
-        if f.mut_ {
-          unsupported("mutable field", f.loc)
-        }
-        out.push((ident_of_string(f.name.label), lower_type(f.ty)))
+        out.push(((ident_of_string(f.name.label), f.mut_), lower_type(f.ty)))
       }
       Sdecl::SDStruct(list_of_array(out))
     }

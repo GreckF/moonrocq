@@ -111,3 +111,73 @@ Example ex_ill_formed :
               fd_ret := TUnit; fd_body := ELit LUnit |}]) with
   | Ok _ => false | Err _ => true end = true.
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- milestone M3: store and loops ---- *)
+
+Definition int (z : Z) : expr := ELit (LInt I32 z).
+Definition get_i (x : nat) : expr := EMem (MGet (TInt I32)) [EVar x].
+
+(* let mut i = 0; while i < 3 { i = i + 1 }; i *)
+Example ex_while :
+  type_of
+    (ELet (EMem (MRef (TInt I32)) [int 0])
+      (ELet (ELoop (ETuple []) [] TUnit
+               (EIf (EPrim (PIntCmp CLt I32) [get_i 0; int 3])
+                    (ELet (EMem (MSet (TInt I32))
+                             [EVar 0; EPrim (PIntArith AAdd I32) [get_i 0; int 1]])
+                          (EJump CCont 0 (ETuple []) TUnit))
+                    (ELit LUnit)))
+            (get_i 1)))
+  = Some (TInt I32).
+Proof. vm_compute. reflexivity. Qed.
+
+(* [1, 2][0] : Int, and [1, 2].length() : Int *)
+Example ex_array :
+  type_of (ETuple [EMem (MIndex AGrow (TInt I32)) [EMem (MArray AGrow (TInt I32) 2) [int 1; int 2]; int 0];
+                   EMem (MLength AGrow (TInt I32)) [EMem (MArray AGrow (TInt I32) 0) []]])
+  = Some (TTuple [TInt I32; TInt I32]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* push is only defined on growable arrays *)
+Example ex_push_fixed :
+  type_of (EMem (MPush (TInt I32)) [EMem (MArray AFixed (TInt I32) 0) []; int 1]) = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* a loop whose body breaks with its result: loop (x) { break x + 1 } *)
+Example ex_break :
+  type_of (ELoop (ETuple [int 1]) [TInt I32] (TInt I32)
+             (EJump CBreak 0 (EPrim (PIntArith AAdd I32) [EVar 0; int 1]) (TInt I32)))
+  = Some (TInt I32).
+Proof. vm_compute. reflexivity. Qed.
+
+(* a break value must have the loop's result type *)
+Example ex_break_type :
+  type_of (ELoop (ETuple []) [] (TInt I32) (EJump CBreak 0 (ELit (LBool true)) (TInt I32)))
+  = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* continue passes the loop arguments *)
+Example ex_continue_args :
+  type_of (ELoop (ETuple [int 1]) [TInt I32] TUnit
+             (EJump CCont 0 (ETuple [ELit (LBool true)]) TUnit))
+  = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* no break outside a loop, and none across a function boundary *)
+Example ex_no_loop : type_of (EJump CBreak 0 (ELit LUnit) TUnit) = None.
+Proof. vm_compute. reflexivity. Qed.
+
+Example ex_lambda_boundary :
+  type_of (ELoop (ETuple []) [] TUnit
+             (EApp (ELam [] TUnit (EJump CBreak 0 (ELit LUnit) TUnit)) []))
+  = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* store locations do not occur in programs *)
+Example ex_loc : type_of (ELoc 0) = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* panic() has its annotated type, and may stand for any value *)
+Example ex_abort :
+  type_of (EIf (ELit (LBool true)) (int 1) (EAbort (TInt I32))) = Some (TInt I32).
+Proof. vm_compute. reflexivity. Qed.

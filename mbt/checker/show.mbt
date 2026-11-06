@@ -138,6 +138,9 @@ pub fn show_ty(t : Ty) -> String {
       } else {
         string_of_ident(n) + "[" + show_tys(ts) + "]"
       }
+    TRef(t) => "mut " + show_ty(t)
+    TArray(AGrow, t) => "Array[" + show_ty(t) + "]"
+    TArray(AFixed, t) => "FixedArray[" + show_ty(t) + "]"
   }
 }
 
@@ -169,6 +172,9 @@ pub fn show_type_error(e : Type_error) -> String {
     E_DuplicateCtor => "duplicate constructor"
     E_IllFormed(t) => "ill-formed type \{show_ty(t)}"
     E_InType(t, e) => "in type `\{string_of_ident(t)}`: " + show_type_error(e)
+    E_NotRef(t) => "not a mutable cell: \{show_ty(t)}"
+    E_UnboundLoc(l) => "unknown store location \{nat_to_int(l)}"
+    E_UnknownLabel(k) => "no enclosing loop #\{nat_to_int(k)}"
   }
 }
 
@@ -200,6 +206,14 @@ pub fn show_elab_error(e : Elab_error) -> String {
     EE_MissingField(p, f) => "\{show_pos(p)}: missing field `\{string_of_ident(f)}`"
     EE_PatType(p, t) => "\{show_pos(p)}: pattern does not match type \{show_ty(t)}"
     EE_EmptyMatch(p) => "\{show_pos(p)}: cannot infer the type of an empty match"
+    EE_NotMutable(p, x) =>
+      "\{show_pos(p)}: `\{string_of_ident(x)}` is not mutable"
+    EE_NoTarget(p) =>
+      "\{show_pos(p)}: break/continue/return has no target here"
+    EE_BadContinue(p, n, m) =>
+      "\{show_pos(p)}: continue expects \{nat_to_int(n)} argument(s), got \{nat_to_int(m)}"
+    EE_NoMethod(p, m, t) =>
+      "\{show_pos(p)}: no method `\{string_of_ident(m)}` on \{show_ty(t)}"
   }
 }
 
@@ -249,7 +263,8 @@ pub fn render_outcome(o : Outcome) -> (Bool, Array[String]) {
       let lines = []
       for td in list_to_array(tds) {
         let Mk_tdef(name, _, _) = td
-        if string_of_ident(name) != "Option" {
+        let n = string_of_ident(name)
+        if n != "Option" && n != "Ref" {
           lines.push(show_tdef(td))
         }
       }

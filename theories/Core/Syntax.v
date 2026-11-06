@@ -15,7 +15,9 @@
 
     Milestone M1 covers primitive types, functions, [let], [if], tuples,
     (mutually) recursive generic top-level functions and primitive
-    operators.  Later milestones extend these inductive types. *)
+    operators; M2 adds nominal data types and pattern matching; M3 adds the
+    store (references and arrays) and loops with [break]/[continue].
+    Later milestones extend these inductive types. *)
 
 From Stdlib Require Import List ZArith String.
 From MoonRocq.Prelude Require Import EqDec Ident.
@@ -44,6 +46,14 @@ Definition base_ty_eq_dec (x y : base_ty) : {x = y} + {x <> y}.
 Proof. decide equality. apply int_kind_eq_dec. Defined.
 
 #[export] Instance EqDec_int_kind : EqDec int_kind := EqDec_of_dec int_kind_eq_dec.
+
+(** MoonBit's [FixedArray[T]] and the growable [Array[T]]. *)
+Inductive array_kind : Type := AFixed | AGrow.
+
+Definition array_kind_eq_dec (x y : array_kind) : {x = y} + {x <> y}.
+Proof. decide equality. Defined.
+
+#[export] Instance EqDec_array_kind : EqDec array_kind := EqDec_of_dec array_kind_eq_dec.
 #[export] Instance EqDec_base_ty : EqDec base_ty := EqDec_of_dec base_ty_eq_dec.
 
 (** ** Types *)
@@ -53,7 +63,9 @@ Inductive ty : Type :=
 | TVar   (i : nat)
 | TTuple (ts : list ty)
 | TArrow (ps : list ty) (r : ty)
-| TData  (T : ident) (ts : list ty).       (** nominal type [T[ts]] (struct / enum) *)
+| TData  (T : ident) (ts : list ty)        (** nominal type [T[ts]] (struct / enum) *)
+| TRef   (t : ty)                          (** mutable cell (store location) *)
+| TArray (k : array_kind) (t : ty).        (** array (store location) *)
 
 Abbreviation TUnit   := (TBase BUnit).
 Abbreviation TBool   := (TBase BBool).
@@ -68,6 +80,8 @@ Section ty_ind'.
   Hypothesis HTuple : forall ts, Forall P ts -> P (TTuple ts).
   Hypothesis HArrow : forall ps r, Forall P ps -> P r -> P (TArrow ps r).
   Hypothesis HData  : forall T ts, Forall P ts -> P (TData T ts).
+  Hypothesis HRef   : forall t, P t -> P (TRef t).
+  Hypothesis HArray : forall k t, P t -> P (TArray k t).
 
   Fixpoint ty_ind' (t : ty) : P t :=
     let fix go (ts : list ty) : Forall P ts :=
@@ -81,6 +95,8 @@ Section ty_ind'.
     | TTuple ts => HTuple ts (go ts)
     | TArrow ps r => HArrow ps r (go ps) (ty_ind' r)
     | TData T ts => HData T ts (go ts)
+    | TRef t => HRef t (ty_ind' t)
+    | TArray k t => HArray k t (ty_ind' t)
     end.
 End ty_ind'.
 
@@ -110,13 +126,15 @@ Fixpoint ty_eqb (a b : ty) : bool :=
   | TTuple xs, TTuple ys => forall2b ty_eqb xs ys
   | TArrow ps r, TArrow qs s => (forall2b ty_eqb ps qs && ty_eqb r s)%bool
   | TData T ts, TData U us => (eqb T U && forall2b ty_eqb ts us)%bool
+  | TRef t, TRef u => ty_eqb t u
+  | TArray k t, TArray k' u => (eqb k k' && ty_eqb t u)%bool
   | _, _ => false
   end.
 
 Lemma ty_eqb_eq (a b : ty) : ty_eqb a b = true <-> a = b.
 Proof.
-  revert b; induction a as [x|i|xs IH|ps r IHps IHr|T ts IH] using ty_ind';
-    intros [y|j|ys|qs s|U us]; cbn [ty_eqb]; try (split; congruence).
+  revert b; induction a as [x|i|xs IH|ps r IHps IHr|T ts IH|t IH|k t IH] using ty_ind';
+    intros [y|j|ys|qs s|U us|u|k' u]; cbn [ty_eqb]; try (split; congruence).
   - rewrite eqb_eq. split; congruence.
   - rewrite Nat.eqb_eq. split; congruence.
   - rewrite (forall2b_eq _ _ IH). split; congruence.
@@ -124,6 +142,10 @@ Proof.
     + intros [-> ->]; reflexivity.
     + intros E; inversion E; auto.
   - rewrite Bool.andb_true_iff, eqb_eq, (forall2b_eq _ _ IH). split.
+    + intros [-> ->]; reflexivity.
+    + intros E; inversion E; auto.
+  - rewrite IH. split; congruence.
+  - rewrite Bool.andb_true_iff, eqb_eq, IH. split.
     + intros [-> ->]; reflexivity.
     + intros E; inversion E; auto.
 Qed.
@@ -181,6 +203,71 @@ Inductive prim_op : Type :=
 | PStrConcat
 | PStrEq.
 
+(** ** Store operations (milestone M3)
+
+    Operations that read or write the store.  They carry the types they
+    work at, so that [mem_sig] is a function and types stay unique. *)
+Inductive mem_op : Type :=
+| MRef      (t : ty)                        (** allocate a cell *)
+| MGet      (t : ty)                        (** read a cell *)
+| MSet      (t : ty)                        (** write a cell *)
+| MArray    (k : array_kind) (t : ty) (n : nat)  (** allocate an array of [n] given elements *)
+| MMake     (k : array_kind) (t : ty)       (** [make(n, v)]: [n] copies of [v] *)
+| MIndex    (k : array_kind) (t : ty)       (** [a[i]] *)
+| MSetIndex (k : array_kind) (t : ty)       (** [a[i] = v] *)
+| MLength   (k : array_kind) (t : ty)       (** [a.length()] *)
+| MPush     (t : ty).                       (** [a.push(v)] on a growable array *)
+
+(** Indices and lengths are MoonBit [Int]s. *)
+Abbreviation TIndex := (TBase (BInt I32)).
+
+Definition mem_sig (op : mem_op) : list ty * ty :=
+  match op with
+  | MRef t => ([t], TRef t)
+  | MGet t => ([TRef t], t)
+  | MSet t => ([TRef t; t], TBase BUnit)
+  | MArray k t n => (repeat t n, TArray k t)
+  | MMake k t => ([TIndex; t], TArray k t)
+  | MIndex k t => ([TArray k t; TIndex], t)
+  | MSetIndex k t => ([TArray k t; TIndex; t], TBase BUnit)
+  | MLength k t => ([TArray k t], TIndex)
+  | MPush t => ([TArray AGrow t; t], TBase BUnit)
+  end.
+
+(** ** Store typing
+
+    A store location holds either a cell or an array; the store typing
+    records which, and the element type. *)
+Inductive lty : Type :=
+| LCell (t : ty)
+| LArr  (k : array_kind) (t : ty).
+
+Definition lty_ty (s : lty) : ty :=
+  match s with
+  | LCell t => TRef t
+  | LArr k t => TArray k t
+  end.
+
+Definition styping : Type := list lty.
+
+(** ** Non-local control
+
+    [EJump CBreak k e τ] exits the [k]-th enclosing loop (de Bruijn,
+    innermost [0]) with the value of [e]; [EJump CCont k e τ] re-enters it
+    with the new loop arguments [e] (a tuple).  [return] is a [break] out of
+    a loop wrapped around the function body. *)
+Inductive ctl : Type := CBreak | CCont.
+
+(** Label context: for each enclosing loop, its argument types and its
+    result type (index [0] is the innermost loop). *)
+Definition lblctx : Type := list (list ty * ty).
+
+Definition ctl_ty (c : ctl) (lbl : list ty * ty) : ty :=
+  match c with
+  | CBreak => snd lbl
+  | CCont => TTuple (fst lbl)
+  end.
+
 (** ** Patterns
 
     Pattern variables are nameless: a pattern binds its [PVar]s from left
@@ -191,13 +278,15 @@ Inductive pat : Type :=
 | PVar
 | PLit    (l : lit)
 | PTuple  (ps : list pat)
-| PConstr (c : ident) (ps : list pat).      (** constructor of the scrutinee's type *)
+| PConstr (c : ident) (ps : list pat)       (** constructor of the scrutinee's type *)
+| PRef    (p : pat).                        (** the current content of a cell *)
 
 Fixpoint pat_arity (p : pat) : nat :=
   match p with
   | PWild | PLit _ => 0
   | PVar => 1
   | PTuple ps | PConstr _ ps => list_sum (map pat_arity ps)
+  | PRef p => pat_arity p
   end.
 
 (** ** Expressions *)
@@ -215,9 +304,23 @@ Inductive expr : Type :=
 | EPrim   (op : prim_op) (args : list expr)
 | EConstr (T c : ident) (ts : list ty) (e : expr)
     (** constructor [c] of [T[ts]]; the payload [e] is the tuple of fields *)
-| EMatch  (e : expr) (τ : ty) (bs : list (pat * expr)).
+| EMatch  (e : expr) (τ : ty) (bs : list (pat * expr))
     (** [match e { p => b, .. } : τ]; the result type keeps types unique
         even for an empty [match] *)
+| ELoc    (l : nat)                          (** store location (runtime only) *)
+| EMem    (op : mem_op) (args : list expr)   (** store operation *)
+| ELoop   (init : expr) (ps : list ty) (τ : ty) (body : expr)
+    (** [init] is the tuple of initial loop arguments, bound like the
+        parameters [ps] of a λ in [body]; [body] produces the loop's result
+        of type [τ] unless it [continue]s *)
+| EJump   (c : ctl) (k : nat) (e : expr) (τ : ty)
+    (** [break]/[continue] to the [k]-th enclosing loop; [τ] is the type of
+        the jump expression itself (it does not return) *)
+| EAbort  (τ : ty).
+    (** [panic()]: stops the program; [τ] is its type (it does not return) *)
+
+Abbreviation EBreak := (EJump CBreak).
+Abbreviation EContinue := (EJump CCont).
 
 (** ** Global environment *)
 

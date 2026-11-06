@@ -30,7 +30,13 @@
     proof that elaboration is faithful to them.  Full MoonBit inference
     (unification variables, decision 11 in [docs/decisions.md]) is also
     future work: a lambda parameter needs either an annotation or an
-    expected type. *)
+    expected type.
+
+    Milestone M3: a [let mut] variable is a cell ([TRef]) in Core, read and
+    written with store operations; a [mut] struct field holds a cell too.
+    Loops, labelled blocks and function bodies become Core [ELoop]s; the
+    label environment [L] has one entry per enclosing [ELoop] and resolves
+    [break]/[continue]/[return] to de Bruijn indices. *)
 
 From Stdlib Require Import List ZArith NArith String Bool Arith.
 From MoonRocq.Prelude Require Import Result EqDec Ident.
@@ -57,7 +63,11 @@ Inductive elab_error : Type :=
 | EE_UnknownField  (p : pos) (f : ident)
 | EE_MissingField  (p : pos) (f : ident)
 | EE_PatType       (p : pos) (t : ty)          (** pattern shape does not fit the type *)
-| EE_EmptyMatch    (p : pos).                  (** [match] without arms nor expected type *)
+| EE_EmptyMatch    (p : pos)                   (** [match] without arms nor expected type *)
+| EE_NotMutable    (p : pos) (x : ident)       (** assignment to an immutable variable / field *)
+| EE_NoTarget      (p : pos)                   (** [break]/[continue]/[return] without a target *)
+| EE_BadContinue   (p : pos) (expected got : nat)  (** wrong number of [continue] arguments *)
+| EE_NoMethod      (p : pos) (m : ident) (t : ty).
 
 (** ** Small utilities *)
 
@@ -92,6 +102,12 @@ Definition of_opt {A} (o : option A) (e : elab_error) : result A elab_error :=
 
 Definition tvars (n : nat) : list ty := map TVar (seq 0 n).
 
+(** [Array] and [FixedArray]. *)
+Definition array_kind_of (n : ident) : option array_kind :=
+  if eqb n "Array" then Some AGrow
+  else if eqb n "FixedArray" then Some AFixed
+  else None.
+
 (** ** Types *)
 
 Definition builtin_types : list (ident * ty) :=
@@ -101,6 +117,10 @@ Definition builtin_types : list (ident * ty) :=
     ("Byte", TInt IByte); ("BigInt", TInt IBigInt);
     ("Char", TBase BChar); ("Double", TBase BDouble); ("Float", TBase BFloat);
     ("String", TString) ].
+
+(** The builtin [struct Ref[T] { mut val : T }]. *)
+Definition ref_tdef : tdef :=
+  mk_tdef "Ref" 1 [mk_cdef "Ref" [TRef (TVar 0)]].
 
 (** The builtin data type [Option[T] { None; Some(T) }]. *)
 Definition option_tdef : tdef :=
@@ -121,7 +141,12 @@ Fixpoint elab_ty (tys : list (ident * nat)) (tps : list ident) (t : sty) : resul
             τs <- mapM (elab_ty tys tps) args ;;
             Ok (TData n τs)
           else Err (EE_TypeArgs p n k (List.length args))
-      | None, None, None => Err (EE_UnknownType p n)
+      | None, None, None =>
+          match array_kind_of n, args with
+          | Some k, [a] => τ <- elab_ty tys tps a ;; Ok (TArray k τ)
+          | Some _, _ => Err (EE_TypeArgs p n 1 (List.length args))
+          | None, _ => Err (EE_UnknownType p n)
+          end
       end
   | STuple _ ts =>
       τs <- mapM (elab_ty tys tps) ts ;;
@@ -154,6 +179,8 @@ Fixpoint tmatch (p t : ty) (s : list (option ty)) {struct p} : list (option ty) 
   | TTuple ps, TTuple ts => go ps ts s
   | TArrow ps r, TArrow ts u => tmatch r u (go ps ts s)
   | TData T ps, TData U ts => if eqb T U then go ps ts s else s
+  | TRef p, TRef t => tmatch p t s
+  | TArray k p, TArray k' t => if eqb k k' then tmatch p t s else s
   | _, _ => s
   end.
 
@@ -178,6 +205,8 @@ Fixpoint resolve (s : list (option ty)) (p : ty) {struct p} : option ty :=
       | _, _ => None
       end
   | TData T ps => option_map (TData T) (go ps)
+  | TRef p => option_map TRef (resolve s p)
+  | TArray k p => option_map (TArray k) (resolve s p)
   end.
 
 (** ** Literals and operators *)
@@ -232,9 +261,141 @@ Definition flexible (e : sexpr) : bool :=
   | _ => false
   end.
 
+(** ** Labels
+
+    One entry per Core [ELoop] between the current point and the enclosing
+    function boundary, innermost first; its position is the de Bruijn index
+    of [EJump]s that target it. *)
+Inductive lab_kind : Type :=
+| LKFun        (** a function body: the target of [return] *)
+| LKBlock      (** a labelled block *)
+| LKWhile      (** a [while] loop *)
+| LKForBody    (** the body of a [for] loop; the loop itself is the next entry *)
+| LKForInBody  (** the body of a [for .. in] loop; then the block computing the next
+                   state, then the loop itself *)
+| LKHead.      (** a loop seen from its condition, update or [nobreak]: transparent *)
+
+Record lab : Type := mk_lab {
+  lb_name : option ident;
+  lb_kind : lab_kind;
+  lb_ps   : list ty;
+  lb_res  : ty
+}.
+
+Definition core_labels (L : list lab) : list (list ty * ty) :=
+  map (fun l => (lb_ps l, lb_res l)) L.
+
+Definition named (x : ident) (l : lab) : bool :=
+  match lb_name l with Some y => eqb x y | None => false end.
+
+(** The [for] loop of a [LKForBody] entry is the next entry. *)
+Definition next_res (L : list lab) : ty :=
+  match L with l :: _ => lb_res l | [] => TUnit end.
+Definition next_ps (L : list lab) : list ty :=
+  match L with l :: _ => lb_ps l | [] => [] end.
+(** The state variables of a [for .. in] loop: the result of its state block. *)
+Definition next_state (L : list lab) : list ty :=
+  match L with l :: _ => match lb_res l with TTuple τs => τs | _ => [] end | [] => [] end.
+
+(** [break] (labelled [Some x] or not): index and result type of the
+    target.  An unlabelled [break] stops at a labelled block (it may not
+    pass through one) and nothing crosses a function boundary. *)
+Fixpoint break_target (x : option ident) (L : list lab) (k : nat) : option (nat * ty) :=
+  match L with
+  | [] => None
+  | l :: L' =>
+      match lb_kind l, x with
+      | LKHead, _ => break_target x L' (S k)
+      | LKFun, _ => None
+      | LKBlock, None => None
+      | LKWhile, None => Some (k, lb_res l)
+      | LKForBody, None => Some (S k, next_res L')
+      | LKForBody, Some y => if named y l then Some (S k, next_res L') else break_target x L' (S k)
+      | LKForInBody, None => Some (S (S k), next_res (tl L'))
+      | LKForInBody, Some y =>
+          if named y l then Some (S (S k), next_res (tl L')) else break_target x L' (S k)
+      | _, Some y => if named y l then Some (k, lb_res l) else break_target x L' (S k)
+      end
+  end.
+
+Inductive cont_target : Type :=
+| CTWhile (k : nat)                  (** re-enter the [while] loop [k] *)
+| CTFor   (k : nat) (ps : list ty)   (** [for] body [k]; the loop is [S k], with variables [ps] *)
+| CTForIn (k : nat) (ss : list ty).  (** [for .. in] body [k]; its state block is [S k] *)
+
+Fixpoint cont_target_of (x : option ident) (L : list lab) (k : nat) : option cont_target :=
+  match L with
+  | [] => None
+  | l :: L' =>
+      match lb_kind l, x with
+      | LKHead, _ => cont_target_of x L' (S k)
+      | LKFun, _ => None
+      | LKBlock, None => None
+      | LKBlock, Some y => if named y l then None else cont_target_of x L' (S k)
+      | LKWhile, None => Some (CTWhile k)
+      | LKWhile, Some y => if named y l then Some (CTWhile k) else cont_target_of x L' (S k)
+      | LKForBody, None => Some (CTFor k (next_ps L'))
+      | LKForBody, Some y =>
+          if named y l then Some (CTFor k (next_ps L')) else cont_target_of x L' (S k)
+      | LKForInBody, None => Some (CTForIn k (next_state L'))
+      | LKForInBody, Some y =>
+          if named y l then Some (CTForIn k (next_state L')) else cont_target_of x L' (S k)
+      end
+  end.
+
+Fixpoint return_target (L : list lab) (k : nat) : option (nat * ty) :=
+  match L with
+  | [] => None
+  | l :: L' => match lb_kind l with LKFun => Some (k, lb_res l) | _ => return_target L' (S k) end
+  end.
+
+(** ** [for .. in]
+
+    The sources supported so far: integer ranges and arrays.  A source is
+    bound to two hidden variables before the loop: a range to its start and
+    bound, an array to itself and its length (read once, as in MoonBit). *)
+Inductive range_kind : Type :=
+| RUpExcl      (** [a..<b]  *)
+| RUpIncl      (** [a..<=b] *)
+| RDownExcl    (** [a>..b]: from [a - 1] down to [b] *)
+| RDownIncl.   (** [a>=..b] *)
+
+Definition range_op (op : ident) : option range_kind :=
+  if eqb op "..<" then Some RUpExcl
+  else if eqb op "..<=" then Some RUpIncl
+  else if eqb op ">.." then Some RDownExcl
+  else if eqb op ">=.." then Some RDownIncl
+  else None.
+
+Inductive iter_src : Type :=
+| IRange (rk : range_kind) (kk : int_kind)
+| IArray (k : array_kind) (t : ty).
+
+Definition int1 (kk : int_kind) : expr := ELit (LInt kk 1).
+Definition iarith (o : arith_op) (kk : int_kind) (a b : expr) : expr := EPrim (PIntArith o kk) [a; b].
+Definition icmp (c : cmp_op) (kk : int_kind) (a b : expr) : expr := EPrim (PIntCmp c kk) [a; b].
+
+(** The type given to a jump expression (it does not return). *)
+Definition jty (exp : option ty) : ty := match exp with Some t => t | None => TUnit end.
+
+(** A block-like Core loop without arguments. *)
+Definition eblock (τ : ty) (b : expr) : expr := ELoop (ETuple []) [] τ b.
+
+(** Expressions that certainly jump away, elaborated after their siblings
+    so that the jump can take the siblings' type. *)
+Fixpoint diverges (e : sexpr) : bool :=
+  match e with
+  | SBreak _ _ _ | SContinue _ _ _ | SReturn _ _ => true
+  | SApp _ (SVar _ g) _ => (eqb g "panic" || eqb g "abort")%bool
+  | SLet _ _ _ _ body | SLetMut _ _ _ _ body => diverges body
+  | _ => false
+  end.
+
 (** ** Expressions *)
 
-(** Local context: innermost binding first, [None] for [_]/sequencing. *)
+(** Local context: innermost binding first, [None] for [_]/sequencing.
+    A [let mut] variable has a cell type [TRef τ] (surface types never
+    are cells). *)
 Definition lctx : Type := list (option ident * ty).
 
 Fixpoint lookup_local (x : ident) (Γ : lctx) : option nat :=
@@ -250,8 +411,8 @@ Section Elab.
   Variable sinfo : list (ident * list ident).      (** field names of record structs *)
   Variable tps : list ident.                       (** type parameters in scope *)
 
-  Definition type_of (p : pos) (Γ : lctx) (e : expr) : result ty elab_error :=
-    match infer hdr (map snd Γ) e with
+  Definition type_of (p : pos) (L : list lab) (Γ : lctx) (e : expr) : result ty elab_error :=
+    match infer hdr [] (core_labels L) (map snd Γ) e with
     | Ok (exist _ τ _) => Ok τ
     | Err err => Err (EE_Type p err)
     end.
@@ -346,8 +507,10 @@ Section Elab.
     | [cd] =>
         let fs := map (tsubst (inst ts)) (cd_fields cd) in
         τ <- of_opt (nth_error fs i) (EE_Type p (E_TupleIndex i (TData T ts))) ;;
-        let ps := map (fun j => if Nat.eqb j i then PVar else PWild) (seq 0 (List.length fs)) in
-        Ok (EMatch e τ [(PConstr (cd_name cd) ps, EVar 0)])
+        (* a [mut] field holds a cell: read its content *)
+        let (q, τr) := match τ with TRef t => (PRef PVar, t) | _ => (PVar, τ) end in
+        let ps := map (fun j => if Nat.eqb j i then q else PWild) (seq 0 (List.length fs)) in
+        Ok (EMatch e τr [(PConstr (cd_name cd) ps, EVar 0)])
     | _ => Err (EE_NotRecord p (TData T ts))
     end.
 
@@ -366,7 +529,10 @@ Section Elab.
           if open then Ok (map (fun _ => PWild) τs, [])
           else Err (EE_PatType p τ)
       | sp :: sps', τ0 :: τs' =>
-          '(q, Δ1) <- elab_pat τ0 sp ;;
+          '(q, Δ1) <- match τ0 with
+                      | TRef t => '(q0, Δ0) <- elab_pat t sp ;; Ok (PRef q0, Δ0)
+                      | _ => elab_pat τ0 sp
+                      end ;;
           '(qs, Δ2) <- go p open sps' τs' ;;
           Ok (q :: qs, List.app Δ1 Δ2)
       | _ :: _, [] => Err (EE_PatType p τ)
@@ -379,7 +545,11 @@ Section Elab.
       | (f, sp) :: fps' =>
           i <- of_opt (index_of f names) (EE_UnknownField p f) ;;
           τi <- of_opt (nth_error fs i) (EE_UnknownField p f) ;;
-          '(q, Δ) <- elab_pat τi sp ;;
+          (* a [mut] field: match the content of its cell *)
+          '(q, Δ) <- match τi with
+                     | TRef t => '(q0, Δ0) <- elab_pat t sp ;; Ok (PRef q0, Δ0)
+                     | _ => elab_pat τi sp
+                     end ;;
           rest <- named p names fs fps' ;;
           Ok ((i, q, Δ) :: rest)
       end in
@@ -455,22 +625,28 @@ Section Elab.
 
   (** A lambda, from (possibly partial) expectations [pexps] for its
       parameter types and [rexp] for its result type; [elab_body] elaborates
-      the body in the extended context. *)
+      the body in the extended context.  Labels do not cross the function
+      boundary; when the result type is known the body is wrapped in a
+      block that [return] targets. *)
   Definition elab_lam (Γ : lctx) (p : pos) (ps : list (ident * option sty)) (ret : option sty)
       (pexps : list (option ty)) (rexp : option ty)
-      (elab_body : lctx -> option ty -> result expr elab_error) : result expr elab_error :=
+      (elab_body : list lab -> lctx -> option ty -> result expr elab_error) :
+      result expr elab_error :=
     τs <- param_tys p ps pexps ;;
     let Γ' := List.app (combine (map (fun x => Some (fst x)) ps) τs) Γ in
     τr <- match ret with
           | Some t => map_result Some (elab_ty tys tps t)
           | None => Ok rexp
           end ;;
-    body' <- elab_body Γ' τr ;;
-    r <- match τr with
-         | Some r => Ok r
-         | None => type_of p Γ' body'
-         end ;;
-    Ok (ELam τs r body').
+    match τr with
+    | Some r =>
+        body' <- elab_body [mk_lab None LKFun [] r] Γ' τr ;;
+        Ok (ELam τs r (eblock r body'))
+    | None =>
+        body' <- elab_body [] Γ' None ;;
+        r <- type_of p [] Γ' body' ;;
+        Ok (ELam τs r body')
+    end.
 
   (** A lambda whose parameter types must come from the context. *)
   Definition needs_context (e : sexpr) : bool :=
@@ -488,7 +664,8 @@ Section Elab.
 
   (** *** Expressions *)
 
-  Fixpoint elab (Γ : lctx) (exp : option ty) (e : sexpr) {struct e} : result expr elab_error :=
+  Fixpoint elab (L : list lab) (Γ : lctx) (exp : option ty) (e : sexpr) {struct e}
+      : result expr elab_error :=
     (* elaborate a list against a list of expected types *)
     let fix elab_args (es : list sexpr) (exps : list (option ty)) : result (list expr) elab_error :=
       match es with
@@ -498,7 +675,7 @@ Section Elab.
                             | [] => (None, [])
                             | x :: xs => (x, xs)
                             end in
-          e' <- elab Γ x e ;;
+          e' <- elab L Γ x e ;;
           es2 <- elab_args es' exps' ;;
           Ok (e' :: es2)
       end in
@@ -521,9 +698,9 @@ Section Elab.
             '(r, s2) <- gargs1 p es' ps' s ;;
             Ok (None :: r, s2)
           else
-            e' <- elab Γ ex e ;;
+            e' <- elab L Γ ex e ;;
             s' <- match pt with
-                  | Some t => τ <- type_of p Γ e' ;; Ok (tmatch t τ s)
+                  | Some t => τ <- type_of p L Γ e' ;; Ok (tmatch t τ s)
                   | None => Ok s
                   end ;;
             '(r, s2) <- gargs1 p es' ps' s' ;;
@@ -550,12 +727,12 @@ Section Elab.
                         let pexps := if Nat.eqb (List.length pps) (List.length lps)
                                      then map (resolve s) pps
                                      else repeat None (List.length lps) in
-                        elab_lam Γ q lps ret pexps (resolve s pr) (fun Γ' t => elab Γ' t body)
-                    | _, _ => elab Γ (match pt with Some t => resolve s t | None => None end) e
+                        elab_lam Γ q lps ret pexps (resolve s pr) (fun L' Γ' t => elab L' Γ' t body)
+                    | _, _ => elab L Γ (match pt with Some t => resolve s t | None => None end) e
                     end
                 end ;;
           s' <- match d, pt with
-                | None, Some t => τ <- type_of p Γ e' ;; Ok (tmatch t τ s)
+                | None, Some t => τ <- type_of p L Γ e' ;; Ok (tmatch t τ s)
                 | _, _ => Ok s
                 end ;;
           '(r, s2) <- gargs2 p es' pre' ps' s' ;;
@@ -585,15 +762,44 @@ Section Elab.
       | (f, fe) :: fes' =>
           i <- of_opt (index_of f names) (EE_UnknownField p f) ;;
           τf <- of_opt (nth_error fs i) (EE_UnknownField p f) ;;
-          e' <- elab Γ0 (resolve s τf) fe ;;
-          τ <- type_of p Γ0 e' ;;
-          '(rest, Γ1, s1) <- rfields p ((None, τ) :: Γ0) names fs fes' (tmatch τf τ s) ;;
-          Ok ((e', i) :: rest, Γ1, s1)
+          (* a [mut] field holds a cell, allocated here *)
+          let (τc, mut) := match τf with TRef t => (t, true) | _ => (τf, false) end in
+          e' <- elab L Γ0 (resolve s τc) fe ;;
+          τ <- type_of p L Γ0 e' ;;
+          let e'' := if mut then EMem (MRef τ) [e'] else e' in
+          let τ' := if mut then TRef τ else τ in
+          '(rest, Γ1, s1) <- rfields p ((None, τ') :: Γ0) names fs fes' (tmatch τf τ' s) ;;
+          Ok ((e'', i) :: rest, Γ1, s1)
+      end in
+    (* [x = e] for named bindings, elaborated in order *)
+    let fix elab_named (L0 : list lab) (Γ0 : lctx) (tyof : ident -> option ty)
+        (bs : list (ident * sexpr)) : result (list (ident * expr)) elab_error :=
+      match bs with
+      | [] => Ok []
+      | (y, b) :: bs' =>
+          b' <- elab L0 Γ0 (tyof y) b ;;
+          rest <- elab_named L0 Γ0 tyof bs' ;;
+          Ok ((y, b') :: rest)
+      end in
+    (* the type of the first arm of a [match] that does not jump away *)
+    let fix first_arm (τs : ty) (cs : list (spat * sexpr)) : result (option ty) elab_error :=
+      match cs with
+      | [] => Ok None
+      | (sp, b) :: cs' =>
+          if diverges b then first_arm τs cs'
+          else
+            '(_, Δ) <- elab_pat τs sp ;;
+            b' <- elab L (List.app Δ Γ) None b ;;
+            map_result Some (type_of (sexpr_pos b) L (List.app Δ Γ) b')
       end in
     match e with
     | SVar p x =>
         match lookup_local x Γ with
-        | Some i => Ok (EVar i)
+        | Some i =>
+            match nth_error Γ i with
+            | Some (_, TRef τ) => Ok (EMem (MGet τ) [EVar i])
+            | _ => Ok (EVar i)
+            end
         | None =>
             match lookup_fn hdr x with
             | Some fd => elab_global p x fd exp
@@ -630,21 +836,64 @@ Section Elab.
                 if eqb g "not" then
                   args' <- elab_args args [Some TBool] ;;
                   Ok (EPrim PBoolNot args')
+                (* [panic() : T] and [abort(msg) : T] stop the program *)
+                else if eqb g "panic" then
+                  match args with
+                  | [] => Ok (EAbort (jty exp))
+                  | _ => Err (EE_Type q (E_ArgArity 0 (List.length args)))
+                  end
+                else if eqb g "abort" then
+                  match args with
+                  | [a] =>
+                      a' <- elab L Γ (Some TString) a ;;
+                      τa <- type_of p L Γ a' ;;
+                      if eqb τa TString then Ok (ELet a' (EAbort (jty exp)))
+                      else Err (EE_Annot (sexpr_pos a) TString τa)
+                  | _ => Err (EE_Type q (E_ArgArity 1 (List.length args)))
+                  end
                 else if eqb g "ignore" then
                   match args with
-                  | [a] => a' <- elab Γ None a ;; Ok (ELet a' (ELit LUnit))
+                  | [a] => a' <- elab L Γ None a ;; Ok (ELet a' (ELit LUnit))
                   | _ => Err (EE_Unbound q g)
                   end
                 else Err (EE_Unbound q g)
             | Some _, _ =>
-                f' <- elab Γ None f ;;
-                τf <- type_of p Γ f' ;;
+                f' <- elab L Γ None f ;;
+                τf <- type_of p L Γ f' ;;
                 args' <- elab_args args (arrow_params τf (List.length args)) ;;
                 Ok (EApp f' args')
             end
+        | SQual q T m =>
+            (* [Ref::new(v)], [Array::make(n, v)], [FixedArray::make(n, v)], [Array::new()] *)
+            match array_kind_of T, args with
+            | None, [v] =>
+                if (eqb T "Ref" && eqb m "new")%bool then
+                  v' <- elab L Γ (match exp with
+                                  | Some (TData R [t]) => if eqb R "Ref" then Some t else None
+                                  | _ => None
+                                  end) v ;;
+                  t <- type_of p L Γ v' ;;
+                  Ok (EConstr "Ref" "Ref" [t] (ETuple [EMem (MRef t) [v']]))
+                else Err (EE_NoMethod q m TUnit)
+            | Some k, [n; v] =>
+                if eqb m "make" then
+                  n' <- elab L Γ (Some TIndex) n ;;
+                  v' <- elab L Γ (match exp with Some (TArray _ t) => Some t | _ => None end) v ;;
+                  t <- type_of p L Γ v' ;;
+                  Ok (EMem (MMake k t) [n'; v'])
+                else Err (EE_NoMethod q m TUnit)
+            | Some k, [] =>
+                if eqb m "new" then
+                  match exp with
+                  | Some (TArray _ t) => Ok (EMem (MArray k t 0) [])
+                  | _ => Err (EE_CannotInfer q m)
+                  end
+                else Err (EE_NoMethod q m TUnit)
+            | _, _ => Err (EE_NoMethod q m TUnit)
+            end
         | _ =>
-            f' <- elab Γ None f ;;
-            τf <- type_of p Γ f' ;;
+            f' <- elab L Γ None f ;;
+            τf <- type_of p L Γ f' ;;
             args' <- elab_args args (arrow_params τf (List.length args)) ;;
             Ok (EApp f' args')
         end
@@ -675,8 +924,8 @@ Section Elab.
         | _ => Err (EE_NotRecord p (TData T []))
         end
     | SField p e0 f =>
-        e0' <- elab Γ None e0 ;;
-        τ <- type_of p Γ e0' ;;
+        e0' <- elab L Γ None e0 ;;
+        τ <- type_of p L Γ e0' ;;
         match τ with
         | TData T ts =>
             names <- of_opt (assoc T sinfo) (EE_NotRecord p τ) ;;
@@ -685,8 +934,8 @@ Section Elab.
         | _ => Err (EE_NotRecord p τ)
         end
     | SMatch p e0 cases =>
-        e0' <- elab Γ None e0 ;;
-        τs <- type_of p Γ e0' ;;
+        e0' <- elab L Γ None e0 ;;
+        τs <- type_of p L Γ e0' ;;
         let fix arms (cs : list (spat * sexpr)) (exp : option ty) :
             result (list (pat * expr) * option ty) elab_error :=
           match cs with
@@ -694,53 +943,57 @@ Section Elab.
           | (sp, b) :: cs' =>
               '(q, Δ) <- elab_pat τs sp ;;
               let Γ' := List.app Δ Γ in
-              b' <- elab Γ' exp b ;;
+              b' <- elab L Γ' exp b ;;
               τb <- match exp with
                     | Some t => Ok t
-                    | None => type_of p Γ' b'
+                    | None => type_of p L Γ' b'
                     end ;;
               '(rest, r) <- arms cs' (Some τb) ;;
               Ok ((q, b') :: rest, r)
           end in
-        '(bs, r) <- arms cases exp ;;
+        exp0 <- match exp with
+                | Some _ => Ok exp
+                | None => first_arm τs cases
+                end ;;
+        '(bs, r) <- arms cases exp0 ;;
         τ <- of_opt r (EE_EmptyMatch p) ;;
         Ok (EMatch e0' τ bs)
     | SInfix p op a b =>
         if eqb op "&&" then
-          a' <- elab Γ (Some TBool) a ;;
-          b' <- elab Γ (Some TBool) b ;;
+          a' <- elab L Γ (Some TBool) a ;;
+          b' <- elab L Γ (Some TBool) b ;;
           Ok (EIf a' b' e_false)
         else if eqb op "||" then
-          a' <- elab Γ (Some TBool) a ;;
-          b' <- elab Γ (Some TBool) b ;;
+          a' <- elab L Γ (Some TBool) a ;;
+          b' <- elab L Γ (Some TBool) b ;;
           Ok (EIf a' e_true b')
         else
           (* the expected type only flows into arithmetic operands *)
           let exp' := match assoc op arith_ops with Some _ => exp | None => None end in
           if andb (flexible a) (negb (flexible b)) then
-            b' <- elab Γ exp' b ;;
-            τ <- type_of p Γ b' ;;
-            a' <- elab Γ (Some τ) a ;;
+            b' <- elab L Γ exp' b ;;
+            τ <- type_of p L Γ b' ;;
+            a' <- elab L Γ (Some τ) a ;;
             elab_binop p op τ a' b'
           else
-            a' <- elab Γ exp' a ;;
-            τ <- type_of p Γ a' ;;
-            b' <- elab Γ (Some τ) b ;;
+            a' <- elab L Γ exp' a ;;
+            τ <- type_of p L Γ a' ;;
+            b' <- elab L Γ (Some τ) b ;;
             elab_binop p op τ a' b'
     | SUnary p op a =>
         if eqb op "-" then
           match a with
           | SLit q (SLInt k z) => l' <- elab_lit q exp (SLInt k (Z.opp z)) ;; Ok (ELit l')
           | _ =>
-              a' <- elab Γ exp a ;;
-              τ <- type_of p Γ a' ;;
+              a' <- elab L Γ exp a ;;
+              τ <- type_of p L Γ a' ;;
               match τ with
               | TBase (BInt k) => Ok (EPrim (PIntNeg k) [a'])
               | _ => Err (EE_NoOperator p op τ)
               end
           end
         else if eqb op "!" then
-          a' <- elab Γ (Some TBool) a ;;
+          a' <- elab L Γ (Some TBool) a ;;
           Ok (EPrim PBoolNot [a'])
         else Err (EE_NoOperator p op TUnit)
     | SLet p x ann e1 body =>
@@ -748,27 +1001,34 @@ Section Elab.
                 | Some t => map_result Some (elab_ty tys tps t)
                 | None => Ok None
                 end ;;
-        e1' <- elab Γ τann e1 ;;
-        τ1 <- type_of p Γ e1' ;;
+        e1' <- elab L Γ τann e1 ;;
+        τ1 <- type_of p L Γ e1' ;;
         _ <- match τann with
              | Some t => if eqb t τ1 then Ok tt else Err (EE_Annot p t τ1)
              | None => Ok tt
              end ;;
-        body' <- elab ((x, τ1) :: Γ) exp body ;;
+        body' <- elab L ((x, τ1) :: Γ) exp body ;;
         Ok (ELet e1' body')
     | SIf p c t oe =>
-        c' <- elab Γ (Some TBool) c ;;
+        c' <- elab L Γ (Some TBool) c ;;
         match oe with
         | Some e0 =>
-            t' <- elab Γ exp t ;;
+            if (match exp with None => true | Some _ => false end && diverges t
+                && negb (diverges e0))%bool then
+              e0' <- elab L Γ None e0 ;;
+              τe <- type_of p L Γ e0' ;;
+              t' <- elab L Γ (Some τe) t ;;
+              Ok (EIf c' t' e0')
+            else
+            t' <- elab L Γ exp t ;;
             exp' <- match exp with
                     | Some τ => Ok (Some τ)
-                    | None => map_result Some (type_of p Γ t')
+                    | None => map_result Some (type_of p L Γ t')
                     end ;;
-            e0' <- elab Γ exp' e0 ;;
+            e0' <- elab L Γ exp' e0 ;;
             Ok (EIf c' t' e0')
         | None =>
-            t' <- elab Γ (Some TUnit) t ;;
+            t' <- elab L Γ (Some TUnit) t ;;
             Ok (EIf c' t' (ELit LUnit))
         end
     | STup p es =>
@@ -781,8 +1041,8 @@ Section Elab.
         es' <- elab_args es exps ;;
         Ok (ETuple es')
     | SProj p e0 i =>
-        e0' <- elab Γ None e0 ;;
-        τ <- type_of p Γ e0' ;;
+        e0' <- elab L Γ None e0 ;;
+        τ <- type_of p L Γ e0' ;;
         match τ with
         | TData T ts => proj_field p T ts i e0'      (* tuple struct *)
         | _ => Ok (EProj e0' i)
@@ -793,12 +1053,324 @@ Section Elab.
                      | None => repeat None (List.length ps)
                      end in
         let rexp := match exp with Some (TArrow _ r) => Some r | _ => None end in
-        elab_lam Γ p ps ret pexps rexp (fun Γ' t => elab Γ' t body)
+        elab_lam Γ p ps ret pexps rexp (fun L' Γ' t => elab L' Γ' t body)
     | SAnnot p e0 t =>
         τ <- elab_ty tys tps t ;;
-        e0' <- elab Γ (Some τ) e0 ;;
-        τ0 <- type_of p Γ e0' ;;
+        e0' <- elab L Γ (Some τ) e0 ;;
+        τ0 <- type_of p L Γ e0' ;;
         if eqb τ τ0 then Ok e0' else Err (EE_Annot p τ τ0)
+    (* ---- milestone M3 ---- *)
+    | SLetMut p x ann e1 body =>
+        τann <- match ann with
+                | Some t => map_result Some (elab_ty tys tps t)
+                | None => Ok None
+                end ;;
+        e1' <- elab L Γ τann e1 ;;
+        τ1 <- type_of p L Γ e1' ;;
+        _ <- match τann with
+             | Some t => if eqb t τ1 then Ok tt else Err (EE_Annot p t τ1)
+             | None => Ok tt
+             end ;;
+        body' <- elab L ((Some x, TRef τ1) :: Γ) exp body ;;
+        Ok (ELet (EMem (MRef τ1) [e1']) body')
+    | SAssign p x op e0 =>
+        i <- of_opt (lookup_local x Γ) (EE_NotMutable p x) ;;
+        match nth_error Γ i with
+        | Some (_, TRef τ) =>
+            v' <- elab L Γ (Some τ) e0 ;;
+            v'' <- match op with
+                   | None => Ok v'
+                   | Some o => elab_binop p o τ (EMem (MGet τ) [EVar i]) v'
+                   end ;;
+            Ok (EMem (MSet τ) [EVar i; v''])
+        | _ => Err (EE_NotMutable p x)
+        end
+    | SArray p es =>
+        match exp, es with
+        | Some (TArray k t), _ =>
+            es' <- elab_args es (repeat (Some t) (List.length es)) ;;
+            Ok (EMem (MArray k t (List.length es)) es')
+        | _, e1 :: es1 =>
+            e1' <- elab L Γ None e1 ;;
+            t <- type_of p L Γ e1' ;;
+            es1' <- elab_args es1 (repeat (Some t) (List.length es1)) ;;
+            Ok (EMem (MArray AGrow t (List.length es)) (e1' :: es1'))
+        | _, [] => Err (EE_CannotInfer p "[]")
+        end
+    | SIndex p a i =>
+        a' <- elab L Γ None a ;;
+        τa <- type_of p L Γ a' ;;
+        match τa with
+        | TArray k t =>
+            i' <- elab L Γ (Some TIndex) i ;;
+            Ok (EMem (MIndex k t) [a'; i'])
+        | _ => Err (EE_NoMethod p "[]" τa)
+        end
+    | SIndexSet p a i op v =>
+        a' <- elab L Γ None a ;;
+        τa <- type_of p L Γ a' ;;
+        match τa with
+        | TArray k t =>
+            match op with
+            | None =>
+                i' <- elab L Γ (Some TIndex) i ;;
+                v' <- elab L Γ (Some t) v ;;
+                Ok (EMem (MSetIndex k t) [a'; i'; v'])
+            | Some o =>
+                (* [a] and [i] are evaluated once *)
+                let Γ1 := (None, τa) :: Γ in
+                i' <- elab L Γ1 (Some TIndex) i ;;
+                let Γ2 := (None, TIndex) :: Γ1 in
+                v' <- elab L Γ2 (Some t) v ;;
+                rhs <- elab_binop p o t (EMem (MIndex k t) [EVar 1; EVar 0]) v' ;;
+                Ok (ELet a' (ELet i' (EMem (MSetIndex k t) [EVar 1; EVar 0; rhs])))
+            end
+        | _ => Err (EE_NoMethod p "[]=" τa)
+        end
+    | SFieldSet p e0 f op v =>
+        e0' <- elab L Γ None e0 ;;
+        τ <- type_of p L Γ e0' ;;
+        match τ with
+        | TData T ts =>
+            names <- of_opt (assoc T sinfo) (EE_NotRecord p τ) ;;
+            i <- of_opt (index_of f names) (EE_UnknownField p f) ;;
+            td <- of_opt (lookup_ty hdr T) (EE_UnknownType p T) ;;
+            match td_ctors td with
+            | [cd] =>
+                let fs := map (tsubst (inst ts)) (cd_fields cd) in
+                match nth_error fs i with
+                | Some (TRef t) =>
+                    (* bind the field's cell, then write it *)
+                    let Γ1 := (None, TRef t) :: Γ in
+                    v' <- elab L Γ1 (Some t) v ;;
+                    rhs <- match op with
+                           | None => Ok v'
+                           | Some o => elab_binop p o t (EMem (MGet t) [EVar 0]) v'
+                           end ;;
+                    let ps := map (fun j => if Nat.eqb j i then PVar else PWild)
+                                  (seq 0 (List.length fs)) in
+                    Ok (EMatch e0' TUnit [(PConstr (cd_name cd) ps, EMem (MSet t) [EVar 0; rhs])])
+                | _ => Err (EE_NotMutable p f)
+                end
+            | _ => Err (EE_NotRecord p τ)
+            end
+        | _ => Err (EE_NotRecord p τ)
+        end
+    | SMethod p e0 m args =>
+        e0' <- elab L Γ None e0 ;;
+        τ <- type_of p L Γ e0' ;;
+        match τ, args with
+        | TArray k t, [] =>
+            if eqb m "length" then Ok (EMem (MLength k t) [e0']) else Err (EE_NoMethod p m τ)
+        | TArray AGrow t, [a] =>
+            if eqb m "push" then
+              a' <- elab L Γ (Some t) a ;;
+              Ok (EMem (MPush t) [e0'; a'])
+            else Err (EE_NoMethod p m τ)
+        | _, _ => Err (EE_NoMethod p m τ)
+        end
+    | SQual p T m => Err (EE_NoMethod p m TUnit)
+    | SWhile p x c body nb =>
+        (* the loop's condition and [nobreak] see it as a transparent entry *)
+        let hd τ := mk_lab None LKHead [] τ :: L in
+        τ <- match nb with
+             | None => Ok TUnit
+             | Some e0 =>
+                 match exp with
+                 | Some t => Ok t
+                 | None => e0' <- elab (hd TUnit) Γ None e0 ;; type_of p (hd TUnit) Γ e0'
+                 end
+             end ;;
+        c' <- elab (hd τ) Γ (Some TBool) c ;;
+        body' <- elab (mk_lab x LKWhile [] τ :: L) Γ (Some TUnit) body ;;
+        nb' <- match nb with
+               | Some e0 => elab (hd τ) Γ (Some τ) e0
+               | None => Ok (ELit LUnit)
+               end ;;
+        Ok (ELoop (ETuple []) [] τ
+                  (EIf c' (ELet body' (EJump CCont 0 (ETuple []) τ)) nb'))
+    | SFor p x inits c upds body nb =>
+        inits' <- elab_named L Γ (fun _ => None) inits ;;
+        τs <- mapM (fun b => type_of p L Γ (snd b)) inits' ;;
+        let names := map fst inits in
+        let Γ' := List.app (combine (map Some names) τs) Γ in
+        let hd τ := mk_lab None LKHead τs τ :: L in
+        τ <- match nb, c with
+             | None, Some _ => Ok TUnit
+             | None, None => Ok (jty exp)
+             | Some e0, _ =>
+                 match exp with
+                 | Some t => Ok t
+                 | None => e0' <- elab (hd TUnit) Γ' None e0 ;; type_of p (hd TUnit) Γ' e0'
+                 end
+             end ;;
+        c' <- match c with
+              | Some c0 => map_result Some (elab (hd τ) Γ' (Some TBool) c0)
+              | None => Ok None
+              end ;;
+        (* the body is a block: [continue] without arguments leaves it *)
+        body' <- elab (mk_lab x LKForBody [] TUnit :: hd τ) Γ' (Some TUnit) body ;;
+        (* the next values of the loop variables, after the body's binder *)
+        let Γ'' := (None, TUnit) :: Γ' in
+        upds' <- elab_named (hd τ) Γ'' (fun y => assoc y (combine names τs)) upds ;;
+        let next := map (fun i => match assoc (nth i names "") upds' with
+                                  | Some u => u
+                                  | None => EVar (S i)
+                                  end) (seq 0 (List.length names)) in
+        let step := ELet (eblock TUnit body') (EJump CCont 0 (ETuple next) τ) in
+        nb' <- match nb with
+               | Some e0 => elab (hd τ) Γ' (Some τ) e0
+               | None => Ok (ELit LUnit)
+               end ;;
+        Ok (ELoop (ETuple (map snd inits')) τs τ
+                  (match c' with Some c0 => EIf c0 step nb' | None => step end))
+    | SBlock p x body =>
+        let τ := jty exp in
+        body' <- elab (mk_lab (Some x) LKBlock [] τ :: L) Γ (Some τ) body ;;
+        Ok (eblock τ body')
+    | SBreak p x arg =>
+        '(k, τt) <- of_opt (break_target x L 0) (EE_NoTarget p) ;;
+        a' <- match arg with
+              | Some a => elab L Γ (Some τt) a
+              | None => Ok (ELit LUnit)
+              end ;;
+        Ok (EJump CBreak k a' (jty exp))
+    | SContinue p x args =>
+        tgt <- of_opt (cont_target_of x L 0) (EE_NoTarget p) ;;
+        match tgt, args with
+        | CTWhile k, [] => Ok (EJump CCont k (ETuple []) (jty exp))
+        | CTWhile _, _ => Err (EE_BadContinue p 0 (List.length args))
+        | CTFor k _, [] => Ok (EJump CBreak k (ELit LUnit) (jty exp))
+        | CTFor k ps, _ =>
+            if Nat.eqb (List.length ps) (List.length args) then
+              args' <- elab_args args (map Some ps) ;;
+              Ok (EJump CCont (S k) (ETuple args') (jty exp))
+            else Err (EE_BadContinue p (List.length ps) (List.length args))
+        (* [for .. in]: leave the body (the state block then applies the
+           update clauses), or give the next state directly *)
+        | CTForIn k _, [] => Ok (EJump CBreak k (ELit LUnit) (jty exp))
+        | CTForIn k ss, _ =>
+            if Nat.eqb (List.length ss) (List.length args) then
+              args' <- elab_args args (map Some ss) ;;
+              Ok (EJump CBreak (S k) (ETuple args') (jty exp))
+            else Err (EE_BadContinue p (List.length ss) (List.length args))
+        end
+    | SReturn p arg =>
+        '(k, r) <- of_opt (return_target L 0) (EE_NoTarget p) ;;
+        a' <- match arg with
+              | Some a => elab L Γ (Some r) a
+              | None => Ok (ELit LUnit)
+              end ;;
+        Ok (EJump CBreak k a' (jty exp))
+    | SForIn p x pats src inits upds body nb =>
+        (* the source, bound to two hidden variables: [e1] in [Γ], [e2] under [e1] *)
+        let array_src :=
+          a' <- elab L Γ None src ;;
+          τa <- type_of p L Γ a' ;;
+          match τa with
+          | TArray k t => Ok (a', EMem (MLength k t) [EVar 0], IArray k t)
+          | _ => Err (EE_NoMethod p "iter" τa)
+          end in
+        '(e1, e2, it) <-
+          match src with
+          | SInfix q op lo hi =>
+              match range_op op with
+              | Some rk =>
+                  (* the start fixes the integer type, as in MoonBit *)
+                  lo' <- elab L Γ None lo ;;
+                  τk <- type_of q L Γ lo' ;;
+                  hi' <- elab L ((None, τk) :: Γ) (Some τk) hi ;;
+                  match τk with
+                  | TBase (BInt kk) => Ok (lo', hi', IRange rk kk)
+                  | _ => Err (EE_NoOperator q op τk)
+                  end
+              | None => array_src
+              end
+          | _ => array_src
+          end ;;
+        let '(τ1, τ2, ivs, start, incl) :=
+          match it with
+          | IRange rk kk =>
+              let incl := match rk with RUpIncl | RDownIncl => true | _ => false end in
+              (TInt kk, TInt kk,
+               (if incl then [TInt kk; TBool] else [TInt kk]), EVar 1, incl)
+          | IArray k t => (TArray k t, TIndex, [TIndex], ELit (LInt I32 0), false)
+          end in
+        let Γo := (None, τ2) :: (None, τ1) :: Γ in
+        (* the state variables *)
+        inits' <- elab_named L Γo (fun _ => None) inits ;;
+        τs <- mapM (fun b => type_of p L Γo (snd b)) inits' ;;
+        let names := map fst inits in
+        let ps := List.app ivs τs in
+        let n := List.length ps in
+        let Γl := List.app (List.app (map (fun t => (None, t)) ivs)
+                                     (combine (map Some names) τs)) Γo in
+        let hd τ := mk_lab None LKHead ps τ :: L in
+        τ <- match nb with
+             | None => Ok TUnit
+             | Some e0 =>
+                 match exp with
+                 | Some t => Ok t
+                 | None => e0' <- elab (hd TUnit) Γl None e0 ;; type_of p (hd TUnit) Γl e0'
+                 end
+             end ;;
+        (* condition and element, in [Γl]: the position is [EVar 0], the
+           [done] flag of an inclusive range [EVar 1], the bound [EVar n] *)
+        let v := EVar 0 in
+        let bound := EVar n in
+        let '(cond, elem, τe) :=
+          match it with
+          | IRange RUpExcl kk => (icmp CLt kk v bound, v, TInt kk)
+          | IRange RUpIncl kk => (EIf (EVar 1) e_false (icmp CLe kk v bound), v, TInt kk)
+          | IRange RDownExcl kk => (icmp CGt kk v bound, iarith ASub kk v (int1 kk), TInt kk)
+          | IRange RDownIncl kk => (EIf (EVar 1) e_false (icmp CGe kk v bound), v, TInt kk)
+          | IArray k t => (icmp CLt I32 v bound, EMem (MIndex k t) [EVar (S n); v], t)
+          end in
+        '(q, Δ, scrut) <-
+          match pats, it with
+          | [sp], _ => '(q, Δ) <- elab_pat τe sp ;; Ok (q, Δ, elem)
+          | [sp1; sp2], IArray _ _ =>
+              '(q1, Δ1) <- elab_pat TIndex sp1 ;;
+              '(q2, Δ2) <- elab_pat τe sp2 ;;
+              Ok (PTuple [q1; q2], List.app Δ1 Δ2, ETuple [v; elem])
+          | _, _ => Err (EE_PatType p τe)
+          end ;;
+        let d := List.length Δ in
+        let Γb := List.app Δ Γl in
+        (* the body is a block inside the block that computes the next state *)
+        let st := mk_lab None LKHead [] (TTuple τs) :: hd τ in
+        body' <- elab (mk_lab x LKForInBody [] TUnit :: st) Γb (Some TUnit) body ;;
+        let Γu := (None, TUnit) :: Γb in
+        upds' <- elab_named st Γu (fun y => assoc y (combine names τs)) upds ;;
+        let state := map (fun j => match assoc (nth j names "") upds' with
+                                   | Some u => u
+                                   | None => EVar (1 + d + List.length ivs + j)
+                                   end) (seq 0 (List.length names)) in
+        let blk := eblock (TTuple τs) (ELet (eblock TUnit body') (ETuple state)) in
+        (* after the state block: the position is [EVar (1 + d)], the bound
+           [EVar (1 + d + n)]; inclusive ranges stop at the bound without
+           stepping past it *)
+        let vv := EVar (1 + d) in
+        let bb := EVar (1 + d + n) in
+        let next_iv :=
+          match it with
+          | IRange RUpExcl kk => [iarith AAdd kk vv (int1 kk)]
+          | IRange RDownExcl kk => [iarith ASub kk vv (int1 kk)]
+          | IRange RUpIncl kk =>
+              [EIf (icmp CEq kk vv bb) vv (iarith AAdd kk vv (int1 kk)); icmp CEq kk vv bb]
+          | IRange RDownIncl kk =>
+              [EIf (icmp CEq kk vv bb) vv (iarith ASub kk vv (int1 kk)); icmp CEq kk vv bb]
+          | IArray _ _ => [iarith AAdd I32 vv (int1 I32)]
+          end in
+        let next := List.app next_iv (map (fun j => EProj (EVar 0) j) (seq 0 (List.length names))) in
+        let step := ELet blk (EJump CCont 0 (ETuple next) τ) in
+        nb' <- match nb with
+               | Some e0 => elab (hd τ) Γl (Some τ) e0
+               | None => Ok (ELit LUnit)
+               end ;;
+        let init := List.app (if incl then [start; e_false] else [start]) (map snd inits') in
+        Ok (ELet e1 (ELet e2
+              (ELoop (ETuple init) ps τ (EIf cond (EMatch scrut τ [(q, step)]) nb'))))
     end.
 End Elab.
 
@@ -812,7 +1384,9 @@ Definition elab_tdef (tys : list (ident * nat)) (st : stype) : result tdef elab_
       cds <- mapM (fun c => τs <- mapM (elab_ty tys tps) (snd c) ;; Ok (mk_cdef (fst c) τs)) cs ;;
       Ok (mk_tdef (st_name st) n cds)
   | SDStruct fs =>
-      τs <- mapM (fun f => elab_ty tys tps (snd f)) fs ;;
+      (* a [mut] field holds a cell *)
+      τs <- mapM (fun (f : ident * bool * sty) => τ <- elab_ty tys tps (snd f) ;;
+                           Ok (if snd (fst f) then TRef τ else τ)) fs ;;
       Ok (mk_tdef (st_name st) n [mk_cdef (st_name st) τs])
   | SDTupleStruct ts =>
       τs <- mapM (elab_ty tys tps) ts ;;
@@ -827,9 +1401,15 @@ Definition elab_sig (tys : list (ident * nat)) (f : sfun) : result fdef elab_err
        end ;;
   Ok (mk_fdef (sf_name f) (List.length (sf_tparams f)) τs τ (ELit LUnit)).
 
+(** The body of a function, wrapped in the block that [return] targets. *)
+Definition elab_body tys hdr sinfo tps (Γ : lctx) (r : ty) (body : sexpr) :
+    result expr elab_error :=
+  b <- elab tys hdr sinfo tps [mk_lab None LKFun [] r] Γ (Some r) body ;;
+  Ok (eblock r b).
+
 Definition elab_fun tys hdr sinfo (f : sfun) (sig : fdef) : result fdef elab_error :=
   let Γ := combine (map (fun xt => Some (fst xt)) (sf_params f)) (fd_params sig) in
-  b <- elab tys hdr sinfo (sf_tparams f) Γ (Some (fd_ret sig)) (sf_body f) ;;
+  b <- elab_body tys hdr sinfo (sf_tparams f) Γ (fd_ret sig) (sf_body f) ;;
   Ok (mk_fdef (fd_name sig) (fd_tparams sig) (fd_params sig) (fd_ret sig) b).
 
 Fixpoint elab_funs tys hdr sinfo (fs : list sfun) (sigs : list fdef) : result (list fdef) elab_error :=
@@ -842,22 +1422,23 @@ Fixpoint elab_funs tys hdr sinfo (fs : list sfun) (sigs : list fdef) : result (l
   end.
 
 (** The entry expression is the body of [fn main] (checked against [Unit]),
-    or [()] when there is none.  [Option] is predeclared. *)
+    or [()] when there is none.  [Option] and [Ref] are predeclared. *)
 Definition elab_prog (sp : sprog) : result (genv * expr) elab_error :=
-  let tys := ("Option", 1) :: map (fun st => (st_name st, List.length (st_tparams st))) (sp_types sp) in
-  let sinfo := flat_map (fun st => match st_body st with
-                                   | SDStruct fs => [(st_name st, map fst fs)]
+  let tys := ("Option", 1) :: ("Ref", 1)
+             :: map (fun st => (st_name st, List.length (st_tparams st))) (sp_types sp) in
+  let sinfo := ("Ref", ["val"]) :: flat_map (fun st => match st_body st with
+                                   | SDStruct fs => [(st_name st, map (fun f => fst (fst f)) fs)]
                                    | _ => []
                                    end) (sp_types sp) in
   tds <- mapM (elab_tdef tys) (sp_types sp) ;;
-  let types := option_tdef :: tds in
+  let types := option_tdef :: ref_tdef :: tds in
   sigs <- mapM (elab_sig tys) (sp_funs sp) ;;
   let hdr := mk_genv types sigs in
   funs <- elab_funs tys hdr sinfo (sp_funs sp) sigs ;;
   main <- match sp_main sp with
           | Some e =>
-              elab tys hdr sinfo [] [] (Some TUnit)
-                   (SAnnot (sexpr_pos e) e (SName (sexpr_pos e) "Unit" []))
+              elab_body tys hdr sinfo [] [] TUnit
+                        (SAnnot (sexpr_pos e) e (SName (sexpr_pos e) "Unit" []))
           | None => Ok (ELit LUnit)
           end ;;
   Ok (mk_genv types funs, main).

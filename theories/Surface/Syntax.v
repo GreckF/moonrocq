@@ -3,7 +3,7 @@
     A named, lightly-desugared view of MoonBit programs: the shape that the
     front end (the official MoonBit parser plus a thin projection, see
     [extraction/]) hands to the elaborator.  It only covers the fragment that
-    Core M1 can express; everything else is rejected by the front end as
+    Core can express so far; everything else is rejected by the front end as
     "unsupported" before reaching Rocq.
 
     Differences from the concrete syntax:
@@ -70,7 +70,28 @@ Inductive sexpr : Type :=
 | SConstr (p : pos) (T : option ident) (c : ident)      (** constructor [T::c] or [c] *)
 | SRecord (p : pos) (T : option ident) (fs : list (ident * sexpr))  (** [T::{ x: e, .. }] *)
 | SField  (p : pos) (e : sexpr) (f : ident)                         (** [e.f] *)
-| SMatch  (p : pos) (e : sexpr) (cases : list (spat * sexpr)).
+| SMatch  (p : pos) (e : sexpr) (cases : list (spat * sexpr))
+(* ---- milestone M3: state and loops ---- *)
+| SLetMut   (p : pos) (x : ident) (ann : option sty) (e1 body : sexpr)   (** [let mut x = e1; body] *)
+| SAssign   (p : pos) (x : ident) (op : option ident) (e : sexpr)        (** [x = e], [x += e] *)
+| SArray    (p : pos) (es : list sexpr)                                  (** [[e1, e2]] *)
+| SIndex    (p : pos) (a i : sexpr)                                      (** [a[i]] *)
+| SIndexSet (p : pos) (a i : sexpr) (op : option ident) (v : sexpr)      (** [a[i] = v], [a[i] += v] *)
+| SFieldSet (p : pos) (e : sexpr) (f : ident) (op : option ident) (v : sexpr)  (** [e.f = v] *)
+| SMethod   (p : pos) (e : sexpr) (m : ident) (args : list sexpr)        (** [e.m(args)] *)
+| SQual     (p : pos) (T m : ident)                                      (** [T::m] *)
+| SWhile    (p : pos) (l : option ident) (c body : sexpr) (nb : option sexpr)
+    (** [l~: while c { body } nobreak { nb }] *)
+| SFor      (p : pos) (l : option ident) (init : list (ident * sexpr)) (c : option sexpr)
+            (upd : list (ident * sexpr)) (body : sexpr) (nb : option sexpr)
+    (** [l~: for x = e, ..; c; x = u, .. { body } nobreak { nb }] *)
+| SBlock    (p : pos) (l : ident) (body : sexpr)                         (** [l~: { body }] *)
+| SBreak    (p : pos) (l : option ident) (arg : option sexpr)
+| SContinue (p : pos) (l : option ident) (args : list sexpr)
+| SReturn   (p : pos) (arg : option sexpr)
+| SForIn    (p : pos) (l : option ident) (pats : list spat) (src : sexpr)
+            (init upd : list (ident * sexpr)) (body : sexpr) (nb : option sexpr)
+    (** [l~: for p, .. in src; s = e, ..; s = u, .. { body } nobreak { nb }] *).
 
 (** A top-level function [fn[T, ..] f(x : A, ..) -> R { body }].
     A missing return type means [Unit], as in MoonBit. *)
@@ -84,10 +105,11 @@ Record sfun : Type := mk_sfun {
 }.
 
 (** Type declarations: [enum T[..] { C(A, B), .. }], [struct T[..] { x : A, .. }]
-    and the tuple struct [struct T[..](A, B)]. *)
+    and the tuple struct [struct T[..](A, B)].  A struct field is
+    [(name, mutable, type)]. *)
 Inductive sdecl : Type :=
 | SDEnum        (cs : list (ident * list sty))
-| SDStruct      (fs : list (ident * sty))
+| SDStruct      (fs : list (ident * bool * sty))
 | SDTupleStruct (ts : list sty).
 
 Record stype : Type := mk_stype {
@@ -109,5 +131,9 @@ Definition sexpr_pos (e : sexpr) : pos :=
   match e with
   | SVar p _ | SLit p _ | SApp p _ _ | SInfix p _ _ _ | SUnary p _ _
   | SLet p _ _ _ _ | SIf p _ _ _ | STup p _ | SProj p _ _ | SLam p _ _ _
-  | SAnnot p _ _ | SConstr p _ _ | SRecord p _ _ | SField p _ _ | SMatch p _ _ => p
+  | SAnnot p _ _ | SConstr p _ _ | SRecord p _ _ | SField p _ _ | SMatch p _ _
+  | SLetMut p _ _ _ _ | SAssign p _ _ _ | SArray p _ | SIndex p _ _ | SIndexSet p _ _ _ _
+  | SFieldSet p _ _ _ _ | SMethod p _ _ _ | SQual p _ _ | SWhile p _ _ _ _
+  | SFor p _ _ _ _ _ _ | SBlock p _ _ | SBreak p _ _ | SContinue p _ _ | SReturn p _
+  | SForIn p _ _ _ _ _ _ _ => p
   end.

@@ -64,6 +64,13 @@ pub(all) enum SigT[A, B] {
   ExistT(A, B)
 }
 
+pub fn add(n : Nat, m : Nat) -> Nat {
+  match n {
+    Nat::O => m
+    Nat::S(p) => Nat::S(add(p, m))
+  }
+}
+
 pub fn sub(n : Nat, m : Nat) -> Nat {
   match n {
     Nat::O => n
@@ -162,6 +169,13 @@ pub fn[A] nth(n : Nat, l : List[A], default : A) -> A {
   }
 }
 
+pub fn[A] tl(l : List[A]) -> List[A] {
+  match l {
+    List::Nil => List::Nil
+    List::Cons(_, l_) => l_
+  }
+}
+
 pub fn[A] nth_error(l : List[A], n : Nat) -> Option[A] {
   match n {
     Nat::O => match l {
@@ -229,9 +243,9 @@ pub fn[A] filter(f : (A) -> Bool, l : List[A]) -> List[A] {
 pub fn[A] find(f : (A) -> Bool, l : List[A]) -> Option[A] {
   match l {
     List::Nil => None
-    List::Cons(x, tl) => match f(x) {
+    List::Cons(x, tl0) => match f(x) {
       true => Some(x)
-      false => find(f, tl)
+      false => find(f, tl0)
     }
   }
 }
@@ -239,9 +253,9 @@ pub fn[A] find(f : (A) -> Bool, l : List[A]) -> Option[A] {
 pub fn[A, B] combine(l : List[A], l_ : List[B]) -> List[(A, B)] {
   match l {
     List::Nil => List::Nil
-    List::Cons(x, tl) => match l_ {
+    List::Cons(x, tl0) => match l_ {
       List::Nil => List::Nil
-      List::Cons(y, tl_) => List::Cons((x, y), combine(tl, tl_))
+      List::Cons(y, tl_) => List::Cons((x, y), combine(tl0, tl_))
     }
   }
 }
@@ -304,16 +318,16 @@ pub fn succ(x : Positive) -> Positive {
   }
 }
 
-pub fn add(x : Positive, y : Positive) -> Positive {
+pub fn add0(x : Positive, y : Positive) -> Positive {
   match x {
     Positive::XI(p) => match y {
       Positive::XI(q) => Positive::XO(add_carry(p, q))
-      Positive::XO(q) => Positive::XI(add(p, q))
+      Positive::XO(q) => Positive::XI(add0(p, q))
       Positive::XH => Positive::XO(succ(p))
     }
     Positive::XO(p) => match y {
-      Positive::XI(q) => Positive::XI(add(p, q))
-      Positive::XO(q) => Positive::XO(add(p, q))
+      Positive::XI(q) => Positive::XI(add0(p, q))
+      Positive::XO(q) => Positive::XO(add0(p, q))
       Positive::XH => Positive::XI(p)
     }
     Positive::XH => match y {
@@ -333,7 +347,7 @@ pub fn add_carry(x : Positive, y : Positive) -> Positive {
     }
     Positive::XO(p) => match y {
       Positive::XI(q) => Positive::XO(add_carry(p, q))
-      Positive::XO(q) => Positive::XI(add(p, q))
+      Positive::XO(q) => Positive::XI(add0(p, q))
       Positive::XH => Positive::XO(succ(p))
     }
     Positive::XH => match y {
@@ -354,7 +368,7 @@ pub fn pred_double(x : Positive) -> Positive {
 
 pub fn mul(x : Positive, y : Positive) -> Positive {
   match x {
-    Positive::XI(p) => add(y, Positive::XO(mul(p, y)))
+    Positive::XI(p) => add0(y, Positive::XO(mul(p, y)))
     Positive::XO(p) => Positive::XO(mul(p, y))
     Positive::XH => y
   }
@@ -450,18 +464,18 @@ pub fn pos_sub(x : Positive, y : Positive) -> Z {
   }
 }
 
-pub fn add0(x : Z, y : Z) -> Z {
+pub fn add1(x : Z, y : Z) -> Z {
   match x {
     Z::Z0 => y
     Z::Zpos(x_) => match y {
       Z::Z0 => x
-      Z::Zpos(y_) => Z::Zpos(add(x_, y_))
+      Z::Zpos(y_) => Z::Zpos(add0(x_, y_))
       Z::Zneg(y_) => pos_sub(x_, y_)
     }
     Z::Zneg(x_) => match y {
       Z::Z0 => x
       Z::Zpos(y_) => pos_sub(y_, x_)
-      Z::Zneg(y_) => Z::Zneg(add(x_, y_))
+      Z::Zneg(y_) => Z::Zneg(add0(x_, y_))
     }
   }
 }
@@ -475,7 +489,7 @@ pub fn opp(x : Z) -> Z {
 }
 
 pub fn sub0(m : Z, n : Z) -> Z {
-  add0(m, opp(n))
+  add1(m, opp(n))
 }
 
 pub fn mul0(x : Z, y : Z) -> Z {
@@ -562,10 +576,10 @@ pub fn pos_div_eucl(a : Positive, b : Z) -> (Z, Z) {
   match a {
     Positive::XI(a_) => match pos_div_eucl(a_, b) {
       (q, r) => {
-        let r_ = add0(mul0(Z::Zpos(Positive::XO(Positive::XH)), r), Z::Zpos(Positive::XH))
+        let r_ = add1(mul0(Z::Zpos(Positive::XO(Positive::XH)), r), Z::Zpos(Positive::XH))
         match ltb0(r_, b) {
           true => (mul0(Z::Zpos(Positive::XO(Positive::XH)), q), r_)
-          false => (add0(mul0(Z::Zpos(Positive::XO(Positive::XH)), q), Z::Zpos(Positive::XH)), sub0(r_, b))
+          false => (add1(mul0(Z::Zpos(Positive::XO(Positive::XH)), q), Z::Zpos(Positive::XH)), sub0(r_, b))
         }
       }
     }
@@ -574,7 +588,7 @@ pub fn pos_div_eucl(a : Positive, b : Z) -> (Z, Z) {
         let r_ = mul0(Z::Zpos(Positive::XO(Positive::XH)), r)
         match ltb0(r_, b) {
           true => (mul0(Z::Zpos(Positive::XO(Positive::XH)), q), r_)
-          false => (add0(mul0(Z::Zpos(Positive::XO(Positive::XH)), q), Z::Zpos(Positive::XH)), sub0(r_, b))
+          false => (add1(mul0(Z::Zpos(Positive::XO(Positive::XH)), q), Z::Zpos(Positive::XH)), sub0(r_, b))
         }
       }
     }
@@ -594,7 +608,7 @@ pub fn div_eucl(a : Z, b : Z) -> (Z, Z) {
       Z::Zneg(b_) => match pos_div_eucl(a_, Z::Zpos(b_)) {
         (q, r) => match r {
           Z::Z0 => (opp(q), Z::Z0)
-          _ => (opp(add0(q, Z::Zpos(Positive::XH))), add0(b, r))
+          _ => (opp(add1(q, Z::Zpos(Positive::XH))), add1(b, r))
         }
       }
     }
@@ -603,7 +617,7 @@ pub fn div_eucl(a : Z, b : Z) -> (Z, Z) {
       Z::Zpos(_) => match pos_div_eucl(a_, b) {
         (q, r) => match r {
           Z::Z0 => (opp(q), Z::Z0)
-          _ => (opp(add0(q, Z::Zpos(Positive::XH))), sub0(b, r))
+          _ => (opp(add1(q, Z::Zpos(Positive::XH))), sub0(b, r))
         }
       }
       Z::Zneg(b_) => match pos_div_eucl(a_, Z::Zpos(b_)) {
@@ -799,6 +813,26 @@ pub fn base_ty_eq_dec(x : Base_ty, y : Base_ty) -> Bool {
   }
 }
 
+pub(all) enum Array_kind {
+  AFixed
+  AGrow
+}
+
+pub fn array_kind_eq_dec(x : Array_kind, y : Array_kind) -> Bool {
+  match x {
+    Array_kind::AFixed => match y {
+      Array_kind::AFixed => true
+      Array_kind::AGrow => false
+    }
+    Array_kind::AGrow => match y {
+      Array_kind::AFixed => false
+      Array_kind::AGrow => true
+    }
+  }
+}
+
+pub let eqDec_array_kind : EqDec[Array_kind] = eqDec_of_dec()(fn(x1) { fn(x2) { array_kind_eq_dec(x1, x2) } })
+
 pub let eqDec_base_ty : EqDec[Base_ty] = eqDec_of_dec()(fn(x1) { fn(x2) { base_ty_eq_dec(x1, x2) } })
 
 pub(all) enum Ty {
@@ -807,6 +841,8 @@ pub(all) enum Ty {
   TTuple(List[Ty])
   TArrow(List[Ty], Ty)
   TData(Ident, List[Ty])
+  TRef(Ty)
+  TArray(Array_kind, Ty)
 }
 
 pub fn[A] forall2b(f : (A) -> (A) -> Bool, xs : List[A], ys : List[A]) -> Bool {
@@ -849,6 +885,17 @@ pub fn ty_eqb(a : Ty, b : Ty) -> Bool {
     Ty::TData(t, ts) => match b {
       Ty::TData(u, us) => match eqDec_ident(t)(u) {
         true => forall2b(fn(x1) { fn(x2) { ty_eqb(x1, x2) } }, ts, us)
+        false => false
+      }
+      _ => false
+    }
+    Ty::TRef(t) => match b {
+      Ty::TRef(u) => ty_eqb(t, u)
+      _ => false
+    }
+    Ty::TArray(k, t) => match b {
+      Ty::TArray(k_, u) => match eqDec_array_kind(k)(k_) {
+        true => ty_eqb(t, u)
         false => false
       }
       _ => false
@@ -910,12 +957,67 @@ pub(all) enum Prim_op {
   PStrEq
 }
 
+pub(all) enum Mem_op {
+  MRef(Ty)
+  MGet(Ty)
+  MSet(Ty)
+  MArray(Array_kind, Ty, Nat)
+  MMake(Array_kind, Ty)
+  MIndex(Array_kind, Ty)
+  MSetIndex(Array_kind, Ty)
+  MLength(Array_kind, Ty)
+  MPush(Ty)
+}
+
+pub fn mem_sig(op : Mem_op) -> (List[Ty], Ty) {
+  match op {
+    Mem_op::MRef(t) => (List::Cons(t, List::Nil), Ty::TRef(t))
+    Mem_op::MGet(t) => (List::Cons(Ty::TRef(t), List::Nil), t)
+    Mem_op::MSet(t) => (List::Cons(Ty::TRef(t), List::Cons(t, List::Nil)), Ty::TBase(Base_ty::BUnit))
+    Mem_op::MArray(k, t, n) => (repeat(t, n), Ty::TArray(k, t))
+    Mem_op::MMake(k, t) => (List::Cons(Ty::TBase(Base_ty::BInt(Int_kind::I32)), List::Cons(t, List::Nil)), Ty::TArray(k, t))
+    Mem_op::MIndex(k, t) => (List::Cons(Ty::TArray(k, t), List::Cons(Ty::TBase(Base_ty::BInt(Int_kind::I32)), List::Nil)), t)
+    Mem_op::MSetIndex(k, t) => (List::Cons(Ty::TArray(k, t), List::Cons(Ty::TBase(Base_ty::BInt(Int_kind::I32)), List::Cons(t, List::Nil))), Ty::TBase(Base_ty::BUnit))
+    Mem_op::MLength(k, t) => (List::Cons(Ty::TArray(k, t), List::Nil), Ty::TBase(Base_ty::BInt(Int_kind::I32)))
+    Mem_op::MPush(t) => (List::Cons(Ty::TArray(Array_kind::AGrow, t), List::Cons(t, List::Nil)), Ty::TBase(Base_ty::BUnit))
+  }
+}
+
+pub(all) enum Lty {
+  LCell(Ty)
+  LArr(Array_kind, Ty)
+}
+
+pub fn lty_ty(s : Lty) -> Ty {
+  match s {
+    Lty::LCell(t) => Ty::TRef(t)
+    Lty::LArr(k, t) => Ty::TArray(k, t)
+  }
+}
+
+pub type Styping = List[Lty]
+
+pub(all) enum Ctl {
+  CBreak
+  CCont
+}
+
+pub type Lblctx = List[(List[Ty], Ty)]
+
+pub fn ctl_ty(c : Ctl, lbl : (List[Ty], Ty)) -> Ty {
+  match c {
+    Ctl::CBreak => snd(lbl)
+    Ctl::CCont => Ty::TTuple(fst(lbl))
+  }
+}
+
 pub(all) enum Pat {
   PWild
   PVar
   PLit(Lit)
   PTuple(List[Pat])
   PConstr(Ident, List[Pat])
+  PRef(Pat)
 }
 
 pub(all) enum Expr {
@@ -931,6 +1033,11 @@ pub(all) enum Expr {
   EPrim(Prim_op, List[Expr])
   EConstr(Ident, Ident, List[Ty], Expr)
   EMatch(Expr, Ty, List[(Pat, Expr)])
+  ELoc(Nat)
+  EMem(Mem_op, List[Expr])
+  ELoop(Expr, List[Ty], Ty, Expr)
+  EJump(Ctl, Nat, Expr, Ty)
+  EAbort(Ty)
 }
 
 pub(all) enum Fdef {
@@ -1024,6 +1131,8 @@ pub fn tsubst(_UU03c3_ : (Nat) -> Ty, t : Ty) -> Ty {
     Ty::TTuple(ts) => Ty::TTuple(map(fn(x1) { tsubst(_UU03c3_, x1) }, ts))
     Ty::TArrow(ps, r) => Ty::TArrow(map(fn(x1) { tsubst(_UU03c3_, x1) }, ps), tsubst(_UU03c3_, r))
     Ty::TData(t0, ts) => Ty::TData(t0, map(fn(x1) { tsubst(_UU03c3_, x1) }, ts))
+    Ty::TRef(t0) => Ty::TRef(tsubst(_UU03c3_, t0))
+    Ty::TArray(k, t0) => Ty::TArray(k, tsubst(_UU03c3_, t0))
   }
 }
 
@@ -1051,6 +1160,8 @@ pub fn ty_wfb(ge : Genv, n : Nat, t : Ty) -> Bool {
       }
       None => false
     }
+    Ty::TRef(t0) => ty_wfb(ge, n, t0)
+    Ty::TArray(_, t0) => ty_wfb(ge, n, t0)
   }
 }
 
@@ -1095,6 +1206,9 @@ pub(all) enum Type_error {
   E_DuplicateCtor
   E_IllFormed(Ty)
   E_InType(Ident, Type_error)
+  E_NotRef(Ty)
+  E_UnboundLoc(Nat)
+  E_UnknownLabel(Nat)
 }
 
 pub fn[A, B] of_option(o : Option[A], err : B) -> Result0[A, B] {
@@ -1132,6 +1246,13 @@ pub fn as_tuple(t : Ty) -> Result0[List[Ty], Type_error] {
   }
 }
 
+pub fn as_ref(t : Ty) -> Result0[Ty, Type_error] {
+  match t {
+    Ty::TRef(u) => Result0::Ok(u)
+    _ => Result0::Err(Type_error::E_NotRef(t))
+  }
+}
+
 pub fn as_data(t : Ty) -> Result0[SigT[Ident, List[Ty]], Type_error] {
   match t {
     Ty::TData(t0, ts) => Result0::Ok(SigT::ExistT(t0, ts))
@@ -1139,16 +1260,16 @@ pub fn as_data(t : Ty) -> Result0[SigT[Ident, List[Ty]], Type_error] {
   }
 }
 
-pub fn infer_list(ge : Genv, _UU0393_ : Ctx, inf : (Expr) -> Result0[Ty, Type_error], es : List[Expr]) -> Result0[List[Ty], Type_error] {
+pub fn infer_list(ge : Genv, _UU03a3_ : Styping, _UU039b_ : Lblctx, _UU0393_ : Ctx, inf : (Expr) -> Result0[Ty, Type_error], es : List[Expr]) -> Result0[List[Ty], Type_error] {
   match es {
     List::Nil => Result0::Ok(List::Nil)
     List::Cons(e, es_) => bind(inf(e), fn(x) {
-      bind(infer_list(ge, _UU0393_, inf, es_), fn(x0) { Result0::Ok(List::Cons(x, x0)) })
+      bind(infer_list(ge, _UU03a3_, _UU039b_, _UU0393_, inf, es_), fn(x0) { Result0::Ok(List::Cons(x, x0)) })
     })
   }
 }
 
-pub fn check_list(ge : Genv, _UU0393_ : Ctx, inf : (Expr) -> Result0[Ty, Type_error], es : List[Expr], _UU03c4_s : List[Ty]) -> Result0[Unit, Type_error] {
+pub fn check_list(ge : Genv, _UU03a3_ : Styping, _UU039b_ : Lblctx, _UU0393_ : Ctx, inf : (Expr) -> Result0[Ty, Type_error], es : List[Expr], _UU03c4_s : List[Ty]) -> Result0[Unit, Type_error] {
   match es {
     List::Nil => match _UU03c4_s {
       List::Nil => Result0::Ok(())
@@ -1158,7 +1279,7 @@ pub fn check_list(ge : Genv, _UU0393_ : Ctx, inf : (Expr) -> Result0[Ty, Type_er
       List::Nil => Result0::Err(Type_error::E_ArgArity(length(_UU03c4_s), length(es)))
       List::Cons(_UU03c4_, _UU03c4_s_) => bind(inf(e), fn(x) {
         bind(expect_ty(_UU03c4_, x), fn(_) {
-          bind(check_list(ge, _UU0393_, inf, es_, _UU03c4_s_), fn(_) { Result0::Ok(()) })
+          bind(check_list(ge, _UU03a3_, _UU039b_, _UU0393_, inf, es_, _UU03c4_s_), fn(_) { Result0::Ok(()) })
         })
       })
     }
@@ -1207,17 +1328,18 @@ pub fn check_pat(ge : Genv, p : Pat, _UU03c4_ : Ty) -> Result0[Ctx, Type_error] 
         })
       }
     })
+    Pat::PRef(p0) => bind(as_ref(_UU03c4_), fn(x) { bind(check_pat(ge, p0, x), fn(x0) { Result0::Ok(x0) }) })
   }
 }
 
-pub fn check_branches(ge : Genv, inf : (Ctx) -> (Expr) -> Result0[Ty, Type_error], _UU0393_ : Ctx, _UU03c4_s : Ty, _UU03c4_ : Ty, bs : List[(Pat, Expr)]) -> Result0[Unit, Type_error] {
+pub fn check_branches(ge : Genv, _UU03a3_ : Styping, _UU039b_ : Lblctx, inf : (Ctx) -> (Expr) -> Result0[Ty, Type_error], _UU0393_ : Ctx, _UU03c4_s : Ty, _UU03c4_ : Ty, bs : List[(Pat, Expr)]) -> Result0[Unit, Type_error] {
   match bs {
     List::Nil => Result0::Ok(())
     List::Cons(p0, bs_) => match p0 {
       (p, b) => bind(check_pat(ge, p, _UU03c4_s), fn(x) {
         bind(inf(app(x, _UU0393_))(b), fn(x0) {
           bind(expect_ty(_UU03c4_, x0), fn(_) {
-            bind(check_branches(ge, inf, _UU0393_, _UU03c4_s, _UU03c4_, bs_), fn(_) { Result0::Ok(()) })
+            bind(check_branches(ge, _UU03a3_, _UU039b_, inf, _UU0393_, _UU03c4_s, _UU03c4_, bs_), fn(_) { Result0::Ok(()) })
           })
         })
       })
@@ -1225,7 +1347,7 @@ pub fn check_branches(ge : Genv, inf : (Ctx) -> (Expr) -> Result0[Ty, Type_error
   }
 }
 
-pub fn infer(ge : Genv, _UU0393_ : Ctx, e : Expr) -> Result0[Ty, Type_error] {
+pub fn infer(ge : Genv, _UU03a3_ : Styping, _UU039b_ : Lblctx, _UU0393_ : Ctx, e : Expr) -> Result0[Ty, Type_error] {
   match e {
     Expr::EVar(x) => bind(of_option(nth_error(_UU0393_, x), Type_error::E_UnboundVar(x)), fn(x0) { Result0::Ok(x0) })
     Expr::EGlobal(f, ts) => bind(of_option(lookup_fn(ge, f), Type_error::E_UnknownGlobal(f)), fn(x) {
@@ -1242,34 +1364,34 @@ pub fn infer(ge : Genv, _UU0393_ : Ctx, e : Expr) -> Result0[Ty, Type_error] {
       })
     })
     Expr::ELit(l) => Result0::Ok(Ty::TBase(lit_ty(l)))
-    Expr::ELam(ps, r, b) => bind(infer(ge, app(ps, _UU0393_), b), fn(x) { bind(expect_ty(r, x), fn(_) { Result0::Ok(Ty::TArrow(ps, r)) }) })
-    Expr::EApp(f, args) => bind(infer(ge, _UU0393_, f), fn(x) {
+    Expr::ELam(ps, r, b) => bind(infer(ge, _UU03a3_, List::Nil, app(ps, _UU0393_), b), fn(x) { bind(expect_ty(r, x), fn(_) { Result0::Ok(Ty::TArrow(ps, r)) }) })
+    Expr::EApp(f, args) => bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, f), fn(x) {
       bind(as_arrow(x), fn(x0) {
         match x0 {
           SigT::ExistT(ps, s) => bind(expect_nat(length(ps), length(args), Type_error::E_ArgArity(length(ps), length(args))), fn(_) {
-            bind(check_list(ge, _UU0393_, fn(x1) { infer(ge, _UU0393_, x1) }, args, ps), fn(_) { Result0::Ok(s) })
+            bind(check_list(ge, _UU03a3_, _UU039b_, _UU0393_, fn(x1) { infer(ge, _UU03a3_, _UU039b_, _UU0393_, x1) }, args, ps), fn(_) { Result0::Ok(s) })
           })
         }
       })
     })
-    Expr::ELet(e1, e2) => bind(infer(ge, _UU0393_, e1), fn(x) {
-      bind(infer(ge, List::Cons(x, _UU0393_), e2), fn(x0) { Result0::Ok(x0) })
+    Expr::ELet(e1, e2) => bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, e1), fn(x) {
+      bind(infer(ge, _UU03a3_, _UU039b_, List::Cons(x, _UU0393_), e2), fn(x0) { Result0::Ok(x0) })
     })
-    Expr::EIf(c, t, e0) => bind(infer(ge, _UU0393_, c), fn(x) {
+    Expr::EIf(c, t, e0) => bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, c), fn(x) {
       bind(expect_ty(Ty::TBase(Base_ty::BBool), x), fn(_) {
-        bind(infer(ge, _UU0393_, t), fn(x0) {
-          bind(infer(ge, _UU0393_, e0), fn(x1) { bind(expect_ty(x0, x1), fn(_) { Result0::Ok(x0) }) })
+        bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, t), fn(x0) {
+          bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, e0), fn(x1) { bind(expect_ty(x0, x1), fn(_) { Result0::Ok(x0) }) })
         })
       })
     })
-    Expr::ETuple(es) => bind(infer_list(ge, _UU0393_, fn(x1) { infer(ge, _UU0393_, x1) }, es), fn(x) { Result0::Ok(Ty::TTuple(x)) })
-    Expr::EProj(e0, i) => bind(infer(ge, _UU0393_, e0), fn(x) {
+    Expr::ETuple(es) => bind(infer_list(ge, _UU03a3_, _UU039b_, _UU0393_, fn(x1) { infer(ge, _UU03a3_, _UU039b_, _UU0393_, x1) }, es), fn(x) { Result0::Ok(Ty::TTuple(x)) })
+    Expr::EProj(e0, i) => bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, e0), fn(x) {
       bind(as_tuple(x), fn(x0) {
         bind(of_option(nth_error(x0, i), Type_error::E_TupleIndex(i, x)), fn(x1) { Result0::Ok(x1) })
       })
     })
     Expr::EPrim(op, args) => bind(expect_nat(length(fst(prim_sig(op))), length(args), Type_error::E_ArgArity(length(fst(prim_sig(op))), length(args))), fn(_) {
-      bind(check_list(ge, _UU0393_, fn(x1) { infer(ge, _UU0393_, x1) }, args, fst(prim_sig(op))), fn(_) { Result0::Ok(snd(prim_sig(op))) })
+      bind(check_list(ge, _UU03a3_, _UU039b_, _UU0393_, fn(x1) { infer(ge, _UU03a3_, _UU039b_, _UU0393_, x1) }, args, fst(prim_sig(op))), fn(_) { Result0::Ok(snd(prim_sig(op))) })
     })
     Expr::EConstr(t, c, ts, e0) => bind(of_option(lookup_ty(ge, t), Type_error::E_UnknownType(t)), fn(x) {
       bind(expect_nat(match x {
@@ -1278,7 +1400,7 @@ pub fn infer(ge : Genv, _UU0393_ : Ctx, e : Expr) -> Result0[Ty, Type_error] {
         Tdef::Mk_tdef(_, td_tparams, _) => td_tparams
       }, length(ts))), fn(_) {
         bind(of_option(lookup_ctor(x, c), Type_error::E_UnknownCtor(t, c)), fn(x0) {
-          bind(infer(ge, _UU0393_, e0), fn(x1) {
+          bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, e0), fn(x1) {
             bind(expect_ty(Ty::TTuple(map({ let a1 = fn(x2) { inst(ts, x2) }; fn(x2) { tsubst(a1, x2) } }, match x0 {
               Cdef::Mk_cdef(_, cd_fields) => cd_fields
             })), x1), fn(_) { Result0::Ok(Ty::TData(t, ts)) })
@@ -1286,9 +1408,22 @@ pub fn infer(ge : Genv, _UU0393_ : Ctx, e : Expr) -> Result0[Ty, Type_error] {
         })
       })
     })
-    Expr::EMatch(e0, _UU03c4_, bs) => bind(infer(ge, _UU0393_, e0), fn(x) {
-      bind(check_branches(ge, fn(x1) { fn(x2) { infer(ge, x1, x2) } }, _UU0393_, x, _UU03c4_, bs), fn(_) { Result0::Ok(_UU03c4_) })
+    Expr::EMatch(e0, _UU03c4_, bs) => bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, e0), fn(x) {
+      bind(check_branches(ge, _UU03a3_, _UU039b_, fn(_UU0393__) { fn(e_) { infer(ge, _UU03a3_, _UU039b_, _UU0393__, e_) } }, _UU0393_, x, _UU03c4_, bs), fn(_) { Result0::Ok(_UU03c4_) })
     })
+    Expr::ELoc(l) => bind(of_option(nth_error(_UU03a3_, l), Type_error::E_UnboundLoc(l)), fn(x) { Result0::Ok(lty_ty(x)) })
+    Expr::EMem(op, args) => bind(expect_nat(length(fst(mem_sig(op))), length(args), Type_error::E_ArgArity(length(fst(mem_sig(op))), length(args))), fn(_) {
+      bind(check_list(ge, _UU03a3_, _UU039b_, _UU0393_, fn(x1) { infer(ge, _UU03a3_, _UU039b_, _UU0393_, x1) }, args, fst(mem_sig(op))), fn(_) { Result0::Ok(snd(mem_sig(op))) })
+    })
+    Expr::ELoop(e0, ps, _UU03c4_, b) => bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, e0), fn(x) {
+      bind(expect_ty(Ty::TTuple(ps), x), fn(_) {
+        bind(infer(ge, _UU03a3_, List::Cons((ps, _UU03c4_), _UU039b_), app(ps, _UU0393_), b), fn(x0) { bind(expect_ty(_UU03c4_, x0), fn(_) { Result0::Ok(_UU03c4_) }) })
+      })
+    })
+    Expr::EJump(c, k, e0, _UU03c4_) => bind(of_option(nth_error(_UU039b_, k), Type_error::E_UnknownLabel(k)), fn(x) {
+      bind(infer(ge, _UU03a3_, _UU039b_, _UU0393_, e0), fn(x0) { bind(expect_ty(ctl_ty(c, x), x0), fn(_) { Result0::Ok(_UU03c4_) }) })
+    })
+    Expr::EAbort(_UU03c4_) => Result0::Ok(_UU03c4_)
   }
 }
 
@@ -1297,7 +1432,7 @@ pub fn check_fdef(ge : Genv, fd : Fdef) -> Result0[Unit, Type_error] {
     Type_error::E_InGlobal(match fd {
       Fdef::Mk_fdef(fd_name, _, _, _, _) => fd_name
     }, x)
-  }, bind(infer(ge, match fd {
+  }, bind(infer(ge, List::Nil, List::Nil, match fd {
     Fdef::Mk_fdef(_, _, fd_params, _, _) => fd_params
   }, match fd {
     Fdef::Mk_fdef(_, _, _, _, fd_body) => fd_body
@@ -1419,7 +1554,9 @@ pub fn check_genv(ge : Genv) -> Result0[Unit, Type_error] {
 }
 
 pub fn check_program(ge : Genv, e : Expr) -> Result0[Ty, Type_error] {
-  bind(check_genv(ge), fn(_) { bind(infer(ge, List::Nil, e), fn(x) { Result0::Ok(x) }) })
+  bind(check_genv(ge), fn(_) {
+    bind(infer(ge, List::Nil, List::Nil, List::Nil, e), fn(x) { Result0::Ok(x) })
+  })
 }
 
 pub(all) enum Pos {
@@ -1468,6 +1605,21 @@ pub(all) enum Sexpr {
   SRecord(Pos, Option[Ident], List[(Ident, Sexpr)])
   SField(Pos, Sexpr, Ident)
   SMatch(Pos, Sexpr, List[(Spat, Sexpr)])
+  SLetMut(Pos, Ident, Option[Sty], Sexpr, Sexpr)
+  SAssign(Pos, Ident, Option[Ident], Sexpr)
+  SArray(Pos, List[Sexpr])
+  SIndex(Pos, Sexpr, Sexpr)
+  SIndexSet(Pos, Sexpr, Sexpr, Option[Ident], Sexpr)
+  SFieldSet(Pos, Sexpr, Ident, Option[Ident], Sexpr)
+  SMethod(Pos, Sexpr, Ident, List[Sexpr])
+  SQual(Pos, Ident, Ident)
+  SWhile(Pos, Option[Ident], Sexpr, Sexpr, Option[Sexpr])
+  SFor(Pos, Option[Ident], List[(Ident, Sexpr)], Option[Sexpr], List[(Ident, Sexpr)], Sexpr, Option[Sexpr])
+  SBlock(Pos, Ident, Sexpr)
+  SBreak(Pos, Option[Ident], Option[Sexpr])
+  SContinue(Pos, Option[Ident], List[Sexpr])
+  SReturn(Pos, Option[Sexpr])
+  SForIn(Pos, Option[Ident], List[Spat], Sexpr, List[(Ident, Sexpr)], List[(Ident, Sexpr)], Sexpr, Option[Sexpr])
 }
 
 pub(all) enum Sfun {
@@ -1476,7 +1628,7 @@ pub(all) enum Sfun {
 
 pub(all) enum Sdecl {
   SDEnum(List[(Ident, List[Sty])])
-  SDStruct(List[(Ident, Sty)])
+  SDStruct(List[((Ident, Bool), Sty)])
   SDTupleStruct(List[Sty])
 }
 
@@ -1505,6 +1657,21 @@ pub fn sexpr_pos(e : Sexpr) -> Pos {
     Sexpr::SRecord(p, _, _) => p
     Sexpr::SField(p, _, _) => p
     Sexpr::SMatch(p, _, _) => p
+    Sexpr::SLetMut(p, _, _, _, _) => p
+    Sexpr::SAssign(p, _, _, _) => p
+    Sexpr::SArray(p, _) => p
+    Sexpr::SIndex(p, _, _) => p
+    Sexpr::SIndexSet(p, _, _, _, _) => p
+    Sexpr::SFieldSet(p, _, _, _, _) => p
+    Sexpr::SMethod(p, _, _, _) => p
+    Sexpr::SQual(p, _, _) => p
+    Sexpr::SWhile(p, _, _, _, _) => p
+    Sexpr::SFor(p, _, _, _, _, _, _) => p
+    Sexpr::SBlock(p, _, _) => p
+    Sexpr::SBreak(p, _, _) => p
+    Sexpr::SContinue(p, _, _) => p
+    Sexpr::SReturn(p, _) => p
+    Sexpr::SForIn(p, _, _, _, _, _, _, _) => p
   }
 }
 
@@ -1526,6 +1693,10 @@ pub(all) enum Elab_error {
   EE_MissingField(Pos, Ident)
   EE_PatType(Pos, Ty)
   EE_EmptyMatch(Pos)
+  EE_NotMutable(Pos, Ident)
+  EE_NoTarget(Pos)
+  EE_BadContinue(Pos, Nat, Nat)
+  EE_NoMethod(Pos, Ident, Ty)
 }
 
 pub fn[A] assoc(x : Ident, l : List[(Ident, A)]) -> Option[A] {
@@ -1581,7 +1752,19 @@ pub fn tvars(n : Nat) -> List[Ty] {
   map(fn(x) { Ty::TVar(x) }, seq(Nat::O, n))
 }
 
+pub fn array_kind_of(n : Ident) -> Option[Array_kind] {
+  match eqDec_ident(n)(String0::String1(Ascii::Ascii0(true, false, false, false, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, true, true, true, false), String0::EmptyString)))))) {
+    true => Some(Array_kind::AGrow)
+    false => match eqDec_ident(n)(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, true, true, true, false), String0::EmptyString))))))))))) {
+      true => Some(Array_kind::AFixed)
+      false => None
+    }
+  }
+}
+
 pub let builtin_types : List[(Ident, Ty)] = List::Cons((String0::String1(Ascii::Ascii0(true, false, true, false, true, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))), Ty::TBase(Base_ty::BUnit)), List::Cons((String0::String1(Ascii::Ascii0(false, true, false, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))), Ty::TBase(Base_ty::BBool)), List::Cons((String0::String1(Ascii::Ascii0(true, false, false, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))), Ty::TBase(Base_ty::BInt(Int_kind::I32))), List::Cons((String0::String1(Ascii::Ascii0(true, false, false, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, true, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, false, true, true, false, false), String0::EmptyString))))), Ty::TBase(Base_ty::BInt(Int_kind::I16))), List::Cons((String0::String1(Ascii::Ascii0(true, false, false, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, true, true, false, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, false, false), String0::EmptyString))))), Ty::TBase(Base_ty::BInt(Int_kind::I64))), List::Cons((String0::String1(Ascii::Ascii0(true, false, true, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))), Ty::TBase(Base_ty::BInt(Int_kind::U32))), List::Cons((String0::String1(Ascii::Ascii0(true, false, true, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, true, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, false, true, true, false, false), String0::EmptyString)))))), Ty::TBase(Base_ty::BInt(Int_kind::U16))), List::Cons((String0::String1(Ascii::Ascii0(true, false, true, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, true, true, false, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, false, false), String0::EmptyString)))))), Ty::TBase(Base_ty::BInt(Int_kind::U64))), List::Cons((String0::String1(Ascii::Ascii0(false, true, false, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))), Ty::TBase(Base_ty::BInt(Int_kind::IByte))), List::Cons((String0::String1(Ascii::Ascii0(false, true, false, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))), Ty::TBase(Base_ty::BInt(Int_kind::IBigInt))), List::Cons((String0::String1(Ascii::Ascii0(true, true, false, false, false, false, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), Ty::TBase(Base_ty::BChar)), List::Cons((String0::String1(Ascii::Ascii0(false, false, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))))), Ty::TBase(Base_ty::BDouble)), List::Cons((String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))), Ty::TBase(Base_ty::BFloat)), List::Cons((String0::String1(Ascii::Ascii0(true, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::EmptyString)))))), Ty::TBase(Base_ty::BString)), List::Nil))))))))))))))
+
+pub let ref_tdef : Tdef = Tdef::Mk_tdef(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), Nat::S(Nat::O), List::Cons(Cdef::Mk_cdef(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(Ty::TRef(Ty::TVar(Nat::O)), List::Nil)), List::Nil))
 
 pub let option_tdef : Tdef = Tdef::Mk_tdef(String0::String1(Ascii::Ascii0(true, true, true, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::EmptyString)))))), Nat::S(Nat::O), List::Cons(Cdef::Mk_cdef(String0::String1(Ascii::Ascii0(false, true, true, true, false, false, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))), List::Nil), List::Cons(Cdef::Mk_cdef(String0::String1(Ascii::Ascii0(true, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))), List::Cons(Ty::TVar(Nat::O), List::Nil)), List::Nil)))
 
@@ -1602,7 +1785,16 @@ pub fn elab_ty(tys : List[(Ident, Nat)], tps : List[Ident], t : Sty) -> Result0[
             true => bind(mapM(fn(x1) { elab_ty(tys, tps, x1) }, args), fn(_UU03c4_s) { Result0::Ok(Ty::TData(n, _UU03c4_s)) })
             false => Result0::Err(Elab_error::EE_TypeArgs(p, n, k, length(args)))
           }
-          None => Result0::Err(Elab_error::EE_UnknownType(p, n))
+          None => match array_kind_of(n) {
+            Some(k) => match args {
+              List::Nil => Result0::Err(Elab_error::EE_TypeArgs(p, n, Nat::S(Nat::O), length(args)))
+              List::Cons(a, l) => match l {
+                List::Nil => bind(elab_ty(tys, tps, a), fn(_UU03c4_) { Result0::Ok(Ty::TArray(k, _UU03c4_)) })
+                List::Cons(_, _) => Result0::Err(Elab_error::EE_TypeArgs(p, n, Nat::S(Nat::O), length(args)))
+              }
+            }
+            None => Result0::Err(Elab_error::EE_UnknownType(p, n))
+          }
         }
       }
     }
@@ -1654,6 +1846,17 @@ pub fn tmatch(p : Ty, t : Ty, s : List[Option[Ty]]) -> List[Option[Ty]] {
       }
       _ => s
     }
+    Ty::TRef(p0) => match t {
+      Ty::TRef(t0) => tmatch(p0, t0, s)
+      _ => s
+    }
+    Ty::TArray(k, p0) => match t {
+      Ty::TArray(k_, t0) => match eqDec_array_kind(k)(k_) {
+        true => tmatch(p0, t0, s)
+        false => s
+      }
+      _ => s
+    }
   }
 }
 
@@ -1688,6 +1891,8 @@ pub fn resolve(s : List[Option[Ty]], p : Ty) -> Option[Ty] {
       None => None
     }
     Ty::TData(t, ps) => option_map(fn(x) { Ty::TData(t, x) }, go(ps))
+    Ty::TRef(p0) => option_map(fn(x) { Ty::TRef(x) }, resolve(s, p0))
+    Ty::TArray(k, p0) => option_map(fn(x) { Ty::TArray(k, x) }, resolve(s, p0))
   }
 }
 
@@ -1868,6 +2073,243 @@ pub fn flexible(e : Sexpr) -> Bool {
   }
 }
 
+pub(all) enum Lab_kind {
+  LKFun
+  LKBlock
+  LKWhile
+  LKForBody
+  LKForInBody
+  LKHead
+}
+
+pub(all) enum Lab {
+  Mk_lab(Option[Ident], Lab_kind, List[Ty], Ty)
+}
+
+pub fn core_labels(l : List[Lab]) -> List[(List[Ty], Ty)] {
+  map(fn(l0) {
+    (match l0 {
+      Lab::Mk_lab(_, _, lb_ps, _) => lb_ps
+    }, match l0 {
+      Lab::Mk_lab(_, _, _, lb_res) => lb_res
+    })
+  }, l)
+}
+
+pub fn named(x : Ident, l : Lab) -> Bool {
+  match (match l {
+    Lab::Mk_lab(lb_name, _, _, _) => lb_name
+  }) {
+    Some(y) => eqDec_ident(x)(y)
+    None => false
+  }
+}
+
+pub fn next_res(l : List[Lab]) -> Ty {
+  match l {
+    List::Nil => Ty::TBase(Base_ty::BUnit)
+    List::Cons(l0, _) => match l0 {
+      Lab::Mk_lab(_, _, _, lb_res) => lb_res
+    }
+  }
+}
+
+pub fn next_ps(l : List[Lab]) -> List[Ty] {
+  match l {
+    List::Nil => List::Nil
+    List::Cons(l0, _) => match l0 {
+      Lab::Mk_lab(_, _, lb_ps, _) => lb_ps
+    }
+  }
+}
+
+pub fn next_state(l : List[Lab]) -> List[Ty] {
+  match l {
+    List::Nil => List::Nil
+    List::Cons(l0, _) => match (match l0 {
+      Lab::Mk_lab(_, _, _, lb_res) => lb_res
+    }) {
+      Ty::TTuple(_UU03c4_s) => _UU03c4_s
+      _ => List::Nil
+    }
+  }
+}
+
+pub fn break_target(x : Option[Ident], l : List[Lab], k : Nat) -> Option[(Nat, Ty)] {
+  match l {
+    List::Nil => None
+    List::Cons(l0, l_) => match (match l0 {
+      Lab::Mk_lab(_, lb_kind, _, _) => lb_kind
+    }) {
+      Lab_kind::LKFun => None
+      Lab_kind::LKBlock => match x {
+        Some(y) => match named(y, l0) {
+          true => Some((k, match l0 {
+            Lab::Mk_lab(_, _, _, lb_res) => lb_res
+          }))
+          false => break_target(x, l_, Nat::S(k))
+        }
+        None => None
+      }
+      Lab_kind::LKWhile => match x {
+        Some(y) => match named(y, l0) {
+          true => Some((k, match l0 {
+            Lab::Mk_lab(_, _, _, lb_res) => lb_res
+          }))
+          false => break_target(x, l_, Nat::S(k))
+        }
+        None => Some((k, match l0 {
+          Lab::Mk_lab(_, _, _, lb_res) => lb_res
+        }))
+      }
+      Lab_kind::LKForBody => match x {
+        Some(y) => match named(y, l0) {
+          true => Some((Nat::S(k), next_res(l_)))
+          false => break_target(x, l_, Nat::S(k))
+        }
+        None => Some((Nat::S(k), next_res(l_)))
+      }
+      Lab_kind::LKForInBody => match x {
+        Some(y) => match named(y, l0) {
+          true => Some((Nat::S(Nat::S(k)), next_res(tl(l_))))
+          false => break_target(x, l_, Nat::S(k))
+        }
+        None => Some((Nat::S(Nat::S(k)), next_res(tl(l_))))
+      }
+      Lab_kind::LKHead => break_target(x, l_, Nat::S(k))
+    }
+  }
+}
+
+pub(all) enum Cont_target {
+  CTWhile(Nat)
+  CTFor(Nat, List[Ty])
+  CTForIn(Nat, List[Ty])
+}
+
+pub fn cont_target_of(x : Option[Ident], l : List[Lab], k : Nat) -> Option[Cont_target] {
+  match l {
+    List::Nil => None
+    List::Cons(l0, l_) => match (match l0 {
+      Lab::Mk_lab(_, lb_kind, _, _) => lb_kind
+    }) {
+      Lab_kind::LKFun => None
+      Lab_kind::LKBlock => match x {
+        Some(y) => match named(y, l0) {
+          true => None
+          false => cont_target_of(x, l_, Nat::S(k))
+        }
+        None => None
+      }
+      Lab_kind::LKWhile => match x {
+        Some(y) => match named(y, l0) {
+          true => Some(Cont_target::CTWhile(k))
+          false => cont_target_of(x, l_, Nat::S(k))
+        }
+        None => Some(Cont_target::CTWhile(k))
+      }
+      Lab_kind::LKForBody => match x {
+        Some(y) => match named(y, l0) {
+          true => Some(Cont_target::CTFor(k, next_ps(l_)))
+          false => cont_target_of(x, l_, Nat::S(k))
+        }
+        None => Some(Cont_target::CTFor(k, next_ps(l_)))
+      }
+      Lab_kind::LKForInBody => match x {
+        Some(y) => match named(y, l0) {
+          true => Some(Cont_target::CTForIn(k, next_state(l_)))
+          false => cont_target_of(x, l_, Nat::S(k))
+        }
+        None => Some(Cont_target::CTForIn(k, next_state(l_)))
+      }
+      Lab_kind::LKHead => cont_target_of(x, l_, Nat::S(k))
+    }
+  }
+}
+
+pub fn return_target(l : List[Lab], k : Nat) -> Option[(Nat, Ty)] {
+  match l {
+    List::Nil => None
+    List::Cons(l0, l_) => match (match l0 {
+      Lab::Mk_lab(_, lb_kind, _, _) => lb_kind
+    }) {
+      Lab_kind::LKFun => Some((k, match l0 {
+        Lab::Mk_lab(_, _, _, lb_res) => lb_res
+      }))
+      _ => return_target(l_, Nat::S(k))
+    }
+  }
+}
+
+pub(all) enum Range_kind {
+  RUpExcl
+  RUpIncl
+  RDownExcl
+  RDownIncl
+}
+
+pub fn range_op(op : Ident) -> Option[Range_kind] {
+  match eqDec_ident(op)(String0::String1(Ascii::Ascii0(false, true, true, true, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, false, false), String0::String1(Ascii::Ascii0(false, false, true, true, true, true, false, false), String0::EmptyString)))) {
+    true => Some(Range_kind::RUpExcl)
+    false => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(false, true, true, true, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, false, false), String0::String1(Ascii::Ascii0(false, false, true, true, true, true, false, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, true, false, false), String0::EmptyString))))) {
+      true => Some(Range_kind::RUpIncl)
+      false => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(false, true, true, true, true, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, false, false), String0::EmptyString)))) {
+        true => Some(Range_kind::RDownExcl)
+        false => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(false, true, true, true, true, true, false, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, false, false), String0::EmptyString))))) {
+          true => Some(Range_kind::RDownIncl)
+          false => None
+        }
+      }
+    }
+  }
+}
+
+pub(all) enum Iter_src {
+  IRange(Range_kind, Int_kind)
+  IArray(Array_kind, Ty)
+}
+
+pub fn int1(kk : Int_kind) -> Expr {
+  Expr::ELit(Lit::LInt(kk, Z::Zpos(Positive::XH)))
+}
+
+pub fn iarith(o : Arith_op, kk : Int_kind, a : Expr, b : Expr) -> Expr {
+  Expr::EPrim(Prim_op::PIntArith(o, kk), List::Cons(a, List::Cons(b, List::Nil)))
+}
+
+pub fn icmp(c : Cmp_op, kk : Int_kind, a : Expr, b : Expr) -> Expr {
+  Expr::EPrim(Prim_op::PIntCmp(c, kk), List::Cons(a, List::Cons(b, List::Nil)))
+}
+
+pub fn jty(exp : Option[Ty]) -> Ty {
+  match exp {
+    Some(t) => t
+    None => Ty::TBase(Base_ty::BUnit)
+  }
+}
+
+pub fn eblock(_UU03c4_ : Ty, b : Expr) -> Expr {
+  Expr::ELoop(Expr::ETuple(List::Nil), List::Nil, _UU03c4_, b)
+}
+
+pub fn diverges(e : Sexpr) -> Bool {
+  match e {
+    Sexpr::SApp(_, f, _) => match f {
+      Sexpr::SVar(_, g) => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+        true => true
+        false => eqDec_ident(g)(String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))
+      }
+      _ => false
+    }
+    Sexpr::SLet(_, _, _, _, body) => diverges(body)
+    Sexpr::SLetMut(_, _, _, _, body) => diverges(body)
+    Sexpr::SBreak(_, _, _) => true
+    Sexpr::SContinue(_, _, _) => true
+    Sexpr::SReturn(_, _) => true
+    _ => false
+  }
+}
+
 pub type Lctx = List[(Option[Ident], Ty)]
 
 pub fn lookup_local(x : Ident, _UU0393_ : Lctx) -> Option[Nat] {
@@ -1885,8 +2327,8 @@ pub fn lookup_local(x : Ident, _UU0393_ : Lctx) -> Option[Nat] {
   }
 }
 
-pub fn type_of(hdr : Genv, p : Pos, _UU0393_ : Lctx, e : Expr) -> Result0[Ty, Elab_error] {
-  match infer(hdr, map(fn(x1) { snd(x1) }, _UU0393_), e) {
+pub fn type_of(hdr : Genv, p : Pos, l : List[Lab], _UU0393_ : Lctx, e : Expr) -> Result0[Ty, Elab_error] {
+  match infer(hdr, List::Nil, core_labels(l), map(fn(x1) { snd(x1) }, _UU0393_), e) {
     Result0::Ok(s) => Result0::Ok(s)
     Result0::Err(err) => Result0::Err(Elab_error::EE_Type(p, err))
   }
@@ -1962,6 +2404,7 @@ pub fn resolve_ctor(hdr : Genv, sinfo : List[(Ident, List[Ident])], p : Pos, tq 
             }
             None => None
           }
+          _ => None
         }
         None => None
       }
@@ -2043,15 +2486,32 @@ pub fn proj_field(hdr : Genv, p : Pos, t : Ident, ts : List[Ty], i : Nat, e : Ex
             Cdef::Mk_cdef(_, cd_fields) => cd_fields
           })
           bind(of_opt(nth_error(fs, i), Elab_error::EE_Type(p, Type_error::E_TupleIndex(i, Ty::TData(t, ts)))), fn(_UU03c4_) {
-            let ps = map(fn(j) {
-              match eqb0(j, i) {
-                true => Pat::PVar
-                false => Pat::PWild
+            match _UU03c4_ {
+              Ty::TRef(t0) => {
+                let q = Pat::PRef(Pat::PVar)
+                let ps = map(fn(j) {
+                  match eqb0(j, i) {
+                    true => q
+                    false => Pat::PWild
+                  }
+                }, seq(Nat::O, length(fs)))
+                Result0::Ok(Expr::EMatch(e, t0, List::Cons((Pat::PConstr(match cd {
+                  Cdef::Mk_cdef(cd_name, _) => cd_name
+                }, ps), Expr::EVar(Nat::O)), List::Nil)))
               }
-            }, seq(Nat::O, length(fs)))
-            Result0::Ok(Expr::EMatch(e, _UU03c4_, List::Cons((Pat::PConstr(match cd {
-              Cdef::Mk_cdef(cd_name, _) => cd_name
-            }, ps), Expr::EVar(Nat::O)), List::Nil)))
+              _ => {
+                let q = Pat::PVar
+                let ps = map(fn(j) {
+                  match eqb0(j, i) {
+                    true => q
+                    false => Pat::PWild
+                  }
+                }, seq(Nat::O, length(fs)))
+                Result0::Ok(Expr::EMatch(e, _UU03c4_, List::Cons((Pat::PConstr(match cd {
+                  Cdef::Mk_cdef(cd_name, _) => cd_name
+                }, ps), Expr::EVar(Nat::O)), List::Nil)))
+              }
+            }
           })
         }
         List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TData(t, ts)))
@@ -2076,7 +2536,14 @@ pub fn elab_pat(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[
               }
               List::Cons(sp0, sps_) => match _UU03c4_s {
                 List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
-                List::Cons(_UU03c4_0, _UU03c4_s_) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_0, sp0), fn(x) {
+                List::Cons(_UU03c4_0, _UU03c4_s_) => bind(match _UU03c4_0 {
+                  Ty::TRef(t) => bind(elab_pat(tys, hdr, sinfo, tps, t, sp0), fn(x) {
+                    match x {
+                      (q0, _UU0394_0) => Result0::Ok((Pat::PRef(q0), _UU0394_0))
+                    }
+                  })
+                  _ => elab_pat(tys, hdr, sinfo, tps, _UU03c4_0, sp0)
+                }, fn(x) {
                   match x {
                     (q, _UU0394_1) => bind(go(p)(open)(sps_)(_UU03c4_s_), fn(x0) {
                       match x0 {
@@ -2093,8 +2560,8 @@ pub fn elab_pat(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[
     }
     go
   }
-  let named = {
-    letrec named = fn(p) {
+  let named0 = {
+    letrec named0 = fn(p) {
       fn(names) {
         fn(fs) {
           fn(fps) {
@@ -2103,9 +2570,16 @@ pub fn elab_pat(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[
               List::Cons(p0, fps_) => match p0 {
                 (f, sp0) => bind(of_opt(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(i) {
                   bind(of_opt(nth_error(fs, i), Elab_error::EE_UnknownField(p, f)), fn(_UU03c4_i) {
-                    bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_i, sp0), fn(x) {
+                    bind(match _UU03c4_i {
+                      Ty::TRef(t) => bind(elab_pat(tys, hdr, sinfo, tps, t, sp0), fn(x) {
+                        match x {
+                          (q0, _UU0394_0) => Result0::Ok((Pat::PRef(q0), _UU0394_0))
+                        }
+                      })
+                      _ => elab_pat(tys, hdr, sinfo, tps, _UU03c4_i, sp0)
+                    }, fn(x) {
                       match x {
-                        (q, _UU0394_) => bind(named(p)(names)(fs)(fps_), fn(rest) { Result0::Ok(List::Cons(((i, q), _UU0394_), rest)) })
+                        (q, _UU0394_) => bind(named0(p)(names)(fs)(fps_), fn(rest) { Result0::Ok(List::Cons(((i, q), _UU0394_), rest)) })
                       }
                     })
                   })
@@ -2116,7 +2590,7 @@ pub fn elab_pat(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[
         }
       }
     }
-    named
+    named0
   }
   match sp {
     Spat::SPWild(_) => Result0::Ok((Pat::PWild, List::Nil))
@@ -2164,7 +2638,7 @@ pub fn elab_pat(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[
                 let fs = map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match cd {
                   Cdef::Mk_cdef(_, cd_fields) => cd_fields
                 })
-                bind(named(p)(names)(fs)(fps), fn(given) {
+                bind(named0(p)(names)(fs)(fps), fn(given) {
                   let pick = fn(j) {
                     match find(fn(x) { eqb0(fst(fst(x)), j) }, given) {
                       Some(p0) => match p0 {
@@ -2233,19 +2707,19 @@ pub fn param_tys(tys : List[(Ident, Nat)], tps : List[Ident], p : Pos, ps : List
   }
 }
 
-pub fn elab_lam(tys : List[(Ident, Nat)], hdr : Genv, tps : List[Ident], _UU0393_ : Lctx, p : Pos, ps : List[(Ident, Option[Sty])], ret : Option[Sty], pexps : List[Option[Ty]], rexp : Option[Ty], elab_body : (Lctx) -> (Option[Ty]) -> Result0[Expr, Elab_error]) -> Result0[Expr, Elab_error] {
+pub fn elab_lam(tys : List[(Ident, Nat)], hdr : Genv, tps : List[Ident], _UU0393_ : Lctx, p : Pos, ps : List[(Ident, Option[Sty])], ret : Option[Sty], pexps : List[Option[Ty]], rexp : Option[Ty], elab_body0 : (List[Lab]) -> (Lctx) -> (Option[Ty]) -> Result0[Expr, Elab_error]) -> Result0[Expr, Elab_error] {
   bind(param_tys(tys, tps, p, ps, pexps), fn(_UU03c4_s) {
     let _UU0393__ = app(combine(map(fn(x) { Some(fst(x)) }, ps), _UU03c4_s), _UU0393_)
     bind(match ret {
       Some(t) => map_result(fn(x) { Some(x) }, elab_ty(tys, tps, t))
       None => Result0::Ok(rexp)
     }, fn(_UU03c4_r) {
-      bind(elab_body(_UU0393__)(_UU03c4_r), fn(body_) {
-        bind(match _UU03c4_r {
-          Some(r) => Result0::Ok(r)
-          None => type_of(hdr, p, _UU0393__, body_)
-        }, fn(r) { Result0::Ok(Expr::ELam(_UU03c4_s, r, body_)) })
-      })
+      match _UU03c4_r {
+        Some(r) => bind(elab_body0(List::Cons(Lab::Mk_lab(None, Lab_kind::LKFun, List::Nil, r), List::Nil))(_UU0393__)(_UU03c4_r), fn(body_) { Result0::Ok(Expr::ELam(_UU03c4_s, r, eblock(r, body_))) })
+        None => bind(elab_body0(List::Nil)(_UU0393__)(None), fn(body_) {
+          bind(type_of(hdr, p, List::Nil, _UU0393__, body_), fn(r) { Result0::Ok(Expr::ELam(_UU03c4_s, r, body_)) })
+        })
+      }
     })
   })
 }
@@ -2269,7 +2743,7 @@ pub fn data_inst(t : Ident, n : Nat, exp : Option[Ty]) -> List[Option[Ty]] {
   }
 }
 
-pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], tps : List[Ident], _UU0393_ : Lctx, exp : Option[Ty], e : Sexpr) -> Result0[Expr, Elab_error] {
+pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], tps : List[Ident], l : List[Lab], _UU0393_ : Lctx, exp : Option[Ty], e : Sexpr) -> Result0[Expr, Elab_error] {
   let elab_args = {
     letrec elab_args = fn(es) {
       fn(exps) {
@@ -2279,11 +2753,11 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
             List::Nil => {
               let x = None
               let exps_ = List::Nil
-              bind(elab(tys, hdr, sinfo, tps, _UU0393_, x, e0), fn(e_) {
+              bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, x, e0), fn(e_) {
                 bind(elab_args(es_)(exps_), fn(es2) { Result0::Ok(List::Cons(e_, es2)) })
               })
             }
-            List::Cons(x, xs) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, x, e0), fn(e_) {
+            List::Cons(x, xs) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, x, e0), fn(e_) {
               bind(elab_args(es_)(xs), fn(es2) { Result0::Ok(List::Cons(e_, es2)) })
             })
           }
@@ -2309,9 +2783,9 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                   }
                   match needs_context(e0) {
                     true => match ex {
-                      Some(_) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, ex, e0), fn(e_) {
+                      Some(_) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, ex, e0), fn(e_) {
                         bind(match pt {
-                          Some(t) => bind(type_of(hdr, p, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
+                          Some(t) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
                           None => Result0::Ok(s)
                         }, fn(s_) {
                           bind(gargs1(p)(es_)(ps_)(s_), fn(x) {
@@ -2327,9 +2801,9 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                         }
                       })
                     }
-                    false => bind(elab(tys, hdr, sinfo, tps, _UU0393_, ex, e0), fn(e_) {
+                    false => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, ex, e0), fn(e_) {
                       bind(match pt {
-                        Some(t) => bind(type_of(hdr, p, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
+                        Some(t) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
                         None => Result0::Ok(s)
                       }, fn(s_) {
                         bind(gargs1(p)(es_)(ps_)(s_), fn(x) {
@@ -2349,9 +2823,9 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                   }
                   match needs_context(e0) {
                     true => match ex {
-                      Some(_) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, ex, e0), fn(e_) {
+                      Some(_) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, ex, e0), fn(e_) {
                         bind(match pt {
-                          Some(t0) => bind(type_of(hdr, p, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
+                          Some(t0) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
                           None => Result0::Ok(s)
                         }, fn(s_) {
                           bind(gargs1(p)(es_)(ts)(s_), fn(x) {
@@ -2367,9 +2841,9 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                         }
                       })
                     }
-                    false => bind(elab(tys, hdr, sinfo, tps, _UU0393_, ex, e0), fn(e_) {
+                    false => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, ex, e0), fn(e_) {
                       bind(match pt {
-                        Some(t0) => bind(type_of(hdr, p, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
+                        Some(t0) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
                         None => Result0::Ok(s)
                       }, fn(s_) {
                         bind(gargs1(p)(es_)(ts)(s_), fn(x) {
@@ -2415,19 +2889,21 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                                     true => map(fn(x1) { resolve(s, x1) }, pps)
                                     false => repeat(None, length(lps))
                                   }
-                                  elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, pexps, resolve(s, pr), fn(_UU0393__) { fn(t0) { elab(tys, hdr, sinfo, tps, _UU0393__, t0, body) } })
+                                  elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, pexps, resolve(s, pr), fn(l_) {
+                                    fn(_UU0393__) { fn(t0) { elab(tys, hdr, sinfo, tps, l_, _UU0393__, t0, body) } }
+                                  })
                                 }
-                                _ => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                                _ => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                                   Some(t0) => resolve(s, t0)
                                   None => None
                                 }, e0)
                               }
-                              None => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                              None => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                                 Some(t) => resolve(s, t)
                                 None => None
                               }, e0)
                             }
-                            _ => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                            _ => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                               Some(t) => resolve(s, t)
                               None => None
                             }, e0)
@@ -2436,7 +2912,7 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                           bind(match d {
                             Some(_) => Result0::Ok(s)
                             None => match pt {
-                              Some(t) => bind(type_of(hdr, p, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
+                              Some(t) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
                               None => Result0::Ok(s)
                             }
                           }, fn(s_) {
@@ -2460,19 +2936,21 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                                     true => map(fn(x1) { resolve(s, x1) }, pps)
                                     false => repeat(None, length(lps))
                                   }
-                                  elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, pexps, resolve(s, pr), fn(_UU0393__) { fn(t1) { elab(tys, hdr, sinfo, tps, _UU0393__, t1, body) } })
+                                  elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, pexps, resolve(s, pr), fn(l_) {
+                                    fn(_UU0393__) { fn(t1) { elab(tys, hdr, sinfo, tps, l_, _UU0393__, t1, body) } }
+                                  })
                                 }
-                                _ => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                                _ => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                                   Some(t1) => resolve(s, t1)
                                   None => None
                                 }, e0)
                               }
-                              None => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                              None => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                                 Some(t0) => resolve(s, t0)
                                 None => None
                               }, e0)
                             }
-                            _ => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                            _ => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                               Some(t0) => resolve(s, t0)
                               None => None
                             }, e0)
@@ -2481,7 +2959,7 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                           bind(match d {
                             Some(_) => Result0::Ok(s)
                             None => match pt {
-                              Some(t0) => bind(type_of(hdr, p, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
+                              Some(t0) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
                               None => Result0::Ok(s)
                             }
                           }, fn(s_) {
@@ -2509,19 +2987,21 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                                   true => map(fn(x1) { resolve(s, x1) }, pps)
                                   false => repeat(None, length(lps))
                                 }
-                                elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, pexps, resolve(s, pr), fn(_UU0393__) { fn(t0) { elab(tys, hdr, sinfo, tps, _UU0393__, t0, body) } })
+                                elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, pexps, resolve(s, pr), fn(l_) {
+                                  fn(_UU0393__) { fn(t0) { elab(tys, hdr, sinfo, tps, l_, _UU0393__, t0, body) } }
+                                })
                               }
-                              _ => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                              _ => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                                 Some(t0) => resolve(s, t0)
                                 None => None
                               }, e0)
                             }
-                            None => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                            None => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                               Some(t) => resolve(s, t)
                               None => None
                             }, e0)
                           }
-                          _ => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                          _ => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                             Some(t) => resolve(s, t)
                             None => None
                           }, e0)
@@ -2530,7 +3010,7 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                         bind(match d {
                           Some(_) => Result0::Ok(s)
                           None => match pt {
-                            Some(t) => bind(type_of(hdr, p, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
+                            Some(t) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
                             None => Result0::Ok(s)
                           }
                         }, fn(s_) {
@@ -2554,19 +3034,21 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                                   true => map(fn(x1) { resolve(s, x1) }, pps)
                                   false => repeat(None, length(lps))
                                 }
-                                elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, pexps, resolve(s, pr), fn(_UU0393__) { fn(t1) { elab(tys, hdr, sinfo, tps, _UU0393__, t1, body) } })
+                                elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, pexps, resolve(s, pr), fn(l_) {
+                                  fn(_UU0393__) { fn(t1) { elab(tys, hdr, sinfo, tps, l_, _UU0393__, t1, body) } }
+                                })
                               }
-                              _ => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                              _ => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                                 Some(t1) => resolve(s, t1)
                                 None => None
                               }, e0)
                             }
-                            None => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                            None => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                               Some(t0) => resolve(s, t0)
                               None => None
                             }, e0)
                           }
-                          _ => elab(tys, hdr, sinfo, tps, _UU0393_, match pt {
+                          _ => elab(tys, hdr, sinfo, tps, l, _UU0393_, match pt {
                             Some(t0) => resolve(s, t0)
                             None => None
                           }, e0)
@@ -2575,7 +3057,7 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                         bind(match d {
                           Some(_) => Result0::Ok(s)
                           None => match pt {
-                            Some(t0) => bind(type_of(hdr, p, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
+                            Some(t0) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
                             None => Result0::Ok(s)
                           }
                         }, fn(s_) {
@@ -2650,17 +3132,52 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                   List::Cons(p0, fes_) => match p0 {
                     (f, fe) => bind(of_opt(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(i) {
                       bind(of_opt(nth_error(fs, i), Elab_error::EE_UnknownField(p, f)), fn(_UU03c4_f) {
-                        bind(elab(tys, hdr, sinfo, tps, _UU0393_0, resolve(s, _UU03c4_f), fe), fn(e_) {
-                          bind(type_of(hdr, p, _UU0393_0, e_), fn(_UU03c4_) {
-                            bind(rfields(p)(List::Cons((None, _UU03c4_), _UU0393_0))(names)(fs)(fes_)(tmatch(_UU03c4_f, _UU03c4_, s)), fn(x) {
-                              match x {
-                                (p1, s1) => match p1 {
-                                  (rest, _UU0393_1) => Result0::Ok(((List::Cons((e_, i), rest), _UU0393_1), s1))
+                        match _UU03c4_f {
+                          Ty::TRef(t) => {
+                            let mut0 = true
+                            bind(elab(tys, hdr, sinfo, tps, l, _UU0393_0, resolve(s, t), fe), fn(e_) {
+                              bind(type_of(hdr, p, l, _UU0393_0, e_), fn(_UU03c4_) {
+                                let e__ = match mut0 {
+                                  true => Expr::EMem(Mem_op::MRef(_UU03c4_), List::Cons(e_, List::Nil))
+                                  false => e_
                                 }
-                              }
+                                let _UU03c4__ = match mut0 {
+                                  true => Ty::TRef(_UU03c4_)
+                                  false => _UU03c4_
+                                }
+                                bind(rfields(p)(List::Cons((None, _UU03c4__), _UU0393_0))(names)(fs)(fes_)(tmatch(_UU03c4_f, _UU03c4__, s)), fn(x) {
+                                  match x {
+                                    (p1, s1) => match p1 {
+                                      (rest, _UU0393_1) => Result0::Ok(((List::Cons((e__, i), rest), _UU0393_1), s1))
+                                    }
+                                  }
+                                })
+                              })
                             })
-                          })
-                        })
+                          }
+                          _ => {
+                            let mut0 = false
+                            bind(elab(tys, hdr, sinfo, tps, l, _UU0393_0, resolve(s, _UU03c4_f), fe), fn(e_) {
+                              bind(type_of(hdr, p, l, _UU0393_0, e_), fn(_UU03c4_) {
+                                let e__ = match mut0 {
+                                  true => Expr::EMem(Mem_op::MRef(_UU03c4_), List::Cons(e_, List::Nil))
+                                  false => e_
+                                }
+                                let _UU03c4__ = match mut0 {
+                                  true => Ty::TRef(_UU03c4_)
+                                  false => _UU03c4_
+                                }
+                                bind(rfields(p)(List::Cons((None, _UU03c4__), _UU0393_0))(names)(fs)(fes_)(tmatch(_UU03c4_f, _UU03c4__, s)), fn(x) {
+                                  match x {
+                                    (p1, s1) => match p1 {
+                                      (rest, _UU0393_1) => Result0::Ok(((List::Cons((e__, i), rest), _UU0393_1), s1))
+                                    }
+                                  }
+                                })
+                              })
+                            })
+                          }
+                        }
                       })
                     })
                   }
@@ -2673,19 +3190,68 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
     }
     rfields
   }
+  let elab_named = {
+    letrec elab_named = fn(l0) {
+      fn(_UU0393_0) {
+        fn(tyof) {
+          fn(bs) {
+            match bs {
+              List::Nil => Result0::Ok(List::Nil)
+              List::Cons(p, bs_) => match p {
+                (y, b) => bind(elab(tys, hdr, sinfo, tps, l0, _UU0393_0, tyof(y), b), fn(b_) {
+                  bind(elab_named(l0)(_UU0393_0)(tyof)(bs_), fn(rest) { Result0::Ok(List::Cons((y, b_), rest)) })
+                })
+              }
+            }
+          }
+        }
+      }
+    }
+    elab_named
+  }
+  let first_arm = {
+    letrec first_arm = fn(_UU03c4_s) {
+      fn(cs) {
+        match cs {
+          List::Nil => Result0::Ok(None)
+          List::Cons(p, cs_) => match p {
+            (sp, b) => match diverges(b) {
+              true => first_arm(_UU03c4_s)(cs_)
+              false => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_s, sp), fn(x) {
+                match x {
+                  (_, _UU0394_) => bind(elab(tys, hdr, sinfo, tps, l, app(_UU0394_, _UU0393_), None, b), fn(b_) {
+                    map_result(fn(x0) { Some(x0) }, type_of(hdr, sexpr_pos(b), l, app(_UU0394_, _UU0393_), b_))
+                  })
+                }
+              })
+            }
+          }
+        }
+      }
+    }
+    first_arm
+  }
   match e {
     Sexpr::SVar(p, x) => match lookup_local(x, _UU0393_) {
-      Some(i) => Result0::Ok(Expr::EVar(i))
+      Some(i) => match nth_error(_UU0393_, i) {
+        Some(p0) => match p0 {
+          (_, t) => match t {
+            Ty::TRef(_UU03c4_) => Result0::Ok(Expr::EMem(Mem_op::MGet(_UU03c4_), List::Cons(Expr::EVar(i), List::Nil)))
+            _ => Result0::Ok(Expr::EVar(i))
+          }
+        }
+        None => Result0::Ok(Expr::EVar(i))
+      }
       None => match lookup_fn(hdr, x) {
         Some(fd) => elab_global(p, x, fd, exp)
         None => Result0::Err(Elab_error::EE_Unbound(p, x))
       }
     }
-    Sexpr::SLit(p, l) => bind(elab_lit(p, exp, l), fn(l_) { Result0::Ok(Expr::ELit(l_)) })
+    Sexpr::SLit(p, l0) => bind(elab_lit(p, exp, l0), fn(l_) { Result0::Ok(Expr::ELit(l_)) })
     Sexpr::SApp(p, f, args) => match f {
       Sexpr::SVar(q, g) => match lookup_local(g, _UU0393_) {
-        Some(_) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-          bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+        Some(_) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+          bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
             bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
           })
         })
@@ -2724,66 +3290,88 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
           }
           None => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))) {
             true => bind(elab_args(args)(List::Cons(Some(Ty::TBase(Base_ty::BBool)), List::Nil)), fn(args_) { Result0::Ok(Expr::EPrim(Prim_op::PBoolNot, args_)) })
-            false => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))) {
+            false => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
               true => match args {
-                List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
-                List::Cons(a, l) => match l {
-                  List::Nil => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, a), fn(a_) { Result0::Ok(Expr::ELet(a_, Expr::ELit(Lit::LUnit))) })
-                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                List::Nil => Result0::Ok(Expr::EAbort(jty(exp)))
+                List::Cons(_, _) => Result0::Err(Elab_error::EE_Type(q, Type_error::E_ArgArity(Nat::O, length(args))))
+              }
+              false => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                true => match args {
+                  List::Nil => Result0::Err(Elab_error::EE_Type(q, Type_error::E_ArgArity(Nat::S(Nat::O), length(args))))
+                  List::Cons(a, l0) => match l0 {
+                    List::Nil => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BString)), a), fn(a_) {
+                      bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) {
+                        match eqDec_ty(_UU03c4_a)(Ty::TBase(Base_ty::BString)) {
+                          true => Result0::Ok(Expr::ELet(a_, Expr::EAbort(jty(exp))))
+                          false => Result0::Err(Elab_error::EE_Annot(sexpr_pos(a), Ty::TBase(Base_ty::BString), _UU03c4_a))
+                        }
+                      })
+                    })
+                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Type(q, Type_error::E_ArgArity(Nat::S(Nat::O), length(args))))
+                  }
+                }
+                false => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))) {
+                  true => match args {
+                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                    List::Cons(a, l0) => match l0 {
+                      List::Nil => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, a), fn(a_) { Result0::Ok(Expr::ELet(a_, Expr::ELit(Lit::LUnit))) })
+                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                    }
+                  }
+                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
                 }
               }
-              false => Result0::Err(Elab_error::EE_Unbound(q, g))
             }
           }
         }
       }
-      Sexpr::SLit(_, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SLit(_, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SApp(_, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SApp(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SInfix(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SInfix(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SUnary(_, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SUnary(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SLet(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SLet(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SIf(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SIf(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::STup(_, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::STup(_, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SProj(_, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SProj(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SLam(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SLam(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SAnnot(_, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SAnnot(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
@@ -2792,29 +3380,176 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
           (td, cd) => ctor_app(p)(q)(td)(cd)(args)
         }
       })
-      Sexpr::SRecord(_, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SRecord(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SField(_, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SField(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
-      Sexpr::SMatch(_, _, _) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, _UU0393_, f_), fn(_UU03c4_f) {
+      Sexpr::SMatch(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SLetMut(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SAssign(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SArray(_, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SIndex(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SIndexSet(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SFieldSet(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SMethod(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SQual(q, t, m) => match array_kind_of(t) {
+        Some(k) => match args {
+          List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+            true => match exp {
+              Some(t0) => match t0 {
+                Ty::TArray(_, t1) => Result0::Ok(Expr::EMem(Mem_op::MArray(k, t1, Nat::O), List::Nil))
+                _ => Result0::Err(Elab_error::EE_CannotInfer(q, m))
+              }
+              None => Result0::Err(Elab_error::EE_CannotInfer(q, m))
+            }
+            false => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
+          }
+          List::Cons(n, l0) => match l0 {
+            List::Nil => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
+            List::Cons(v, l1) => match l1 {
+              List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))) {
+                true => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BInt(Int_kind::I32))), n), fn(n_) {
+                  bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, match exp {
+                    Some(t0) => match t0 {
+                      Ty::TBase(_) => None
+                      Ty::TVar(_) => None
+                      Ty::TTuple(_) => None
+                      Ty::TArrow(_, _) => None
+                      Ty::TData(_, _) => None
+                      Ty::TRef(_) => None
+                      Ty::TArray(_, t1) => Some(t1)
+                    }
+                    None => None
+                  }, v), fn(v_) {
+                    bind(type_of(hdr, p, l, _UU0393_, v_), fn(t0) {
+                      Result0::Ok(Expr::EMem(Mem_op::MMake(k, t0), List::Cons(n_, List::Cons(v_, List::Nil))))
+                    })
+                  })
+                })
+                false => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
+              }
+              List::Cons(_, _) => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
+            }
+          }
+        }
+        None => match args {
+          List::Nil => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
+          List::Cons(v, l0) => match l0 {
+            List::Nil => match (match eqDec_ident(t)(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))) {
+              true => eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString))))
+              false => false
+            }) {
+              true => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, match exp {
+                Some(t0) => match t0 {
+                  Ty::TBase(_) => None
+                  Ty::TVar(_) => None
+                  Ty::TTuple(_) => None
+                  Ty::TArrow(_, _) => None
+                  Ty::TData(r, ts) => match ts {
+                    List::Nil => None
+                    List::Cons(t1, l1) => match l1 {
+                      List::Nil => match eqDec_ident(r)(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))) {
+                        true => Some(t1)
+                        false => None
+                      }
+                      List::Cons(_, _) => None
+                    }
+                  }
+                  _ => None
+                }
+                None => None
+              }, v), fn(v_) {
+                bind(type_of(hdr, p, l, _UU0393_, v_), fn(t0) {
+                  Result0::Ok(Expr::EConstr(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(t0, List::Nil), Expr::ETuple(List::Cons(Expr::EMem(Mem_op::MRef(t0), List::Cons(v_, List::Nil)), List::Nil))))
+                })
+              })
+              false => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
+            }
+            List::Cons(_, _) => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
+          }
+        }
+      }
+      Sexpr::SWhile(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SFor(_, _, _, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SBlock(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SBreak(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SContinue(_, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SReturn(_, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
+          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
+        })
+      })
+      Sexpr::SForIn(_, _, _, _, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, f), fn(f_) {
+        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
           bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) { Result0::Ok(Expr::EApp(f_, args_)) })
         })
       })
     }
     Sexpr::SInfix(p, op, a, b) => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(false, true, true, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, false, false), String0::EmptyString))) {
-      true => bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
-        bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), b), fn(b_) { Result0::Ok(Expr::EIf(a_, b_, e_false)) })
+      true => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
+        bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), b), fn(b_) { Result0::Ok(Expr::EIf(a_, b_, e_false)) })
       })
       false => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(false, false, true, true, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, true, true, true, false), String0::EmptyString))) {
-        true => bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
-          bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), b), fn(b_) { Result0::Ok(Expr::EIf(a_, e_true, b_)) })
+        true => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
+          bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), b), fn(b_) { Result0::Ok(Expr::EIf(a_, e_true, b_)) })
         })
         false => {
           let exp_ = match assoc(op, arith_ops) {
@@ -2825,14 +3560,14 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
             true => negb(flexible(b))
             false => false
           }) {
-            true => bind(elab(tys, hdr, sinfo, tps, _UU0393_, exp_, b), fn(b_) {
-              bind(type_of(hdr, p, _UU0393_, b_), fn(_UU03c4_) {
-                bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(_UU03c4_), a), fn(a_) { elab_binop(p, op, _UU03c4_, a_, b_) })
+            true => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, exp_, b), fn(b_) {
+              bind(type_of(hdr, p, l, _UU0393_, b_), fn(_UU03c4_) {
+                bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(_UU03c4_), a), fn(a_) { elab_binop(p, op, _UU03c4_, a_, b_) })
               })
             })
-            false => bind(elab(tys, hdr, sinfo, tps, _UU0393_, exp_, a), fn(a_) {
-              bind(type_of(hdr, p, _UU0393_, a_), fn(_UU03c4_) {
-                bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(_UU03c4_), b), fn(b_) { elab_binop(p, op, _UU03c4_, a_, b_) })
+            false => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, exp_, a), fn(a_) {
+              bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_) {
+                bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(_UU03c4_), b), fn(b_) { elab_binop(p, op, _UU03c4_, a_, b_) })
               })
             })
           }
@@ -2841,10 +3576,10 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
     }
     Sexpr::SUnary(p, op, a) => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(true, false, true, true, false, true, false, false), String0::EmptyString)) {
       true => match a {
-        Sexpr::SLit(q, l) => match l {
+        Sexpr::SLit(q, l0) => match l0 {
           Slit::SLInt(k, z) => bind(elab_lit(q, exp, Slit::SLInt(k, opp(z))), fn(l_) { Result0::Ok(Expr::ELit(l_)) })
-          _ => bind(elab(tys, hdr, sinfo, tps, _UU0393_, exp, a), fn(a_) {
-            bind(type_of(hdr, p, _UU0393_, a_), fn(_UU03c4_) {
+          _ => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, exp, a), fn(a_) {
+            bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_) {
               match _UU03c4_ {
                 Ty::TBase(b) => match b {
                   Base_ty::BInt(k) => Result0::Ok(Expr::EPrim(Prim_op::PIntNeg(k), List::Cons(a_, List::Nil)))
@@ -2855,8 +3590,8 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
             })
           })
         }
-        _ => bind(elab(tys, hdr, sinfo, tps, _UU0393_, exp, a), fn(a_) {
-          bind(type_of(hdr, p, _UU0393_, a_), fn(_UU03c4_) {
+        _ => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, exp, a), fn(a_) {
+          bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_) {
             match _UU03c4_ {
               Ty::TBase(b) => match b {
                 Base_ty::BInt(k) => Result0::Ok(Expr::EPrim(Prim_op::PIntNeg(k), List::Cons(a_, List::Nil)))
@@ -2868,7 +3603,7 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
         })
       }
       false => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(true, false, false, false, false, true, false, false), String0::EmptyString)) {
-        true => bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
+        true => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
           Result0::Ok(Expr::EPrim(Prim_op::PBoolNot, List::Cons(a_, List::Nil)))
         })
         false => Result0::Err(Elab_error::EE_NoOperator(p, op, Ty::TBase(Base_ty::BUnit)))
@@ -2878,8 +3613,8 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
       Some(t) => map_result(fn(x0) { Some(x0) }, elab_ty(tys, tps, t))
       None => Result0::Ok(None)
     }, fn(_UU03c4_ann) {
-      bind(elab(tys, hdr, sinfo, tps, _UU0393_, _UU03c4_ann, e1), fn(e1_) {
-        bind(type_of(hdr, p, _UU0393_, e1_), fn(_UU03c4_1) {
+      bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, _UU03c4_ann, e1), fn(e1_) {
+        bind(type_of(hdr, p, l, _UU0393_, e1_), fn(_UU03c4_1) {
           bind(match _UU03c4_ann {
             Some(t) => match eqDec_ty(t)(_UU03c4_1) {
               true => Result0::Ok(())
@@ -2887,22 +3622,35 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
             }
             None => Result0::Ok(())
           }, fn(_) {
-            bind(elab(tys, hdr, sinfo, tps, List::Cons((x, _UU03c4_1), _UU0393_), exp, body), fn(body_) { Result0::Ok(Expr::ELet(e1_, body_)) })
+            bind(elab(tys, hdr, sinfo, tps, l, List::Cons((x, _UU03c4_1), _UU0393_), exp, body), fn(body_) { Result0::Ok(Expr::ELet(e1_, body_)) })
           })
         })
       })
     })
-    Sexpr::SIf(p, c, t, oe) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), c), fn(c_) {
+    Sexpr::SIf(p, c, t, oe) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), c), fn(c_) {
       match oe {
-        Some(e0) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, exp, t), fn(t_) {
-          bind(match exp {
-            Some(_UU03c4_) => Result0::Ok(Some(_UU03c4_))
-            None => map_result(fn(x) { Some(x) }, type_of(hdr, p, _UU0393_, t_))
-          }, fn(exp_) {
-            bind(elab(tys, hdr, sinfo, tps, _UU0393_, exp_, e0), fn(e0_) { Result0::Ok(Expr::EIf(c_, t_, e0_)) })
+        Some(e0) => match (match (match exp {
+          Some(_) => false
+          None => diverges(t)
+        }) {
+          true => negb(diverges(e0))
+          false => false
+        }) {
+          true => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e0), fn(e0_) {
+            bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_e) {
+              bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(_UU03c4_e), t), fn(t_) { Result0::Ok(Expr::EIf(c_, t_, e0_)) })
+            })
           })
-        })
-        None => bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(Ty::TBase(Base_ty::BUnit)), t), fn(t_) { Result0::Ok(Expr::EIf(c_, t_, Expr::ELit(Lit::LUnit))) })
+          false => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, exp, t), fn(t_) {
+            bind(match exp {
+              Some(_UU03c4_) => Result0::Ok(Some(_UU03c4_))
+              None => map_result(fn(x) { Some(x) }, type_of(hdr, p, l, _UU0393_, t_))
+            }, fn(exp_) {
+              bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, exp_, e0), fn(e0_) { Result0::Ok(Expr::EIf(c_, t_, e0_)) })
+            })
+          })
+        }
+        None => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BUnit)), t), fn(t_) { Result0::Ok(Expr::EIf(c_, t_, Expr::ELit(Lit::LUnit))) })
       }
     })
     Sexpr::STup(_, es) => {
@@ -2920,8 +3668,8 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
       }
       bind(elab_args(es)(exps), fn(es_) { Result0::Ok(Expr::ETuple(es_)) })
     }
-    Sexpr::SProj(p, e0, i) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, _UU0393_, e0_), fn(_UU03c4_) {
+    Sexpr::SProj(p, e0, i) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e0), fn(e0_) {
+      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
         match _UU03c4_ {
           Ty::TData(t, ts) => proj_field(hdr, p, t, ts, i, e0_)
           _ => Result0::Ok(Expr::EProj(e0_, i))
@@ -2939,15 +3687,17 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
           Ty::TVar(_) => None
           Ty::TTuple(_) => None
           Ty::TArrow(_, r) => Some(r)
-          Ty::TData(_, _) => None
+          _ => None
         }
         None => None
       }
-      elab_lam(tys, hdr, tps, _UU0393_, p, ps, ret, pexps, rexp, fn(_UU0393__) { fn(t) { elab(tys, hdr, sinfo, tps, _UU0393__, t, body) } })
+      elab_lam(tys, hdr, tps, _UU0393_, p, ps, ret, pexps, rexp, fn(l_) {
+        fn(_UU0393__) { fn(t) { elab(tys, hdr, sinfo, tps, l_, _UU0393__, t, body) } }
+      })
     }
     Sexpr::SAnnot(p, e0, t) => bind(elab_ty(tys, tps, t), fn(_UU03c4_) {
-      bind(elab(tys, hdr, sinfo, tps, _UU0393_, Some(_UU03c4_), e0), fn(e0_) {
-        bind(type_of(hdr, p, _UU0393_, e0_), fn(_UU03c4_0) {
+      bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(_UU03c4_), e0), fn(e0_) {
+        bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_0) {
           match eqDec_ty(_UU03c4_)(_UU03c4_0) {
             true => Result0::Ok(e0_)
             false => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_, _UU03c4_0))
@@ -2967,7 +3717,7 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
             Tdef::Mk_tdef(_, _, td_ctors) => td_ctors
           }) {
             List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TData(t, List::Nil)))
-            List::Cons(cd, l) => match l {
+            List::Cons(cd, l0) => match l0 {
               List::Nil => {
                 let n = match td {
                   Tdef::Mk_tdef(_, td_tparams, _) => td_tparams
@@ -3008,8 +3758,8 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
         })
       })
     })
-    Sexpr::SField(p, e0, f) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, _UU0393_, e0_), fn(_UU03c4_) {
+    Sexpr::SField(p, e0, f) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e0), fn(e0_) {
+      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
         match _UU03c4_ {
           Ty::TData(t, ts) => bind(of_opt(assoc(t, sinfo), Elab_error::EE_NotRecord(p, _UU03c4_)), fn(names) {
             bind(of_opt(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(i) { proj_field(hdr, p, t, ts, i, e0_) })
@@ -3018,8 +3768,8 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
         }
       })
     })
-    Sexpr::SMatch(p, e0, cases) => bind(elab(tys, hdr, sinfo, tps, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, _UU0393_, e0_), fn(_UU03c4_s) {
+    Sexpr::SMatch(p, e0, cases) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e0), fn(e0_) {
+      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_s) {
         let arms = {
           letrec arms = fn(cs) {
             fn(exp0) {
@@ -3030,10 +3780,10 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
                     match x {
                       (q, _UU0394_) => {
                         let _UU0393__ = app(_UU0394_, _UU0393_)
-                        bind(elab(tys, hdr, sinfo, tps, _UU0393__, exp0, b), fn(b_) {
+                        bind(elab(tys, hdr, sinfo, tps, l, _UU0393__, exp0, b), fn(b_) {
                           bind(match exp0 {
                             Some(t) => Result0::Ok(t)
-                            None => type_of(hdr, p, _UU0393__, b_)
+                            None => type_of(hdr, p, l, _UU0393__, b_)
                           }, fn(_UU03c4_b) {
                             bind(arms(cs_)(Some(_UU03c4_b)), fn(x0) {
                               match x0 {
@@ -3051,13 +3801,829 @@ pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Iden
           }
           arms
         }
-        bind(arms(cases)(exp), fn(x) {
-          match x {
-            (bs, r) => bind(of_opt(r, Elab_error::EE_EmptyMatch(p)), fn(_UU03c4_) { Result0::Ok(Expr::EMatch(e0_, _UU03c4_, bs)) })
-          }
+        bind(match exp {
+          Some(_) => Result0::Ok(exp)
+          None => first_arm(_UU03c4_s)(cases)
+        }, fn(exp0) {
+          bind(arms(cases)(exp0), fn(x) {
+            match x {
+              (bs, r) => bind(of_opt(r, Elab_error::EE_EmptyMatch(p)), fn(_UU03c4_) { Result0::Ok(Expr::EMatch(e0_, _UU03c4_, bs)) })
+            }
+          })
         })
       })
     })
+    Sexpr::SLetMut(p, x, ann, e1, body) => bind(match ann {
+      Some(t) => map_result(fn(x0) { Some(x0) }, elab_ty(tys, tps, t))
+      None => Result0::Ok(None)
+    }, fn(_UU03c4_ann) {
+      bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, _UU03c4_ann, e1), fn(e1_) {
+        bind(type_of(hdr, p, l, _UU0393_, e1_), fn(_UU03c4_1) {
+          bind(match _UU03c4_ann {
+            Some(t) => match eqDec_ty(t)(_UU03c4_1) {
+              true => Result0::Ok(())
+              false => Result0::Err(Elab_error::EE_Annot(p, t, _UU03c4_1))
+            }
+            None => Result0::Ok(())
+          }, fn(_) {
+            bind(elab(tys, hdr, sinfo, tps, l, List::Cons((Some(x), Ty::TRef(_UU03c4_1)), _UU0393_), exp, body), fn(body_) {
+              Result0::Ok(Expr::ELet(Expr::EMem(Mem_op::MRef(_UU03c4_1), List::Cons(e1_, List::Nil)), body_))
+            })
+          })
+        })
+      })
+    })
+    Sexpr::SAssign(p, x, op, e0) => bind(of_opt(lookup_local(x, _UU0393_), Elab_error::EE_NotMutable(p, x)), fn(i) {
+      match nth_error(_UU0393_, i) {
+        Some(p0) => match p0 {
+          (_, t) => match t {
+            Ty::TRef(_UU03c4_) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(_UU03c4_), e0), fn(v_) {
+              bind(match op {
+                Some(o) => elab_binop(p, o, _UU03c4_, Expr::EMem(Mem_op::MGet(_UU03c4_), List::Cons(Expr::EVar(i), List::Nil)), v_)
+                None => Result0::Ok(v_)
+              }, fn(v__) {
+                Result0::Ok(Expr::EMem(Mem_op::MSet(_UU03c4_), List::Cons(Expr::EVar(i), List::Cons(v__, List::Nil))))
+              })
+            })
+            _ => Result0::Err(Elab_error::EE_NotMutable(p, x))
+          }
+        }
+        None => Result0::Err(Elab_error::EE_NotMutable(p, x))
+      }
+    })
+    Sexpr::SArray(p, es) => match exp {
+      Some(t0) => match t0 {
+        Ty::TBase(_) => match es {
+          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
+          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e1), fn(e1_) {
+            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
+              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
+                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
+              })
+            })
+          })
+        }
+        Ty::TVar(_) => match es {
+          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
+          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e1), fn(e1_) {
+            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
+              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
+                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
+              })
+            })
+          })
+        }
+        Ty::TTuple(_) => match es {
+          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
+          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e1), fn(e1_) {
+            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
+              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
+                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
+              })
+            })
+          })
+        }
+        Ty::TArrow(_, _) => match es {
+          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
+          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e1), fn(e1_) {
+            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
+              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
+                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
+              })
+            })
+          })
+        }
+        Ty::TData(_, _) => match es {
+          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
+          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e1), fn(e1_) {
+            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
+              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
+                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
+              })
+            })
+          })
+        }
+        Ty::TRef(_) => match es {
+          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
+          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e1), fn(e1_) {
+            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
+              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
+                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
+              })
+            })
+          })
+        }
+        Ty::TArray(k, t) => bind(elab_args(es)(repeat(Some(t), length(es))), fn(es_) { Result0::Ok(Expr::EMem(Mem_op::MArray(k, t, length(es)), es_)) })
+      }
+      None => match es {
+        List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
+        List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e1), fn(e1_) {
+          bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
+            bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
+              Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
+            })
+          })
+        })
+      }
+    }
+    Sexpr::SIndex(p, a, i) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, a), fn(a_) {
+      bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) {
+        match _UU03c4_a {
+          Ty::TArray(k, t) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BInt(Int_kind::I32))), i), fn(i_) {
+            Result0::Ok(Expr::EMem(Mem_op::MIndex(k, t), List::Cons(a_, List::Cons(i_, List::Nil))))
+          })
+          _ => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString)), _UU03c4_a))
+        }
+      })
+    })
+    Sexpr::SIndexSet(p, a, i, op, v) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, a), fn(a_) {
+      bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) {
+        match _UU03c4_a {
+          Ty::TArray(k, t) => match op {
+            Some(o) => {
+              let _UU0393_1 = List::Cons((None, _UU03c4_a), _UU0393_)
+              bind(elab(tys, hdr, sinfo, tps, l, _UU0393_1, Some(Ty::TBase(Base_ty::BInt(Int_kind::I32))), i), fn(i_) {
+                let _UU0393_2 = List::Cons((None, Ty::TBase(Base_ty::BInt(Int_kind::I32))), _UU0393_1)
+                bind(elab(tys, hdr, sinfo, tps, l, _UU0393_2, Some(t), v), fn(v_) {
+                  bind(elab_binop(p, o, t, Expr::EMem(Mem_op::MIndex(k, t), List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Cons(Expr::EVar(Nat::O), List::Nil))), v_), fn(rhs) {
+                    Result0::Ok(Expr::ELet(a_, Expr::ELet(i_, Expr::EMem(Mem_op::MSetIndex(k, t), List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Cons(Expr::EVar(Nat::O), List::Cons(rhs, List::Nil)))))))
+                  })
+                })
+              })
+            }
+            None => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(Ty::TBase(Base_ty::BInt(Int_kind::I32))), i), fn(i_) {
+              bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(t), v), fn(v_) {
+                Result0::Ok(Expr::EMem(Mem_op::MSetIndex(k, t), List::Cons(a_, List::Cons(i_, List::Cons(v_, List::Nil)))))
+              })
+            })
+          }
+          _ => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, true, false, false), String0::EmptyString))), _UU03c4_a))
+        }
+      })
+    })
+    Sexpr::SFieldSet(p, e0, f, op, v) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e0), fn(e0_) {
+      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
+        match _UU03c4_ {
+          Ty::TData(t, ts) => bind(of_opt(assoc(t, sinfo), Elab_error::EE_NotRecord(p, _UU03c4_)), fn(names) {
+            bind(of_opt(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(i) {
+              bind(of_opt(lookup_ty(hdr, t), Elab_error::EE_UnknownType(p, t)), fn(td) {
+                match (match td {
+                  Tdef::Mk_tdef(_, _, td_ctors) => td_ctors
+                }) {
+                  List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
+                  List::Cons(cd, l0) => match l0 {
+                    List::Nil => {
+                      let fs = map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match cd {
+                        Cdef::Mk_cdef(_, cd_fields) => cd_fields
+                      })
+                      match nth_error(fs, i) {
+                        Some(t0) => match t0 {
+                          Ty::TRef(t1) => {
+                            let _UU0393_1 = List::Cons((None, Ty::TRef(t1)), _UU0393_)
+                            bind(elab(tys, hdr, sinfo, tps, l, _UU0393_1, Some(t1), v), fn(v_) {
+                              bind(match op {
+                                Some(o) => elab_binop(p, o, t1, Expr::EMem(Mem_op::MGet(t1), List::Cons(Expr::EVar(Nat::O), List::Nil)), v_)
+                                None => Result0::Ok(v_)
+                              }, fn(rhs) {
+                                let ps = map(fn(j) {
+                                  match eqb0(j, i) {
+                                    true => Pat::PVar
+                                    false => Pat::PWild
+                                  }
+                                }, seq(Nat::O, length(fs)))
+                                Result0::Ok(Expr::EMatch(e0_, Ty::TBase(Base_ty::BUnit), List::Cons((Pat::PConstr(match cd {
+                                  Cdef::Mk_cdef(cd_name, _) => cd_name
+                                }, ps), Expr::EMem(Mem_op::MSet(t1), List::Cons(Expr::EVar(Nat::O), List::Cons(rhs, List::Nil)))), List::Nil)))
+                              })
+                            })
+                          }
+                          _ => Result0::Err(Elab_error::EE_NotMutable(p, f))
+                        }
+                        None => Result0::Err(Elab_error::EE_NotMutable(p, f))
+                      }
+                    }
+                    List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
+                  }
+                }
+              })
+            })
+          })
+          _ => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
+        }
+      })
+    })
+    Sexpr::SMethod(p, e0, m, args) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, e0), fn(e0_) {
+      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
+        match _UU03c4_ {
+          Ty::TArray(k, t) => match k {
+            Array_kind::AFixed => match args {
+              List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))))) {
+                true => Result0::Ok(Expr::EMem(Mem_op::MLength(k, t), List::Cons(e0_, List::Nil)))
+                false => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
+              }
+              List::Cons(_, _) => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
+            }
+            Array_kind::AGrow => match args {
+              List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))))) {
+                true => Result0::Ok(Expr::EMem(Mem_op::MLength(k, t), List::Cons(e0_, List::Nil)))
+                false => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
+              }
+              List::Cons(a, l0) => match l0 {
+                List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))) {
+                  true => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(t), a), fn(a_) {
+                    Result0::Ok(Expr::EMem(Mem_op::MPush(t), List::Cons(e0_, List::Cons(a_, List::Nil))))
+                  })
+                  false => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
+                }
+                List::Cons(_, _) => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
+              }
+            }
+          }
+          _ => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
+        }
+      })
+    })
+    Sexpr::SQual(p, _, m) => Result0::Err(Elab_error::EE_NoMethod(p, m, Ty::TBase(Base_ty::BUnit)))
+    Sexpr::SWhile(p, x, c, body, nb) => {
+      let hd = fn(_UU03c4_) {
+        List::Cons(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, _UU03c4_), l)
+      }
+      bind(match nb {
+        Some(e0) => match exp {
+          Some(t) => Result0::Ok(t)
+          None => bind(elab(tys, hdr, sinfo, tps, hd(Ty::TBase(Base_ty::BUnit)), _UU0393_, None, e0), fn(e0_) { type_of(hdr, p, hd(Ty::TBase(Base_ty::BUnit)), _UU0393_, e0_) })
+        }
+        None => Result0::Ok(Ty::TBase(Base_ty::BUnit))
+      }, fn(_UU03c4_) {
+        bind(elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393_, Some(Ty::TBase(Base_ty::BBool)), c), fn(c_) {
+          bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(x, Lab_kind::LKWhile, List::Nil, _UU03c4_), l), _UU0393_, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
+            bind(match nb {
+              Some(e0) => elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393_, Some(_UU03c4_), e0)
+              None => Result0::Ok(Expr::ELit(Lit::LUnit))
+            }, fn(nb_) {
+              Result0::Ok(Expr::ELoop(Expr::ETuple(List::Nil), List::Nil, _UU03c4_, Expr::EIf(c_, Expr::ELet(body_, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(List::Nil), _UU03c4_)), nb_)))
+            })
+          })
+        })
+      })
+    }
+    Sexpr::SFor(p, x, inits, c, upds, body, nb) => bind(elab_named(l)(_UU0393_)(fn(_) { None })(inits), fn(inits_) {
+      bind(mapM(fn(b) { type_of(hdr, p, l, _UU0393_, snd(b)) }, inits_), fn(_UU03c4_s) {
+        let names = map(fn(x1) { fst(x1) }, inits)
+        let _UU0393__ = app(combine(map(fn(x0) { Some(x0) }, names), _UU03c4_s), _UU0393_)
+        let hd = fn(_UU03c4_) {
+          List::Cons(Lab::Mk_lab(None, Lab_kind::LKHead, _UU03c4_s, _UU03c4_), l)
+        }
+        bind(match nb {
+          Some(e0) => match exp {
+            Some(t) => Result0::Ok(t)
+            None => bind(elab(tys, hdr, sinfo, tps, hd(Ty::TBase(Base_ty::BUnit)), _UU0393__, None, e0), fn(e0_) { type_of(hdr, p, hd(Ty::TBase(Base_ty::BUnit)), _UU0393__, e0_) })
+          }
+          None => match c {
+            Some(_) => Result0::Ok(Ty::TBase(Base_ty::BUnit))
+            None => Result0::Ok(jty(exp))
+          }
+        }, fn(_UU03c4_) {
+          bind(match c {
+            Some(c0) => map_result(fn(x0) { Some(x0) }, elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393__, Some(Ty::TBase(Base_ty::BBool)), c0))
+            None => Result0::Ok(None)
+          }, fn(c_) {
+            bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(x, Lab_kind::LKForBody, List::Nil, Ty::TBase(Base_ty::BUnit)), hd(_UU03c4_)), _UU0393__, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
+              let _UU0393___ = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393__)
+              bind(elab_named(hd(_UU03c4_))(_UU0393___)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
+                let next = map(fn(i) {
+                  match assoc(nth(i, names, String0::EmptyString), upds_) {
+                    Some(u) => u
+                    None => Expr::EVar(Nat::S(i))
+                  }
+                }, seq(Nat::O, length(names)))
+                let step = Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
+                bind(match nb {
+                  Some(e0) => elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393__, Some(_UU03c4_), e0)
+                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
+                }, fn(nb_) {
+                  Result0::Ok(Expr::ELoop(Expr::ETuple(map(fn(x1) { snd(x1) }, inits_)), _UU03c4_s, _UU03c4_, match c_ {
+                    Some(c0) => Expr::EIf(c0, step, nb_)
+                    None => step
+                  }))
+                })
+              })
+            })
+          })
+        })
+      })
+    })
+    Sexpr::SBlock(_, x, body) => {
+      let _UU03c4_ = jty(exp)
+      bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(Some(x), Lab_kind::LKBlock, List::Nil, _UU03c4_), l), _UU0393_, Some(_UU03c4_), body), fn(body_) { Result0::Ok(eblock(_UU03c4_, body_)) })
+    }
+    Sexpr::SBreak(p, x, arg) => bind(of_opt(break_target(x, l, Nat::O), Elab_error::EE_NoTarget(p)), fn(x0) {
+      match x0 {
+        (k, _UU03c4_t) => bind(match arg {
+          Some(a) => elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(_UU03c4_t), a)
+          None => Result0::Ok(Expr::ELit(Lit::LUnit))
+        }, fn(a_) { Result0::Ok(Expr::EJump(Ctl::CBreak, k, a_, jty(exp))) })
+      }
+    })
+    Sexpr::SContinue(p, x, args) => bind(of_opt(cont_target_of(x, l, Nat::O), Elab_error::EE_NoTarget(p)), fn(tgt) {
+      match tgt {
+        Cont_target::CTWhile(k) => match args {
+          List::Nil => Result0::Ok(Expr::EJump(Ctl::CCont, k, Expr::ETuple(List::Nil), jty(exp)))
+          List::Cons(_, _) => Result0::Err(Elab_error::EE_BadContinue(p, Nat::O, length(args)))
+        }
+        Cont_target::CTFor(k, ps) => match args {
+          List::Nil => Result0::Ok(Expr::EJump(Ctl::CBreak, k, Expr::ELit(Lit::LUnit), jty(exp)))
+          List::Cons(_, _) => match eqb0(length(ps), length(args)) {
+            true => bind(elab_args(args)(map(fn(x0) { Some(x0) }, ps)), fn(args_) {
+              Result0::Ok(Expr::EJump(Ctl::CCont, Nat::S(k), Expr::ETuple(args_), jty(exp)))
+            })
+            false => Result0::Err(Elab_error::EE_BadContinue(p, length(ps), length(args)))
+          }
+        }
+        Cont_target::CTForIn(k, ss) => match args {
+          List::Nil => Result0::Ok(Expr::EJump(Ctl::CBreak, k, Expr::ELit(Lit::LUnit), jty(exp)))
+          List::Cons(_, _) => match eqb0(length(ss), length(args)) {
+            true => bind(elab_args(args)(map(fn(x0) { Some(x0) }, ss)), fn(args_) {
+              Result0::Ok(Expr::EJump(Ctl::CBreak, Nat::S(k), Expr::ETuple(args_), jty(exp)))
+            })
+            false => Result0::Err(Elab_error::EE_BadContinue(p, length(ss), length(args)))
+          }
+        }
+      }
+    })
+    Sexpr::SReturn(p, arg) => bind(of_opt(return_target(l, Nat::O), Elab_error::EE_NoTarget(p)), fn(x) {
+      match x {
+        (k, r) => bind(match arg {
+          Some(a) => elab(tys, hdr, sinfo, tps, l, _UU0393_, Some(r), a)
+          None => Result0::Ok(Expr::ELit(Lit::LUnit))
+        }, fn(a_) { Result0::Ok(Expr::EJump(Ctl::CBreak, k, a_, jty(exp))) })
+      }
+    })
+    Sexpr::SForIn(p, x, pats, src, inits, upds, body, nb) => {
+      let array_src = bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, src), fn(a_) {
+        bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) {
+          match _UU03c4_a {
+            Ty::TBase(_) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
+            Ty::TVar(_) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
+            Ty::TTuple(_) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
+            Ty::TArrow(_, _) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
+            Ty::TData(_, _) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
+            Ty::TRef(_) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
+            Ty::TArray(k, t) => Result0::Ok(((a_, Expr::EMem(Mem_op::MLength(k, t), List::Cons(Expr::EVar(Nat::O), List::Nil))), Iter_src::IArray(k, t)))
+          }
+        })
+      })
+      bind(match src {
+        Sexpr::SInfix(q, op, lo, hi) => match range_op(op) {
+          Some(rk) => bind(elab(tys, hdr, sinfo, tps, l, _UU0393_, None, lo), fn(lo_) {
+            bind(type_of(hdr, q, l, _UU0393_, lo_), fn(_UU03c4_k) {
+              bind(elab(tys, hdr, sinfo, tps, l, List::Cons((None, _UU03c4_k), _UU0393_), Some(_UU03c4_k), hi), fn(hi_) {
+                match _UU03c4_k {
+                  Ty::TBase(b) => match b {
+                    Base_ty::BInt(kk) => Result0::Ok(((lo_, hi_), Iter_src::IRange(rk, kk)))
+                    _ => Result0::Err(Elab_error::EE_NoOperator(q, op, _UU03c4_k))
+                  }
+                  _ => Result0::Err(Elab_error::EE_NoOperator(q, op, _UU03c4_k))
+                }
+              })
+            })
+          })
+          None => array_src
+        }
+        _ => array_src
+      }, fn(x0) {
+        match x0 {
+          (p0, it) => match p0 {
+            (e1, e2) => match (match it {
+              Iter_src::IRange(rk, kk) => {
+                let incl = match rk {
+                  Range_kind::RUpExcl => false
+                  Range_kind::RDownExcl => false
+                  _ => true
+                }
+                ((((Ty::TBase(Base_ty::BInt(kk)), Ty::TBase(Base_ty::BInt(kk))), match incl {
+                  true => List::Cons(Ty::TBase(Base_ty::BInt(kk)), List::Cons(Ty::TBase(Base_ty::BBool), List::Nil))
+                  false => List::Cons(Ty::TBase(Base_ty::BInt(kk)), List::Nil)
+                }), Expr::EVar(Nat::S(Nat::O))), incl)
+              }
+              Iter_src::IArray(k, t) => ((((Ty::TArray(k, t), Ty::TBase(Base_ty::BInt(Int_kind::I32))), List::Cons(Ty::TBase(Base_ty::BInt(Int_kind::I32)), List::Nil)), Expr::ELit(Lit::LInt(Int_kind::I32, Z::Z0))), false)
+            }) {
+              (p1, incl) => match p1 {
+                (p2, start) => match p2 {
+                  (p3, ivs) => match p3 {
+                    (_UU03c4_1, _UU03c4_2) => {
+                      let _UU0393_o = List::Cons((None, _UU03c4_2), List::Cons((None, _UU03c4_1), _UU0393_))
+                      bind(elab_named(l)(_UU0393_o)(fn(_) { None })(inits), fn(inits_) {
+                        bind(mapM(fn(b) { type_of(hdr, p, l, _UU0393_o, snd(b)) }, inits_), fn(_UU03c4_s) {
+                          let names = map(fn(x1) { fst(x1) }, inits)
+                          let ps = app(ivs, _UU03c4_s)
+                          let n = length(ps)
+                          let _UU0393_l = app(app(map(fn(t) { (None, t) }, ivs), combine(map(fn(x1) { Some(x1) }, names), _UU03c4_s)), _UU0393_o)
+                          let hd = fn(_UU03c4_) { List::Cons(Lab::Mk_lab(None, Lab_kind::LKHead, ps, _UU03c4_), l) }
+                          bind(match nb {
+                            Some(e0) => match exp {
+                              Some(t) => Result0::Ok(t)
+                              None => bind(elab(tys, hdr, sinfo, tps, hd(Ty::TBase(Base_ty::BUnit)), _UU0393_l, None, e0), fn(e0_) { type_of(hdr, p, hd(Ty::TBase(Base_ty::BUnit)), _UU0393_l, e0_) })
+                            }
+                            None => Result0::Ok(Ty::TBase(Base_ty::BUnit))
+                          }, fn(_UU03c4_) {
+                            let v = Expr::EVar(Nat::O)
+                            let bound = Expr::EVar(n)
+                            match it {
+                              Iter_src::IRange(rk, kk) => match rk {
+                                Range_kind::RUpExcl => {
+                                  let p4 = (icmp(Cmp_op::CLt, kk, v, bound), v)
+                                  let _UU03c4_e = Ty::TBase(Base_ty::BInt(kk))
+                                  match p4 {
+                                    (cond, elem) => bind(match pats {
+                                      List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                      List::Cons(sp1, l0) => match l0 {
+                                        List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp1), fn(x1) {
+                                          match x1 {
+                                            (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
+                                          }
+                                        })
+                                        List::Cons(sp2, l1) => match l1 {
+                                          List::Nil => match it {
+                                            Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                            Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
+                                              match x1 {
+                                                (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp2), fn(x2) {
+                                                  match x2 {
+                                                    (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
+                                                  }
+                                                })
+                                              }
+                                            })
+                                          }
+                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                        }
+                                      }
+                                    }, fn(x1) {
+                                      match x1 {
+                                        (p5, scrut) => match p5 {
+                                          (q, _UU0394_) => {
+                                            let d = length(_UU0394_)
+                                            let _UU0393_b = app(_UU0394_, _UU0393_l)
+                                            let st = List::Cons(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
+                                            bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
+                                              let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
+                                              bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
+                                                let state = map(fn(j) {
+                                                  match assoc(nth(j, names, String0::EmptyString), upds_) {
+                                                    Some(u) => u
+                                                    None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
+                                                  }
+                                                }, seq(Nat::O, length(names)))
+                                                let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
+                                                let vv = Expr::EVar(add(Nat::S(Nat::O), d))
+                                                let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
+                                                let next_iv = match it {
+                                                  Iter_src::IRange(rk0, kk0) => match rk0 {
+                                                    Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk0, vv, int1(kk0)), List::Nil)
+                                                    Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::AAdd, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
+                                                    Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk0, vv, int1(kk0)), List::Nil)
+                                                    Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::ASub, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
+                                                  }
+                                                  Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
+                                                }
+                                                let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
+                                                let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
+                                                bind(match nb {
+                                                  Some(e0) => elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
+                                                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
+                                                }, fn(nb_) {
+                                                  let init0 = app(match incl {
+                                                    true => List::Cons(start, List::Cons(e_false, List::Nil))
+                                                    false => List::Cons(start, List::Nil)
+                                                  }, map(fn(x2) { snd(x2) }, inits_))
+                                                  Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
+                                                })
+                                              })
+                                            })
+                                          }
+                                        }
+                                      }
+                                    })
+                                  }
+                                }
+                                Range_kind::RUpIncl => {
+                                  let p4 = (Expr::EIf(Expr::EVar(Nat::S(Nat::O)), e_false, icmp(Cmp_op::CLe, kk, v, bound)), v)
+                                  let _UU03c4_e = Ty::TBase(Base_ty::BInt(kk))
+                                  match p4 {
+                                    (cond, elem) => bind(match pats {
+                                      List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                      List::Cons(sp1, l0) => match l0 {
+                                        List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp1), fn(x1) {
+                                          match x1 {
+                                            (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
+                                          }
+                                        })
+                                        List::Cons(sp2, l1) => match l1 {
+                                          List::Nil => match it {
+                                            Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                            Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
+                                              match x1 {
+                                                (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp2), fn(x2) {
+                                                  match x2 {
+                                                    (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
+                                                  }
+                                                })
+                                              }
+                                            })
+                                          }
+                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                        }
+                                      }
+                                    }, fn(x1) {
+                                      match x1 {
+                                        (p5, scrut) => match p5 {
+                                          (q, _UU0394_) => {
+                                            let d = length(_UU0394_)
+                                            let _UU0393_b = app(_UU0394_, _UU0393_l)
+                                            let st = List::Cons(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
+                                            bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
+                                              let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
+                                              bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
+                                                let state = map(fn(j) {
+                                                  match assoc(nth(j, names, String0::EmptyString), upds_) {
+                                                    Some(u) => u
+                                                    None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
+                                                  }
+                                                }, seq(Nat::O, length(names)))
+                                                let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
+                                                let vv = Expr::EVar(add(Nat::S(Nat::O), d))
+                                                let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
+                                                let next_iv = match it {
+                                                  Iter_src::IRange(rk0, kk0) => match rk0 {
+                                                    Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk0, vv, int1(kk0)), List::Nil)
+                                                    Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::AAdd, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
+                                                    Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk0, vv, int1(kk0)), List::Nil)
+                                                    Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::ASub, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
+                                                  }
+                                                  Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
+                                                }
+                                                let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
+                                                let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
+                                                bind(match nb {
+                                                  Some(e0) => elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
+                                                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
+                                                }, fn(nb_) {
+                                                  let init0 = app(match incl {
+                                                    true => List::Cons(start, List::Cons(e_false, List::Nil))
+                                                    false => List::Cons(start, List::Nil)
+                                                  }, map(fn(x2) { snd(x2) }, inits_))
+                                                  Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
+                                                })
+                                              })
+                                            })
+                                          }
+                                        }
+                                      }
+                                    })
+                                  }
+                                }
+                                Range_kind::RDownExcl => {
+                                  let p4 = (icmp(Cmp_op::CGt, kk, v, bound), iarith(Arith_op::ASub, kk, v, int1(kk)))
+                                  let _UU03c4_e = Ty::TBase(Base_ty::BInt(kk))
+                                  match p4 {
+                                    (cond, elem) => bind(match pats {
+                                      List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                      List::Cons(sp1, l0) => match l0 {
+                                        List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp1), fn(x1) {
+                                          match x1 {
+                                            (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
+                                          }
+                                        })
+                                        List::Cons(sp2, l1) => match l1 {
+                                          List::Nil => match it {
+                                            Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                            Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
+                                              match x1 {
+                                                (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp2), fn(x2) {
+                                                  match x2 {
+                                                    (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
+                                                  }
+                                                })
+                                              }
+                                            })
+                                          }
+                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                        }
+                                      }
+                                    }, fn(x1) {
+                                      match x1 {
+                                        (p5, scrut) => match p5 {
+                                          (q, _UU0394_) => {
+                                            let d = length(_UU0394_)
+                                            let _UU0393_b = app(_UU0394_, _UU0393_l)
+                                            let st = List::Cons(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
+                                            bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
+                                              let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
+                                              bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
+                                                let state = map(fn(j) {
+                                                  match assoc(nth(j, names, String0::EmptyString), upds_) {
+                                                    Some(u) => u
+                                                    None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
+                                                  }
+                                                }, seq(Nat::O, length(names)))
+                                                let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
+                                                let vv = Expr::EVar(add(Nat::S(Nat::O), d))
+                                                let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
+                                                let next_iv = match it {
+                                                  Iter_src::IRange(rk0, kk0) => match rk0 {
+                                                    Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk0, vv, int1(kk0)), List::Nil)
+                                                    Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::AAdd, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
+                                                    Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk0, vv, int1(kk0)), List::Nil)
+                                                    Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::ASub, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
+                                                  }
+                                                  Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
+                                                }
+                                                let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
+                                                let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
+                                                bind(match nb {
+                                                  Some(e0) => elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
+                                                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
+                                                }, fn(nb_) {
+                                                  let init0 = app(match incl {
+                                                    true => List::Cons(start, List::Cons(e_false, List::Nil))
+                                                    false => List::Cons(start, List::Nil)
+                                                  }, map(fn(x2) { snd(x2) }, inits_))
+                                                  Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
+                                                })
+                                              })
+                                            })
+                                          }
+                                        }
+                                      }
+                                    })
+                                  }
+                                }
+                                Range_kind::RDownIncl => {
+                                  let p4 = (Expr::EIf(Expr::EVar(Nat::S(Nat::O)), e_false, icmp(Cmp_op::CGe, kk, v, bound)), v)
+                                  let _UU03c4_e = Ty::TBase(Base_ty::BInt(kk))
+                                  match p4 {
+                                    (cond, elem) => bind(match pats {
+                                      List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                      List::Cons(sp1, l0) => match l0 {
+                                        List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp1), fn(x1) {
+                                          match x1 {
+                                            (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
+                                          }
+                                        })
+                                        List::Cons(sp2, l1) => match l1 {
+                                          List::Nil => match it {
+                                            Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                            Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
+                                              match x1 {
+                                                (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp2), fn(x2) {
+                                                  match x2 {
+                                                    (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
+                                                  }
+                                                })
+                                              }
+                                            })
+                                          }
+                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
+                                        }
+                                      }
+                                    }, fn(x1) {
+                                      match x1 {
+                                        (p5, scrut) => match p5 {
+                                          (q, _UU0394_) => {
+                                            let d = length(_UU0394_)
+                                            let _UU0393_b = app(_UU0394_, _UU0393_l)
+                                            let st = List::Cons(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
+                                            bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
+                                              let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
+                                              bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
+                                                let state = map(fn(j) {
+                                                  match assoc(nth(j, names, String0::EmptyString), upds_) {
+                                                    Some(u) => u
+                                                    None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
+                                                  }
+                                                }, seq(Nat::O, length(names)))
+                                                let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
+                                                let vv = Expr::EVar(add(Nat::S(Nat::O), d))
+                                                let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
+                                                let next_iv = match it {
+                                                  Iter_src::IRange(rk0, kk0) => match rk0 {
+                                                    Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk0, vv, int1(kk0)), List::Nil)
+                                                    Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::AAdd, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
+                                                    Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk0, vv, int1(kk0)), List::Nil)
+                                                    Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::ASub, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
+                                                  }
+                                                  Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
+                                                }
+                                                let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
+                                                let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
+                                                bind(match nb {
+                                                  Some(e0) => elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
+                                                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
+                                                }, fn(nb_) {
+                                                  let init0 = app(match incl {
+                                                    true => List::Cons(start, List::Cons(e_false, List::Nil))
+                                                    false => List::Cons(start, List::Nil)
+                                                  }, map(fn(x2) { snd(x2) }, inits_))
+                                                  Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
+                                                })
+                                              })
+                                            })
+                                          }
+                                        }
+                                      }
+                                    })
+                                  }
+                                }
+                              }
+                              Iter_src::IArray(k, t) => {
+                                let p4 = (icmp(Cmp_op::CLt, Int_kind::I32, v, bound), Expr::EMem(Mem_op::MIndex(k, t), List::Cons(Expr::EVar(Nat::S(n)), List::Cons(v, List::Nil))))
+                                match p4 {
+                                  (cond, elem) => bind(match pats {
+                                    List::Nil => Result0::Err(Elab_error::EE_PatType(p, t))
+                                    List::Cons(sp1, l0) => match l0 {
+                                      List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, t, sp1), fn(x1) {
+                                        match x1 {
+                                          (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
+                                        }
+                                      })
+                                      List::Cons(sp2, l1) => match l1 {
+                                        List::Nil => match it {
+                                          Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, t))
+                                          Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
+                                            match x1 {
+                                              (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, t, sp2), fn(x2) {
+                                                match x2 {
+                                                  (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
+                                                }
+                                              })
+                                            }
+                                          })
+                                        }
+                                        List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, t))
+                                      }
+                                    }
+                                  }, fn(x1) {
+                                    match x1 {
+                                      (p5, scrut) => match p5 {
+                                        (q, _UU0394_) => {
+                                          let d = length(_UU0394_)
+                                          let _UU0393_b = app(_UU0394_, _UU0393_l)
+                                          let st = List::Cons(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
+                                          bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
+                                            let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
+                                            bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
+                                              let state = map(fn(j) {
+                                                match assoc(nth(j, names, String0::EmptyString), upds_) {
+                                                  Some(u) => u
+                                                  None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
+                                                }
+                                              }, seq(Nat::O, length(names)))
+                                              let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
+                                              let vv = Expr::EVar(add(Nat::S(Nat::O), d))
+                                              let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
+                                              let next_iv = match it {
+                                                Iter_src::IRange(rk, kk) => match rk {
+                                                  Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk, vv, int1(kk)), List::Nil)
+                                                  Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk, vv, bb), vv, iarith(Arith_op::AAdd, kk, vv, int1(kk))), List::Cons(icmp(Cmp_op::CEq, kk, vv, bb), List::Nil))
+                                                  Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk, vv, int1(kk)), List::Nil)
+                                                  Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk, vv, bb), vv, iarith(Arith_op::ASub, kk, vv, int1(kk))), List::Cons(icmp(Cmp_op::CEq, kk, vv, bb), List::Nil))
+                                                }
+                                                Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
+                                              }
+                                              let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
+                                              let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
+                                              bind(match nb {
+                                                Some(e0) => elab(tys, hdr, sinfo, tps, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
+                                                None => Result0::Ok(Expr::ELit(Lit::LUnit))
+                                              }, fn(nb_) {
+                                                let init0 = app(match incl {
+                                                  true => List::Cons(start, List::Cons(e_false, List::Nil))
+                                                  false => List::Cons(start, List::Nil)
+                                                }, map(fn(x2) { snd(x2) }, inits_))
+                                                Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
+                                              })
+                                            })
+                                          })
+                                        }
+                                      }
+                                    }
+                                  })
+                                }
+                              }
+                            }
+                          })
+                        })
+                      })
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      })
+    }
   }
 }
 
@@ -3076,7 +4642,14 @@ pub fn elab_tdef(tys : List[(Ident, Nat)], st : Stype) -> Result0[Tdef, Elab_err
         Stype::Mk_stype(_, st_name, _, _) => st_name
       }, n, cds))
     })
-    Sdecl::SDStruct(fs) => bind(mapM(fn(f) { elab_ty(tys, tps, snd(f)) }, fs), fn(_UU03c4_s) {
+    Sdecl::SDStruct(fs) => bind(mapM(fn(f) {
+      bind(elab_ty(tys, tps, snd(f)), fn(_UU03c4_) {
+        Result0::Ok(match snd(fst(f)) {
+          true => Ty::TRef(_UU03c4_)
+          false => _UU03c4_
+        })
+      })
+    }, fs), fn(_UU03c4_s) {
       Result0::Ok(Tdef::Mk_tdef(match st {
         Stype::Mk_stype(_, st_name, _, _) => st_name
       }, n, List::Cons(Cdef::Mk_cdef(match st {
@@ -3118,17 +4691,21 @@ pub fn elab_sig(tys : List[(Ident, Nat)], f : Sfun) -> Result0[Fdef, Elab_error]
   })
 }
 
+pub fn elab_body(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], tps : List[Ident], _UU0393_ : Lctx, r : Ty, body : Sexpr) -> Result0[Expr, Elab_error] {
+  bind(elab(tys, hdr, sinfo, tps, List::Cons(Lab::Mk_lab(None, Lab_kind::LKFun, List::Nil, r), List::Nil), _UU0393_, Some(r), body), fn(b) { Result0::Ok(eblock(r, b)) })
+}
+
 pub fn elab_fun(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], f : Sfun, sig : Fdef) -> Result0[Fdef, Elab_error] {
   let _UU0393_ = combine(map(fn(xt) { Some(fst(xt)) }, match f {
     Sfun::Mk_sfun(_, _, _, sf_params, _, _) => sf_params
   }), match sig {
     Fdef::Mk_fdef(_, _, fd_params, _, _) => fd_params
   })
-  bind(elab(tys, hdr, sinfo, match f {
+  bind(elab_body(tys, hdr, sinfo, match f {
     Sfun::Mk_sfun(_, _, sf_tparams, _, _, _) => sf_tparams
-  }, _UU0393_, Some(match sig {
+  }, _UU0393_, match sig {
     Fdef::Mk_fdef(_, _, _, fd_ret, _) => fd_ret
-  }), match f {
+  }, match f {
     Sfun::Mk_sfun(_, _, _, _, _, sf_body) => sf_body
   }), fn(b) {
     Result0::Ok(Fdef::Mk_fdef(match sig {
@@ -3156,7 +4733,7 @@ pub fn elab_funs(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List
 }
 
 pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
-  let tys = List::Cons((String0::String1(Ascii::Ascii0(true, true, true, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::EmptyString)))))), Nat::S(Nat::O)), map(fn(st) {
+  let tys = List::Cons((String0::String1(Ascii::Ascii0(true, true, true, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::EmptyString)))))), Nat::S(Nat::O)), List::Cons((String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), Nat::S(Nat::O)), map(fn(st) {
     (match st {
       Stype::Mk_stype(_, st_name, _, _) => st_name
     }, length(match st {
@@ -3164,24 +4741,24 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
     }))
   }, match sp {
     Sprog::Mk_sprog(sp_types, _, _) => sp_types
-  }))
-  let sinfo = flat_map(fn(st) {
+  })))
+  let sinfo = List::Cons((String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(String0::String1(Ascii::Ascii0(false, true, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))), List::Nil)), flat_map(fn(st) {
     match (match st {
       Stype::Mk_stype(_, _, _, st_body) => st_body
     }) {
       Sdecl::SDEnum(_) => List::Nil
       Sdecl::SDStruct(fs) => List::Cons((match st {
         Stype::Mk_stype(_, st_name, _, _) => st_name
-      }, map(fn(x1) { fst(x1) }, fs)), List::Nil)
+      }, map(fn(f) { fst(fst(f)) }, fs)), List::Nil)
       Sdecl::SDTupleStruct(_) => List::Nil
     }
   }, match sp {
     Sprog::Mk_sprog(sp_types, _, _) => sp_types
-  })
+  }))
   bind(mapM(fn(x1) { elab_tdef(tys, x1) }, match sp {
     Sprog::Mk_sprog(sp_types, _, _) => sp_types
   }), fn(tds) {
-    let types = List::Cons(option_tdef, tds)
+    let types = List::Cons(option_tdef, List::Cons(ref_tdef, tds))
     bind(mapM(fn(x1) { elab_sig(tys, x1) }, match sp {
       Sprog::Mk_sprog(_, sp_funs, _) => sp_funs
     }), fn(sigs) {
@@ -3192,7 +4769,7 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
         bind(match (match sp {
           Sprog::Mk_sprog(_, _, sp_main) => sp_main
         }) {
-          Some(e) => elab(tys, hdr, sinfo, List::Nil, List::Nil, Some(Ty::TBase(Base_ty::BUnit)), Sexpr::SAnnot(sexpr_pos(e), e, Sty::SName(sexpr_pos(e), String0::String1(Ascii::Ascii0(true, false, true, false, true, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))), List::Nil)))
+          Some(e) => elab_body(tys, hdr, sinfo, List::Nil, List::Nil, Ty::TBase(Base_ty::BUnit), Sexpr::SAnnot(sexpr_pos(e), e, Sty::SName(sexpr_pos(e), String0::String1(Ascii::Ascii0(true, false, true, false, true, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))), List::Nil)))
           None => Result0::Ok(Expr::ELit(Lit::LUnit))
         }, fn(main0) { Result0::Ok((Genv::Mk_genv(types, funs), main0)) })
       })

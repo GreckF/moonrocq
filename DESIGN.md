@@ -116,16 +116,29 @@ checker 对尚未支持的构造直接拒绝，这样每个里程碑结束时，
 | M1 | Core λ：原始类型、函数、let、if、元组、全局（互）递归函数、rank-1 泛型、原语运算 ✅（见 `theories/Core/Theorems.v`） |
 | M1.5 | 前端原型 ✅：经 rocq2mbt 抽取到 MoonBit，接上官方 parser，得到可运行的 `moonrocq` 命令（见第 7 节）。`Surface/Elab.v` 是**未经验证**的临时 elaborator，输出由 Core checker 重新检查；M6 用有规范的 certified elaborator 取代它 |
 | M2 | 名义 ADT（struct/enum/tuple struct）+ 模式匹配 ✅（Core：`TData`、`EConstr`、`EMatch`，模式为通配/变量/字面量/元组/构造子；Surface：类型声明、构造子、记录、字段访问、`match`、解构 `let`、内建 `Option`；见第 8 节） |
-| M3 | 状态与循环：`let mut`、`mut` 字段、数组、`while`/`for`、带标签 `break`/`continue`/`nobreak`、`return` |
+| M3 | 状态与循环 ✅：`let mut`、`mut` 字段、数组、`Ref[T]`、`while`/`for`、`for .. in`（整数范围与数组）、带标签 `break`/`continue`/`nobreak`、带标签的块、`return`（Core：store + `ELoc`/`EMem`、`ELoop`/`EJump`；见第 9 节） |
 | M4 | 错误与 effect：suberror、`Error`、`raise`/`raise?`/`noraise`、`try`/`catch`/`noraise`、`defer`/`errdefer` |
 | M5 | trait：声明/impl/supertrait/默认方法、字典 elaboration、一致性、trait object |
-| M6 | Surface + elaboration：双向检查、合一、字面量重载、标签/可选参数、方法/管道/级联、`is`/`guard`、`for-in`、推导式、插值…… |
+| M6 | Surface + elaboration：双向检查、合一、字面量重载、标签/可选参数、方法/管道/级联、`is`/`guard`、一般的 `for .. in`（`Iter`）、推导式、插值……；并解决临时 elaborator 的已知限制（见下） |
 | M7 | 包与可见性：`priv`/抽象/`pub`/`pub(all)`、`pub(open)` trait |
 | M8 | 静态分析：穷尽性/冗余（Maranget）、未使用绑定、effect 相关检查…… |
 | 以后 | async 细节、regex/`lexmatch`/`lexscan`、bitstring/map/json 模式、FFI、attributes、`derive` |
 
 每个里程碑对当前子集都交付：inductive 类型规则、inductive 小步语义、progress/preservation、
 correct-by-construction checker 和完备性证明。
+
+**M6 待办：临时 elaborator 的已知限制**（编号是 `docs/decisions.md` 中的决定）。
+它们都只让 moonrocq 拒绝 MoonBit 接受的程序（`examples/unsupported/`），不影响 soundness。
+- 推断：lambda 参数类型只来自注解或期望类型（#11、#19）；泛型调用的类型实参求不出时报错，
+  而不是默认为 `Unit`（#12、#18）；不带后缀的字面量在期望 `Double` 等类型时不重载（#16）。
+- 构造子与记录：构造子名的解析规则只是近似（#26）；没有期望类型时按字段名找唯一的 struct；
+  `Option`、`Ref` 是预先声明的，用户不能重新定义（#28、#44）。
+- 跳转：带值的标签块、无条件的 `for` 循环需要期望类型才能确定结果类型（#40）。
+- 语法：带标签的构造子字段、`match` guard、或模式、`as` 模式、范围/数组模式（#31）；
+  数组切片与展开、透明标签 `l~~:`（#42）；标签/可选参数、方法/管道/级联、`is`/`guard`、插值。
+- `for .. in` 只支持整数范围和数组（#43），一般的 `Iter`/`Iter2` 要等 trait（M5）与方法解析。
+- 内建函数只有 `not`、`ignore`、`panic`、`abort`，内建方法只有数组的 `length`/`push`、`make`/`new`、`Ref::new`（#23、#35）；
+  `println` 等还要 M4 的 effect。
 
 ## 6. 目录
 
@@ -196,3 +209,36 @@ ref/moonbit-docs   语言文档（不入库）
   `match e { p => body }`。
 - 模式中 `C(..)`/`{ x, .. }` 用通配补齐，字段双关 `{ x }` 是 `{ x: x }`。
 - `Option[T]`（含 `T?`）是预先声明的 `enum Option[T] { None; Some(T) }`。
+
+## 9. M3：状态与循环
+
+**Core**
+- 判断变为 `Γ ⊢[ge;Σ;Λ] e : τ`：`Σ` 是 store typing（每个位置是 `LCell τ` 或 `LArr k τ`），
+  `Λ` 是标签上下文（外围每个循环的参数类型与结果类型，最内层为 0）。λ 体的 `Λ` 为空，
+  所以跳转不会跨函数。程序（和函数体）在 `Σ = []`、`Λ = []` 下检查。
+- 新类型 `TRef τ`、`TArray k τ`（`k` 区分 `Array`/`FixedArray`）。store 操作统一为
+  `EMem op args`，`mem_sig op` 给出签名（同 `EPrim`），操作带类型参数以保证类型唯一。
+  模式加 `PRef p`（匹配单元的当前内容）。
+- 循环只有一种：`ELoop init ps τ body`，`init` 是参数元组，`body` 像 λ 体一样绑定 `ps`；
+  `body` 正常结束的值就是循环的结果。`EJump CBreak k e τ` 以 `e` 退出第 `k` 个外围循环，
+  `EJump CCont k e τ` 以新参数 `e` 重入它。`while`、`for`、带标签的块、`return` 都由
+  elaborator 编码成它们（决定 36–38）。
+- 语义：状态带 store `σ`，新增展开状态 `⟨σ ∣ K ⇑ c k v⟩`。跳转把栈弹到第 `k` 个 `FLoop`
+  帧（`labels K` 是栈里循环帧的列表）。`mem_eval` 是函数，越界等情况给 `MAbort`。
+- soundness：帧中尚未求值的表达式在 `labels K` 下定型，值在空标签上下文下定型（值不依赖标签，
+  `value_any_labels`）。展开状态的类型要求 `nth_error (labels K) k` 存在，所以跳转一定找得到目标，
+  空栈上的跳转不会出现。store 只增长（`Σ ++ Σ'`），帧和栈对 `Σ` 弱化（`stack_weaken`）。
+  关键引理 `mem_eval_sound`：良类型参数上的 store 操作要么 abort，要么在扩展的 store 中给出结果类型的值。
+- checker 与完备性证明按新判断改写，结构不变。
+
+**Surface**（临时 elaborator）
+- `let mut x` 在局部上下文中的类型是 `TRef τ`（Surface 类型永远不是单元），读写时插入 `MGet`/`MSet`。
+- 标签环境 `L`：每个 Core `ELoop` 一项，记录种类（函数体、块、`while`、`for` 体、`for .. in` 体、
+  透明的循环头）与名字，用来把 `break`/`continue`/`return` 解析成 de Bruijn 编号。
+- `for p in src; s = i; s = u { b } nobreak { n }`（决定 43）：`src` 先绑定到两个隐藏变量
+  （范围：起点与边界；数组：数组本身与它的长度，长度只读一次）。外层循环的参数是位置
+  （包含端点的范围再加一个“已到边界”标志，避免越过 `Int` 的边界溢出）和状态变量；
+  每轮先匹配元素，再进入“计算下一状态”的块，块里是循环体（也是块）。不带参数的 `continue`
+  跳出循环体、然后应用更新子句；带参数的 `continue` 直接以参数作为下一状态跳出外层块。
+- `Ref[T]` 是预先声明的 `struct Ref[T] { mut val : T }`，`Ref::new(v)` 即 `{ val: v }`（决定 44）。
+- `panic()`/`abort(msg)` 是 Core 的 `EAbort τ`：可有任意类型，一步到 `SAbort`（决定 45）。

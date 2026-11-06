@@ -9,3 +9,5 @@ Print Assumptions CheckComplete.genv_ok_dec.
 Print Assumptions Theorems.check_program_complete.
 Print Assumptions Theorems.program_ok_dec.
 Print Assumptions Theorems.checked_program_safe.
+Print Assumptions Soundness.progress.
+Print Assumptions Soundness.preservation.

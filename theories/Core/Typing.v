@@ -15,9 +15,10 @@ Definition ctx : Type := list ty.
 
 (** ** Judgment notations
 
-    - [Γ ⊢[ge] e : τ]    : expression [e] has type [τ] in context [Γ]
-                           under global environment [ge] ([has_type]);
-    - [Γ ⊢*[ge] es : τs] : pointwise typing of a list ([has_types]). *)
+    - [Γ ⊢[ge;Σ;Λ] e : τ]    : expression [e] has type [τ] in context [Γ]
+                               ([has_type], see below for [Σ] and [Λ]);
+    - [Γ ⊢*[ge;Σ;Λ] es : τs] : pointwise typing of a list ([has_types]);
+    - [Γ ⊢ᵇ[ge;Σ;Λ] bs : τs ⇒ τ] : branches of a [match] ([has_branches]). *)
 
 (** ** Patterns
 
@@ -45,6 +46,9 @@ Inductive pat_typed (ge : genv) : pat -> ty -> ctx -> Prop :=
     ctor_fields ge T c ts = Some fs ->
     ⊢ᵖ*[ge] ps : fs ⇝ Δ ->
     ⊢ᵖ[ge] PConstr c ps : TData T ts ⇝ Δ
+| P_Ref p τ Δ :
+    ⊢ᵖ[ge] p : τ ⇝ Δ ->
+    ⊢ᵖ[ge] PRef p : TRef τ ⇝ Δ
 
 with pats_typed (ge : genv) : list pat -> list ty -> ctx -> Prop :=
 | Ps_nil :
@@ -69,93 +73,122 @@ Proof.
   rewrite length_app; auto.
 Qed.
 
-(** ** Expressions *)
+(** ** Expressions
 
-Reserved Notation "Γ ⊢[ ge ] e : τ"
-  (at level 70, ge at level 200, e at level 60, τ at level 60, no associativity,
-   format "Γ  ⊢[ ge ]  e  :  τ").
-Reserved Notation "Γ ⊢*[ ge ] es : τs"
-  (at level 70, ge at level 200, es at level 60, τs at level 60, no associativity,
-   format "Γ  ⊢*[ ge ]  es  :  τs").
-Reserved Notation "Γ ⊢ᵇ[ ge ] bs : τs ⇒ τ"
-  (at level 70, ge at level 200, bs at level 60, τs at level 60, τ at level 60,
-   no associativity, format "Γ  ⊢ᵇ[ ge ]  bs  :  τs  ⇒  τ").
+    [Γ ⊢[ge;Σ;Λ] e : τ]: under global environment [ge] and store typing
+    [Σ] (types of the store locations, milestone M3), with the enclosing
+    loops [Λ] and the variables [Γ], expression [e] has type [τ].  A λ body
+    starts with no enclosing loops: [break]/[continue] never cross a
+    function boundary. *)
 
-Inductive has_type (ge : genv) : ctx -> expr -> ty -> Prop :=
-| T_Var Γ x τ :
+Reserved Notation "Γ ⊢[ ge ; Σ ; Λ ] e : τ"
+  (at level 70, ge at level 200, Σ at level 200, Λ at level 200,
+   e at level 60, τ at level 60, no associativity,
+   format "Γ  ⊢[ ge ; Σ ; Λ ]  e  :  τ").
+Reserved Notation "Γ ⊢*[ ge ; Σ ; Λ ] es : τs"
+  (at level 70, ge at level 200, Σ at level 200, Λ at level 200,
+   es at level 60, τs at level 60, no associativity,
+   format "Γ  ⊢*[ ge ; Σ ; Λ ]  es  :  τs").
+Reserved Notation "Γ ⊢ᵇ[ ge ; Σ ; Λ ] bs : τs ⇒ τ"
+  (at level 70, ge at level 200, Σ at level 200, Λ at level 200,
+   bs at level 60, τs at level 60, τ at level 60, no associativity,
+   format "Γ  ⊢ᵇ[ ge ; Σ ; Λ ]  bs  :  τs  ⇒  τ").
+
+Inductive has_type (ge : genv) (Σ : styping) : lblctx -> ctx -> expr -> ty -> Prop :=
+| T_Var Λ Γ x τ :
     nth_error Γ x = Some τ ->
-    Γ ⊢[ge] EVar x : τ
-| T_Global Γ f ts fd :
+    Γ ⊢[ge;Σ;Λ] EVar x : τ
+| T_Global Λ Γ f ts fd :
     lookup_fn ge f = Some fd ->
     length ts = fd_tparams fd ->
-    Γ ⊢[ge] EGlobal f ts
+    Γ ⊢[ge;Σ;Λ] EGlobal f ts
         : TArrow (map (tsubst (inst ts)) (fd_params fd)) (tsubst (inst ts) (fd_ret fd))
-| T_Lit Γ l :
-    Γ ⊢[ge] ELit l : TBase (lit_ty l)
-| T_Lam Γ ps r b :
-    ps ++ Γ ⊢[ge] b : r ->
-    Γ ⊢[ge] ELam ps r b : TArrow ps r
-| T_App Γ f args ps r :
-    Γ ⊢[ge] f : TArrow ps r ->
-    Γ ⊢*[ge] args : ps ->
-    Γ ⊢[ge] EApp f args : r
-| T_Let Γ e1 e2 τ1 τ2 :
-    Γ ⊢[ge] e1 : τ1 ->
-    τ1 :: Γ ⊢[ge] e2 : τ2 ->
-    Γ ⊢[ge] ELet e1 e2 : τ2
-| T_If Γ c t e τ :
-    Γ ⊢[ge] c : TBool ->
-    Γ ⊢[ge] t : τ ->
-    Γ ⊢[ge] e : τ ->
-    Γ ⊢[ge] EIf c t e : τ
-| T_Tuple Γ es τs :
-    Γ ⊢*[ge] es : τs ->
-    Γ ⊢[ge] ETuple es : TTuple τs
-| T_Proj Γ e i τs τ :
-    Γ ⊢[ge] e : TTuple τs ->
+| T_Lit Λ Γ l :
+    Γ ⊢[ge;Σ;Λ] ELit l : TBase (lit_ty l)
+| T_Lam Λ Γ ps r b :
+    ps ++ Γ ⊢[ge;Σ;[]] b : r ->
+    Γ ⊢[ge;Σ;Λ] ELam ps r b : TArrow ps r
+| T_App Λ Γ f args ps r :
+    Γ ⊢[ge;Σ;Λ] f : TArrow ps r ->
+    Γ ⊢*[ge;Σ;Λ] args : ps ->
+    Γ ⊢[ge;Σ;Λ] EApp f args : r
+| T_Let Λ Γ e1 e2 τ1 τ2 :
+    Γ ⊢[ge;Σ;Λ] e1 : τ1 ->
+    τ1 :: Γ ⊢[ge;Σ;Λ] e2 : τ2 ->
+    Γ ⊢[ge;Σ;Λ] ELet e1 e2 : τ2
+| T_If Λ Γ c t e τ :
+    Γ ⊢[ge;Σ;Λ] c : TBool ->
+    Γ ⊢[ge;Σ;Λ] t : τ ->
+    Γ ⊢[ge;Σ;Λ] e : τ ->
+    Γ ⊢[ge;Σ;Λ] EIf c t e : τ
+| T_Tuple Λ Γ es τs :
+    Γ ⊢*[ge;Σ;Λ] es : τs ->
+    Γ ⊢[ge;Σ;Λ] ETuple es : TTuple τs
+| T_Proj Λ Γ e i τs τ :
+    Γ ⊢[ge;Σ;Λ] e : TTuple τs ->
     nth_error τs i = Some τ ->
-    Γ ⊢[ge] EProj e i : τ
-| T_Prim Γ op args :
-    Γ ⊢*[ge] args : fst (prim_sig op) ->
-    Γ ⊢[ge] EPrim op args : snd (prim_sig op)
-| T_Constr Γ T c ts e td cd :
+    Γ ⊢[ge;Σ;Λ] EProj e i : τ
+| T_Prim Λ Γ op args :
+    Γ ⊢*[ge;Σ;Λ] args : fst (prim_sig op) ->
+    Γ ⊢[ge;Σ;Λ] EPrim op args : snd (prim_sig op)
+| T_Constr Λ Γ T c ts e td cd :
     lookup_ty ge T = Some td ->
     length ts = td_tparams td ->
     lookup_ctor td c = Some cd ->
-    Γ ⊢[ge] e : TTuple (map (tsubst (inst ts)) (cd_fields cd)) ->
-    Γ ⊢[ge] EConstr T c ts e : TData T ts
-| T_Match Γ e τs τ bs :
-    Γ ⊢[ge] e : τs ->
-    Γ ⊢ᵇ[ge] bs : τs ⇒ τ ->
-    Γ ⊢[ge] EMatch e τ bs : τ
+    Γ ⊢[ge;Σ;Λ] e : TTuple (map (tsubst (inst ts)) (cd_fields cd)) ->
+    Γ ⊢[ge;Σ;Λ] EConstr T c ts e : TData T ts
+| T_Match Λ Γ e τs τ bs :
+    Γ ⊢[ge;Σ;Λ] e : τs ->
+    Γ ⊢ᵇ[ge;Σ;Λ] bs : τs ⇒ τ ->
+    Γ ⊢[ge;Σ;Λ] EMatch e τ bs : τ
+| T_Loc Λ Γ l s :
+    nth_error Σ l = Some s ->
+    Γ ⊢[ge;Σ;Λ] ELoc l : lty_ty s
+| T_Mem Λ Γ op args :
+    Γ ⊢*[ge;Σ;Λ] args : fst (mem_sig op) ->
+    Γ ⊢[ge;Σ;Λ] EMem op args : snd (mem_sig op)
+| T_Loop Λ Γ e ps τ b :
+    Γ ⊢[ge;Σ;Λ] e : TTuple ps ->
+    ps ++ Γ ⊢[ge;Σ;(ps, τ) :: Λ] b : τ ->
+    Γ ⊢[ge;Σ;Λ] ELoop e ps τ b : τ
+| T_Jump Λ Γ c k e τ lbl :
+    nth_error Λ k = Some lbl ->
+    Γ ⊢[ge;Σ;Λ] e : ctl_ty c lbl ->
+    Γ ⊢[ge;Σ;Λ] EJump c k e τ : τ
+(** [panic()] never returns, so it may have any type; the annotation keeps
+    types unique. *)
+| T_Abort Λ Γ τ :
+    Γ ⊢[ge;Σ;Λ] EAbort τ : τ
 
-with has_types (ge : genv) : ctx -> list expr -> list ty -> Prop :=
-| Ts_nil Γ :
-    Γ ⊢*[ge] [] : []
-| Ts_cons Γ e es τ τs :
-    Γ ⊢[ge] e : τ ->
-    Γ ⊢*[ge] es : τs ->
-    Γ ⊢*[ge] e :: es : τ :: τs
+with has_types (ge : genv) (Σ : styping) : lblctx -> ctx -> list expr -> list ty -> Prop :=
+| Ts_nil Λ Γ :
+    Γ ⊢*[ge;Σ;Λ] [] : []
+| Ts_cons Λ Γ e es τ τs :
+    Γ ⊢[ge;Σ;Λ] e : τ ->
+    Γ ⊢*[ge;Σ;Λ] es : τs ->
+    Γ ⊢*[ge;Σ;Λ] e :: es : τ :: τs
 
-(** [Γ ⊢ᵇ[ge] bs : τs ⇒ τ] : every branch matches a scrutinee of type [τs]
-    and its body has type [τ] under the pattern's bindings. *)
-with has_branches (ge : genv) : ctx -> list (pat * expr) -> ty -> ty -> Prop :=
-| Bs_nil Γ τs τ :
-    Γ ⊢ᵇ[ge] [] : τs ⇒ τ
-| Bs_cons Γ p b bs τs τ Δ :
+(** [Γ ⊢ᵇ[ge;Σ;Λ] bs : τs ⇒ τ] : every branch matches a scrutinee of type
+    [τs] and its body has type [τ] under the pattern's bindings. *)
+with has_branches (ge : genv) (Σ : styping) :
+    lblctx -> ctx -> list (pat * expr) -> ty -> ty -> Prop :=
+| Bs_nil Λ Γ τs τ :
+    Γ ⊢ᵇ[ge;Σ;Λ] [] : τs ⇒ τ
+| Bs_cons Λ Γ p b bs τs τ Δ :
     ⊢ᵖ[ge] p : τs ⇝ Δ ->
-    Δ ++ Γ ⊢[ge] b : τ ->
-    Γ ⊢ᵇ[ge] bs : τs ⇒ τ ->
-    Γ ⊢ᵇ[ge] (p, b) :: bs : τs ⇒ τ
+    Δ ++ Γ ⊢[ge;Σ;Λ] b : τ ->
+    Γ ⊢ᵇ[ge;Σ;Λ] bs : τs ⇒ τ ->
+    Γ ⊢ᵇ[ge;Σ;Λ] (p, b) :: bs : τs ⇒ τ
 
-where "Γ ⊢[ ge ] e : τ" := (has_type ge Γ e τ)
-  and "Γ ⊢*[ ge ] es : τs" := (has_types ge Γ es τs)
-  and "Γ ⊢ᵇ[ ge ] bs : τs ⇒ τ" := (has_branches ge Γ bs τs τ).
+where "Γ ⊢[ ge ; Σ ; Λ ] e : τ" := (has_type ge Σ Λ Γ e τ)
+  and "Γ ⊢*[ ge ; Σ ; Λ ] es : τs" := (has_types ge Σ Λ Γ es τs)
+  and "Γ ⊢ᵇ[ ge ; Σ ; Λ ] bs : τs ⇒ τ" := (has_branches ge Σ Λ Γ bs τs τ).
 
 (** A top-level function is well typed when its body has the declared
-    return type in the context of its parameters. *)
+    return type in the context of its parameters (no store locations and
+    no enclosing loops: source programs mention neither). *)
 Definition fdef_ok (ge : genv) (fd : fdef) : Prop :=
-  fd_params fd ⊢[ge] fd_body fd : fd_ret fd.
+  fd_params fd ⊢[ge;[];[]] fd_body fd : fd_ret fd.
 
 Scheme has_type_mut := Minimality for has_type Sort Prop
   with has_types_mut := Minimality for has_types Sort Prop
@@ -179,6 +212,8 @@ Fixpoint ty_wfb (ge : genv) (n : nat) (t : ty) : bool :=
       | Some td => Nat.eqb (List.length ts) (td_tparams td) && forallb (ty_wfb ge n) ts
       | None => false
       end
+  | TRef t => ty_wfb ge n t
+  | TArray _ t => ty_wfb ge n t
   end.
 
 Definition ty_wf (ge : genv) (n : nat) (t : ty) : Prop := ty_wfb ge n t = true.
@@ -200,40 +235,44 @@ Definition genv_ok (ge : genv) : Prop :=
 
 (** ** Basic facts about [has_types] *)
 
-Lemma has_types_length ge Γ es τs : Γ ⊢*[ge] es : τs -> length es = length τs.
-Proof. induction 1; simpl; auto. Qed.
+Section HasTypes.
+  Variables (ge : genv) (Σ : styping) (Λ : lblctx).
 
-Lemma has_types_app ge Γ es1 es2 τs1 τs2 :
-  Γ ⊢*[ge] es1 : τs1 -> Γ ⊢*[ge] es2 : τs2 ->
-  Γ ⊢*[ge] (es1 ++ es2) : (τs1 ++ τs2).
-Proof. induction 1; simpl; auto using has_types. Qed.
+  Lemma has_types_length Γ es τs : Γ ⊢*[ge;Σ;Λ] es : τs -> length es = length τs.
+  Proof. induction 1; simpl; auto. Qed.
 
-Lemma has_types_nth ge Γ es τs x τ d :
-  Γ ⊢*[ge] es : τs -> nth_error τs x = Some τ -> Γ ⊢[ge] nth x es d : τ.
-Proof.
-  intros H; revert x; induction H as [|Γ e es τ' τs He Hs IH]; intros [|x] Hx;
-    simpl in *; try discriminate.
-  - inversion Hx; subst; exact He.
-  - eauto.
-Qed.
+  Lemma has_types_app Γ es1 es2 τs1 τs2 :
+    Γ ⊢*[ge;Σ;Λ] es1 : τs1 -> Γ ⊢*[ge;Σ;Λ] es2 : τs2 ->
+    Γ ⊢*[ge;Σ;Λ] (es1 ++ es2) : (τs1 ++ τs2).
+  Proof. induction 1; simpl; auto using has_types. Qed.
 
-Lemma has_types_nth_error ge Γ es τs x τ :
-  Γ ⊢*[ge] es : τs -> nth_error τs x = Some τ ->
-  exists e, nth_error es x = Some e /\ Γ ⊢[ge] e : τ.
-Proof.
-  intros H; revert x; induction H as [|Γ e es τ' τs He Hs IH]; intros [|x] Hx;
-    simpl in *; try discriminate.
-  - inversion Hx; subst; eauto.
-  - eauto.
-Qed.
+  Lemma has_types_nth Γ es τs x τ d :
+    Γ ⊢*[ge;Σ;Λ] es : τs -> nth_error τs x = Some τ -> Γ ⊢[ge;Σ;Λ] nth x es d : τ.
+  Proof.
+    intros H; revert x; induction H as [|Λ' Γ' e es τ' τs He Hs IH]; intros [|x] Hx;
+      simpl in *; try discriminate.
+    - inversion Hx; subst; exact He.
+    - eauto.
+  Qed.
 
-Lemma has_types_app_inv ge Γ es τs1 τs2 :
-  Γ ⊢*[ge] es : (τs1 ++ τs2) ->
-  exists es1 es2, es = es1 ++ es2 /\ Γ ⊢*[ge] es1 : τs1 /\ Γ ⊢*[ge] es2 : τs2.
-Proof.
-  revert es; induction τs1 as [|τ τs1 IH]; simpl; intros es H.
-  - exists [], es; repeat split; auto using has_types.
-  - inversion H as [|? e es' ? ? He Hs]; subst.
-    destruct (IH _ Hs) as (es1 & es2 & -> & H1 & H2).
-    exists (e :: es1), es2; repeat split; auto using has_types.
-Qed.
+  Lemma has_types_nth_error Γ es τs x τ :
+    Γ ⊢*[ge;Σ;Λ] es : τs -> nth_error τs x = Some τ ->
+    exists e, nth_error es x = Some e /\ Γ ⊢[ge;Σ;Λ] e : τ.
+  Proof.
+    intros H; revert x; induction H as [|Λ' Γ' e es τ' τs He Hs IH]; intros [|x] Hx;
+      simpl in *; try discriminate.
+    - inversion Hx; subst; eauto.
+    - eauto.
+  Qed.
+
+  Lemma has_types_app_inv Γ es τs1 τs2 :
+    Γ ⊢*[ge;Σ;Λ] es : (τs1 ++ τs2) ->
+    exists es1 es2, es = es1 ++ es2 /\ Γ ⊢*[ge;Σ;Λ] es1 : τs1 /\ Γ ⊢*[ge;Σ;Λ] es2 : τs2.
+  Proof.
+    revert es; induction τs1 as [|τ τs1 IH]; simpl; intros es H.
+    - exists [], es; repeat split; auto using has_types.
+    - inversion H as [|? ? e es' ? ? He Hs]; subst.
+      destruct (IH _ Hs) as (es1 & es2 & -> & H1 & H2).
+      exists (e :: es1), es2; repeat split; auto using has_types.
+  Qed.
+End HasTypes.

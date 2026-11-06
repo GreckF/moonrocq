@@ -78,13 +78,14 @@ Definition check_source (src : Prelude.String) : outcome :=
 Theorem check_source_sound src ge main τ H :
   check_source src = O_Ok ge main τ H ->
   program_ok ge main τ /\
-  (forall s, ⟨[] ▷ main⟩ ⟶*[ge] s -> ~ stuck ge s) /\
-  (forall v, ⟨[] ▷ main⟩ ⟶*[ge] ⟨[] ◁ v⟩ -> value v /\ [] ⊢[ge] v : τ).
+  (forall s, ⟨[] ∣ [] ▷ main⟩ ⟶*[ge] s -> ~ stuck ge s) /\
+  (forall σ v, ⟨[] ∣ [] ▷ main⟩ ⟶*[ge] ⟨σ ∣ [] ◁ v⟩ ->
+     value v /\ exists Σ, store_typed ge Σ σ /\ [] ⊢[ge;Σ;[]] v : τ).
 Proof.
   intros _. split; [exact H|].
   destruct H as [Hg Hm]. split.
   - intros s; apply soundness with (τ := τ); assumption.
-  - intros v; apply soundness_value; assumption.
+  - intros σ v; apply soundness_value; assumption.
 Qed.
 
 (** ** Extraction *)
