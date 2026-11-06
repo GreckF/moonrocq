@@ -1,5 +1,5 @@
 import {
-  "rocq2mbt/rocqrt" @rocqrt,
+  "GreckF/rocqrt" @rocqrt,
   "moonbitlang/parser" @parser,
   "moonbitlang/parser/syntax" @syntax,
   "moonbitlang/core/list" @list,

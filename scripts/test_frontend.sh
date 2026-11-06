@@ -8,7 +8,7 @@ set -uo pipefail
 source "$(dirname "$0")/env.sh"
 ROOT=$MOONROCQ_ROOT
 (cd "$ROOT/mbt" && moon build --target native --release 2>&1 | grep -e "^Error" -A20) && exit 1
-BIN="$ROOT/mbt/_build/native/release/build/moonrocq/moonrocq/cmd/main/main.exe"
+BIN="$ROOT/mbt/_build/native/release/build/cmd/main/main.exe"
 
 REF=$(mktemp -d)
 mkdir -p "$REF/main" "$REF/lib"

@@ -1,4 +1,0 @@
-members = [
-  ".",
-  "../../rocq2mbt/mbt/rocqrt",
-]

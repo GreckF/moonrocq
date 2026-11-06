@@ -3,6 +3,9 @@
 经形式化验证的第三方 [MoonBit](https://www.moonbitlang.com) 类型检查器，用 [Rocq](https://rocq-prover.org)
 编写。检查器经 [rocq2mbt](https://github.com/GreckF/rocq2mbt) 抽取成可执行的 MoonBit 代码。
 
+抽取出的 MoonBit 模块已发布到 mooncakes.io：[`GreckF/moonrocq`](https://mooncakes.io/docs/GreckF/moonrocq)。
+在 MoonBit 项目中可以直接依赖它（`moon add GreckF/moonrocq`），调用 `@checker.check_source` 检查一段源码。
+
 ```
 $ moonrocq examples/ok/traits.mbt
 examples/ok/traits.mbt: OK
@@ -118,7 +121,7 @@ bash scripts/test_frontend.sh      # 构建 moonrocq 命令，并在示例程序
 ## 使用
 
 ```bash
-mbt/_build/native/release/build/moonrocq/moonrocq/cmd/main/main.exe FILE.mbt...
+mbt/_build/native/release/build/cmd/main/main.exe FILE.mbt...
 ```
 
 程序通过检查时，退出码为 0，并列出翻译到 Core 之后各个声明的签名和 `main` 的类型；没有通过时，

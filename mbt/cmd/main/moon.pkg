@@ -1,5 +1,5 @@
 import {
-  "moonrocq/moonrocq/checker" @checker,
+  "GreckF/moonrocq/checker" @checker,
   "moonbitlang/x/fs" @fs,
   "moonbitlang/x/sys" @sys,
   "moonbitlang/core/env" @env,
