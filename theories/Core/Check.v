@@ -1,6 +1,6 @@
 (** * Core IR: type checker, correct by construction
 
-    [infer ge Γ e : result {τ | has_type ge Γ e τ} type_error]
+    [infer ge Γ e : result {τ | Γ ⊢[ge] e : τ} type_error]
 
     Every successful answer carries a typing derivation, so soundness of the
     checker holds by construction.  The derivations live in [Prop] and are
@@ -60,7 +60,7 @@ Definition as_tuple (t : ty) : result {ts : list ty | t = TTuple ts} type_error 
   | t' => Err (E_NotTuple t')
   end.
 
-Lemma cast_ty {ge Γ e τ τ'} : has_type ge Γ e τ -> τ = τ' -> has_type ge Γ e τ'.
+Lemma cast_ty {ge Γ e τ τ'} : Γ ⊢[ge] e : τ -> τ = τ' -> Γ ⊢[ge] e : τ'.
 Proof. intros H ->; exact H. Defined.
 
 Section Check.
@@ -68,10 +68,10 @@ Section Check.
 
   (** Synthesise the types of a list of expressions. *)
   Definition infer_list (Γ : ctx)
-      (inf : forall e, result {τ | has_type ge Γ e τ} type_error) :
-      forall es, result {τs | has_types ge Γ es τs} type_error :=
+      (inf : forall e, result {τ | Γ ⊢[ge] e : τ} type_error) :
+      forall es, result {τs | Γ ⊢*[ge] es : τs} type_error :=
     fix go es :=
-      match es as es' return result {τs | has_types ge Γ es' τs} type_error with
+      match es as es' return result {τs | Γ ⊢*[ge] es' : τs} type_error with
       | [] => Ok (exist _ [] (Ts_nil ge Γ))
       | e :: es' =>
           '(exist _ τ H) <- inf e ;;
@@ -79,12 +79,13 @@ Section Check.
           Ok (exist _ (τ :: τs) (Ts_cons ge Γ e es' τ τs H Hs))
       end.
 
-  (** Check a list of expressions against a list of expected types. *)
+  (** Check a list of expressions against a list of expected types.  Callers
+      compare the lengths first, so that an arity error reports the totals. *)
   Definition check_list (Γ : ctx)
-      (inf : forall e, result {τ | has_type ge Γ e τ} type_error) :
-      forall es τs, result (has_types ge Γ es τs) type_error :=
+      (inf : forall e, result {τ | Γ ⊢[ge] e : τ} type_error) :
+      forall es τs, result (Γ ⊢*[ge] es : τs) type_error :=
     fix go es τs :=
-      match es as es', τs as τs' return result (has_types ge Γ es' τs') type_error with
+      match es as es', τs as τs' return result (Γ ⊢*[ge] es' : τs') type_error with
       | [], [] => Ok (Ts_nil ge Γ)
       | e :: es', τ :: τs' =>
           '(exist _ τe He) <- inf e ;;
@@ -94,8 +95,8 @@ Section Check.
       | es', τs' => Err (E_ArgArity (length τs') (length es'))
       end.
 
-  Fixpoint infer (Γ : ctx) (e : expr) {struct e} : result {τ | has_type ge Γ e τ} type_error :=
-    match e as e' return result {τ | has_type ge Γ e' τ} type_error with
+  Fixpoint infer (Γ : ctx) (e : expr) {struct e} : result {τ | Γ ⊢[ge] e : τ} type_error :=
+    match e as e' return result {τ | Γ ⊢[ge] e' : τ} type_error with
     | EVar x =>
         '(exist _ τ H) <- of_option (nth_error Γ x) (E_UnboundVar x) ;;
         Ok (exist _ τ (T_Var ge Γ x τ H))
@@ -113,6 +114,7 @@ Section Check.
     | EApp f args =>
         '(exist _ τf Hf) <- infer Γ f ;;
         '(existT _ ps (exist _ r Ef)) <- as_arrow τf ;;
+        _ <- expect_nat (length ps) (length args) (E_ArgArity (length ps) (length args)) ;;
         Hargs <- check_list Γ (infer Γ) args ps ;;
         Ok (exist _ r (T_App ge Γ f args ps r (cast_ty Hf Ef) Hargs))
     | ELet e1 e2 =>
@@ -136,6 +138,8 @@ Section Check.
         '(exist _ τ Hi) <- of_option (nth_error τs i) (E_TupleIndex i τ0) ;;
         Ok (exist _ τ (T_Proj ge Γ e0 i τs τ (cast_ty H0 Et) Hi))
     | EPrim op args =>
+        _ <- expect_nat (length (fst (prim_sig op))) (length args)
+               (E_ArgArity (length (fst (prim_sig op))) (length args)) ;;
         Hargs <- check_list Γ (infer Γ) args (fst (prim_sig op)) ;;
         Ok (exist _ _ (T_Prim ge Γ op args Hargs))
     end.

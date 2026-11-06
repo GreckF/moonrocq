@@ -2,4 +2,5 @@
 
 (rocq.theory
  (name MoonRocq)
- (theories Stdlib Equations))
+ (theories Stdlib)
+ (flags :standard -w -register-all))

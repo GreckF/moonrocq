@@ -6,3 +6,7 @@ ref/
 *.glob
 *.aux
 .lia.cache
+.vscode/
+mbt/_build/
+mbt/.mooncakes/
+mbt/target/

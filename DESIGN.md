@@ -36,10 +36,11 @@
 ### 与抽取的兼容
 `has_type` 等判断放在 `Prop` 里，所以 `{τ | has_type Γ e τ}` 抽取后就是 `τ`，
 correct by construction 不会给抽取出来的代码带来负担。需要注意：
-- 计算部分（检查器本身的分支、合一、查表）都是 `Type` 中的结构递归或 Equations 良基递归，
+- 计算部分（检查器本身的分支、合一、查表）都是 `Type` 中的结构递归（需要时再引入良基递归），
   不能在 `Prop` 证明上做消去来驱动计算。
 - 可判定相等统一用 `EqDec` 类（`Prelude/EqDec.v`），抽取后只剩布尔函数。
-- 标识符用 Stdlib `string`，整数用 `Z` 加按位宽回绕，不引入公理。
+- 标识符用 Stdlib `string`，整数用 `Z` 加按位宽回绕，不引入公理。抽取到 MoonBit 后它们是
+  归纳类型（`String0`、`Z`），胶水负责与 MoonBit 的 `String`/`BigInt` 互相转换；需要性能时再换表示。
 
 ## 2. 分层
 
@@ -113,6 +114,7 @@ checker 对尚未支持的构造直接拒绝，这样每个里程碑结束时，
 |---|---|
 | M0 | 基础设施：dune、Prelude（Result/EqDec/Ident），构建脚本 ✅ |
 | M1 | Core λ：原始类型、函数、let、if、元组、全局（互）递归函数、rank-1 泛型、原语运算 ✅（见 `theories/Core/Theorems.v`） |
+| M1.5 | 前端原型 ✅：经 rocq2mbt 抽取到 MoonBit，接上官方 parser，得到可运行的 `moonrocq` 命令（见第 7 节）。`Surface/Elab.v` 是**未经验证**的临时 elaborator，输出由 Core checker 重新检查；M6 用有规范的 certified elaborator 取代它 |
 | M2 | 名义 ADT（struct/enum/tuple struct）+ 模式匹配 |
 | M3 | 状态与循环：`let mut`、`mut` 字段、数组、`while`/`for`、带标签 `break`/`continue`/`nobreak`、`return` |
 | M4 | 错误与 effect：suberror、`Error`、`raise`/`raise?`/`noraise`、`try`/`catch`/`noraise`、`defer`/`errdefer` |
@@ -131,8 +133,38 @@ correct-by-construction checker 和完备性证明。
 theories/
   Prelude/    Result, EqDec, Ident，以后加 Map、Integers……
   Core/       Syntax, Typing, Semantics, Soundness, Check, CheckComplete……
-  Surface/    Syntax, Elab, ElabComplete……
+  Surface/    Syntax, Elab（M1.5 原型），以后 ElabSpec, ElabComplete……
   Analysis/   Exhaustiveness……
-scripts/build.sh   在 WSL 中用 opam switch 5.5.0 执行 dune build
+extraction/   Parser.v（mbti2rocq 生成）、Driver.v（胶水公理 + check_source + Extraction）
+mbt/          MoonBit 工程：checker/（抽取结果 + 胶水）、cmd/main/（命令行）
+examples/     ok / bad / unsupported 三类示例，scripts/test_frontend.sh 与 moon check 做差分
+scripts/      env.sh、build.sh、check_assumptions.sh、extract.sh、test_frontend.sh
 ref/moonbit-docs   语言文档（不入库）
 ```
+
+## 7. 前端与抽取（M1.5）
+
+```
+ 源码 ──@parser.parse_string──▶ @syntax AST ──lower（MoonBit 胶水）──▶ sprog
+      ──elab_prog（Rocq）──▶ Core genv + main ──check_program（Rocq，certified）──▶ 结论
+```
+
+- **环境**：与 rocq2mbt 共用其项目本地 opam switch（Rocq 9.4+alpha，含可扩展 extraction API，
+  另装了 rocq-stdlib）。`MoonRocq` 库本身只依赖 Stdlib，抽取相关的东西都在 `extraction/`，
+  不进库。
+- **在 Rocq 中调用 parser**：`mbti2rocq` 把 `moonbitlang/parser` 的接口翻译成
+  `extraction/Parser.v`（公理 + `Extract MoonBit Function`）。`@syntax` 的 AST 里用了
+  `@list.List`（Rocq 中是公理类型），不满足严格正性，翻译出来只能是不透明的公理类型，
+  没法在 Rocq 里做模式匹配。所以由一层 MoonBit 胶水 `lower`（Rocq 中是公理
+  `Driver.lower`）把 AST 投影成 Rocq 定义的 `sprog`：只做语法上的一一对应，不做名字解析和类型推断，
+  不支持的构造在这里报 unsupported。
+- **不信任前端**：`Driver.check_source_sound` 表明，只要 `check_source` 给出 `O_Ok ge main τ`，
+  就有 `program_ok ge main τ`，从而 progress/preservation 成立。这个定理不依赖 parser、
+  胶水和 elaborator 的任何性质。它目前**还不能**说明 Core 程序忠实于源程序，那是 M6
+  （elaboration 规范 + 证明）的任务。
+- **临时 elaborator**（`Surface/Elab.v`）：名字解析、运算符按左操作数类型选原语、期望类型传播、
+  泛型调用的类型实参用一阶**匹配**求出；参数类型未知的 lambda 实参推迟到其他实参之后再处理。
+  需要子项类型时调用 Core 的 `infer`（在只含签名的“头部环境”里），所以类型的定义只有一份。
+- **版本**：本机 MoonBit 工具链是 2026-08-14 的，parser 用 `moonbitlang/parser@0.3.18`
+  （更新的版本依赖更新的工具链）。
+

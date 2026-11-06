@@ -1,0 +1,11 @@
+import {
+  "rocq2mbt/rocqrt" @rocqrt,
+  "moonbitlang/parser" @parser,
+  "moonbitlang/parser/syntax" @syntax,
+  "moonbitlang/core/list" @list,
+  "moonbitlang/core/debug" @debug,
+  "moonbitlang/core/string" @string,
+  "moonbitlang/lexer/basic" @basic,
+}
+
+warnings = "-unused_value-unused_constructor-unused_type_declaration-unused_field"

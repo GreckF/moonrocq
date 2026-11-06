@@ -15,83 +15,108 @@ From Stdlib Require Import List.
 From MoonRocq.Core Require Import Syntax Prim Subst Typing TypingLemmas Semantics.
 Import ListNotations.
 
+(** ** Judgment notations
+
+    - [⊢ᶠ[ge] F : τ ⇒ τ'] : frame [F] turns a value of type [τ] into a
+                             computation of type [τ'] ([frame_typed]);
+    - [⊢ᵏ[ge] K : τ ⇒ τ'] : the same for a whole stack ([stack_typed]);
+    - [⊢ˢ[ge] s : τ]      : machine state [s] eventually produces a [τ]
+                             ([state_typed]). *)
+
+Reserved Notation "⊢ᶠ[ ge ] F : τ ⇒ τ'"
+  (at level 70, ge at level 200, F at level 60, τ at level 60, τ' at level 60,
+   no associativity, format "⊢ᶠ[ ge ]  F  :  τ  ⇒  τ'").
+Reserved Notation "⊢ᵏ[ ge ] K : τ ⇒ τ'"
+  (at level 70, ge at level 200, K at level 60, τ at level 60, τ' at level 60,
+   no associativity, format "⊢ᵏ[ ge ]  K  :  τ  ⇒  τ'").
+Reserved Notation "⊢ˢ[ ge ] s : τ"
+  (at level 70, ge at level 200, s at level 60, τ at level 60,
+   no associativity, format "⊢ˢ[ ge ]  s  :  τ").
+
+Inductive frame_typed (ge : genv) : frame -> ty -> ty -> Prop :=
+| FT_AppFun args ps r :
+    [] ⊢*[ge] args : ps ->
+    ⊢ᶠ[ge] FAppFun args : TArrow ps r ⇒ r
+| FT_AppArg f done rest psd τ psr r :
+    value f ->
+    [] ⊢[ge] f : TArrow (psd ++ τ :: psr) r ->
+    Forall value done ->
+    [] ⊢*[ge] done : psd ->
+    [] ⊢*[ge] rest : psr ->
+    ⊢ᶠ[ge] FAppArg f done rest : τ ⇒ r
+| FT_Let e2 τ1 τ2 :
+    [τ1] ⊢[ge] e2 : τ2 ->
+    ⊢ᶠ[ge] FLet e2 : τ1 ⇒ τ2
+| FT_If t e τ :
+    [] ⊢[ge] t : τ ->
+    [] ⊢[ge] e : τ ->
+    ⊢ᶠ[ge] FIf t e : TBool ⇒ τ
+| FT_Tuple done rest τsd τ τsr :
+    Forall value done ->
+    [] ⊢*[ge] done : τsd ->
+    [] ⊢*[ge] rest : τsr ->
+    ⊢ᶠ[ge] FTuple done rest : τ ⇒ TTuple (τsd ++ τ :: τsr)
+| FT_Proj i τs τ :
+    nth_error τs i = Some τ ->
+    ⊢ᶠ[ge] FProj i : TTuple τs ⇒ τ
+| FT_Prim op done rest τsd τ τsr :
+    fst (prim_sig op) = τsd ++ τ :: τsr ->
+    Forall value done ->
+    [] ⊢*[ge] done : τsd ->
+    [] ⊢*[ge] rest : τsr ->
+    ⊢ᶠ[ge] FPrim op done rest : τ ⇒ snd (prim_sig op)
+
+where "⊢ᶠ[ ge ] F : τ ⇒ τ'" := (frame_typed ge F τ τ').
+
+Inductive stack_typed (ge : genv) : stack -> ty -> ty -> Prop :=
+| ST_nil τ :
+    ⊢ᵏ[ge] [] : τ ⇒ τ
+| ST_cons F K τ1 τ2 τf :
+    ⊢ᶠ[ge] F : τ1 ⇒ τ2 ->
+    ⊢ᵏ[ge] K : τ2 ⇒ τf ->
+    ⊢ᵏ[ge] F :: K : τ1 ⇒ τf
+
+where "⊢ᵏ[ ge ] K : τ ⇒ τ'" := (stack_typed ge K τ τ').
+
+Inductive state_typed (ge : genv) : state -> ty -> Prop :=
+| SS_Eval K e τ τf :
+    [] ⊢[ge] e : τ ->
+    ⊢ᵏ[ge] K : τ ⇒ τf ->
+    ⊢ˢ[ge] ⟨K ▷ e⟩ : τf
+| SS_Ret K v τ τf :
+    value v ->
+    [] ⊢[ge] v : τ ->
+    ⊢ᵏ[ge] K : τ ⇒ τf ->
+    ⊢ˢ[ge] ⟨K ◁ v⟩ : τf
+| SS_Abort τf :
+    ⊢ˢ[ge] SAbort : τf
+
+where "⊢ˢ[ ge ] s : τ" := (state_typed ge s τ).
+
 Section Soundness.
   Variable ge : genv.
-
-  Inductive frame_typed : frame -> ty -> ty -> Prop :=
-  | FT_AppFun args ps r :
-      has_types ge [] args ps ->
-      frame_typed (FAppFun args) (TArrow ps r) r
-  | FT_AppArg f done rest psd τ psr r :
-      value f ->
-      has_type ge [] f (TArrow (psd ++ τ :: psr) r) ->
-      Forall value done ->
-      has_types ge [] done psd ->
-      has_types ge [] rest psr ->
-      frame_typed (FAppArg f done rest) τ r
-  | FT_Let e2 τ1 τ2 :
-      has_type ge [τ1] e2 τ2 ->
-      frame_typed (FLet e2) τ1 τ2
-  | FT_If t e τ :
-      has_type ge [] t τ ->
-      has_type ge [] e τ ->
-      frame_typed (FIf t e) TBool τ
-  | FT_Tuple done rest τsd τ τsr :
-      Forall value done ->
-      has_types ge [] done τsd ->
-      has_types ge [] rest τsr ->
-      frame_typed (FTuple done rest) τ (TTuple (τsd ++ τ :: τsr))
-  | FT_Proj i τs τ :
-      nth_error τs i = Some τ ->
-      frame_typed (FProj i) (TTuple τs) τ
-  | FT_Prim op done rest τsd τ τsr :
-      fst (prim_sig op) = τsd ++ τ :: τsr ->
-      Forall value done ->
-      has_types ge [] done τsd ->
-      has_types ge [] rest τsr ->
-      frame_typed (FPrim op done rest) τ (snd (prim_sig op)).
-
-  Inductive stack_typed : stack -> ty -> ty -> Prop :=
-  | ST_nil τ : stack_typed [] τ τ
-  | ST_cons F K τ1 τ2 τf :
-      frame_typed F τ1 τ2 ->
-      stack_typed K τ2 τf ->
-      stack_typed (F :: K) τ1 τf.
-
-  Inductive state_typed : state -> ty -> Prop :=
-  | SS_Eval K e τ τf :
-      has_type ge [] e τ ->
-      stack_typed K τ τf ->
-      state_typed (SEval K e) τf
-  | SS_Ret K v τ τf :
-      value v ->
-      has_type ge [] v τ ->
-      stack_typed K τ τf ->
-      state_typed (SRet K v) τf
-  | SS_Abort τf :
-      state_typed SAbort τf.
 
   (** ** Canonical forms *)
 
   Lemma canonical_arrow v ps r :
-    value v -> has_type ge [] v (TArrow ps r) ->
-    exists b, v = ELam ps r b /\ has_type ge (ps ++ []) b r.
+    value v -> [] ⊢[ge] v : TArrow ps r ->
+    exists b, v = ELam ps r b /\ ps ++ [] ⊢[ge] b : r.
   Proof. intros Hv Ht; inversion Hv; subst; inversion Ht; subst; eauto. Qed.
 
   Lemma canonical_base v b :
-    value v -> has_type ge [] v (TBase b) -> exists l, v = ELit l /\ lit_ty l = b.
+    value v -> [] ⊢[ge] v : TBase b -> exists l, v = ELit l /\ lit_ty l = b.
   Proof. intros Hv Ht; inversion Hv; subst; inversion Ht; subst; eauto. Qed.
 
   Lemma canonical_bool v :
-    value v -> has_type ge [] v TBool -> exists b, v = ELit (LBool b).
+    value v -> [] ⊢[ge] v : TBool -> exists b, v = ELit (LBool b).
   Proof.
     intros Hv Ht. destruct (canonical_base _ _ Hv Ht) as (l & -> & Hl).
     destruct l; inversion Hl; eauto.
   Qed.
 
   Lemma canonical_tuple v τs :
-    value v -> has_type ge [] v (TTuple τs) ->
-    exists vs, v = ETuple vs /\ Forall value vs /\ has_types ge [] vs τs.
+    value v -> [] ⊢[ge] v : TTuple τs ->
+    exists vs, v = ETuple vs /\ Forall value vs /\ [] ⊢*[ge] vs : τs.
   Proof.
     intros Hv Ht; inversion Hv; subst; inversion Ht; subst; eauto.
   Qed.
@@ -99,7 +124,7 @@ Section Soundness.
   (** Values of primitive types are literals, so primitive operators can
       always read their arguments. *)
   Lemma as_lits_complete vs τs :
-    Forall value vs -> has_types ge [] vs τs ->
+    Forall value vs -> [] ⊢*[ge] vs : τs ->
     Forall (fun t => exists b, t = TBase b) τs ->
     exists ls, as_lits vs = Some ls /\ lits_typed ls τs.
   Proof.
@@ -115,7 +140,7 @@ Section Soundness.
   Qed.
 
   Lemma as_lits_typed vs τs ls :
-    as_lits vs = Some ls -> has_types ge [] vs τs -> lits_typed ls τs.
+    as_lits vs = Some ls -> [] ⊢*[ge] vs : τs -> lits_typed ls τs.
   Proof.
     intros E Ht; revert ls E; induction Ht as [|Γ e es τ τs He Hs IH]; intros ls E.
     - inversion E; constructor.
@@ -127,16 +152,16 @@ Section Soundness.
   (** ** Inversion helpers *)
 
   Lemma stack_cons_inv F K τ τf :
-    stack_typed (F :: K) τ τf -> exists τ2, frame_typed F τ τ2 /\ stack_typed K τ2 τf.
+    ⊢ᵏ[ge] F :: K : τ ⇒ τf -> exists τ2, ⊢ᶠ[ge] F : τ ⇒ τ2 /\ ⊢ᵏ[ge] K : τ2 ⇒ τf.
   Proof. intros H; inversion H; subst; eauto. Qed.
 
   Lemma eval_inv K e τf :
-    state_typed (SEval K e) τf -> exists τ, has_type ge [] e τ /\ stack_typed K τ τf.
+    ⊢ˢ[ge] ⟨K ▷ e⟩ : τf -> exists τ, [] ⊢[ge] e : τ /\ ⊢ᵏ[ge] K : τ ⇒ τf.
   Proof. intros H; inversion H; subst; eauto. Qed.
 
   Lemma ret_inv K v τf :
-    state_typed (SRet K v) τf ->
-    exists τ, value v /\ has_type ge [] v τ /\ stack_typed K τ τf.
+    ⊢ˢ[ge] ⟨K ◁ v⟩ : τf ->
+    exists τ, value v /\ [] ⊢[ge] v : τ /\ ⊢ᵏ[ge] K : τ ⇒ τf.
   Proof. intros H; inversion H; subst; eauto. Qed.
 
   Lemma Forall_snoc {A} (P : A -> Prop) xs x :
@@ -144,16 +169,16 @@ Section Soundness.
   Proof. intros; apply Forall_app; auto. Qed.
 
   Lemma has_types_snoc Γ es e τs τ :
-    has_types ge Γ es τs -> has_type ge Γ e τ -> has_types ge Γ (es ++ [e]) (τs ++ [τ]).
+    Γ ⊢*[ge] es : τs -> Γ ⊢[ge] e : τ -> Γ ⊢*[ge] es ++ [e] : τs ++ [τ].
   Proof. intros; apply has_types_app; auto using has_types. Qed.
 
-  Lemma nil_lits_typed ts : has_types ge [] [] ts -> lits_typed [] ts.
+  Lemma nil_lits_typed ts : [] ⊢*[ge] [] : ts -> lits_typed [] ts.
   Proof. intros H; inversion H; subst; constructor. Qed.
 
   (** ** Progress *)
 
   Theorem progress s τf :
-    genv_ok ge -> state_typed s τf -> final s \/ exists s', step ge s s'.
+    genv_ok ge -> ⊢ˢ[ge] s : τf -> final s \/ exists s', s ⟶[ge] s'.
   Proof.
     intros Hok Hs. destruct Hs as [K e τ τf He HK | K v τ τf Hv Hvt HK | τf].
     - (* SEval *)
@@ -211,13 +236,13 @@ Section Soundness.
   (** ** Preservation *)
 
   Lemma has_types_cons_inv Γ e es ts :
-    has_types ge Γ (e :: es) ts ->
-    exists τ τs, ts = τ :: τs /\ has_type ge Γ e τ /\ has_types ge Γ es τs.
+    Γ ⊢*[ge] e :: es : ts ->
+    exists τ τs, ts = τ :: τs /\ Γ ⊢[ge] e : τ /\ Γ ⊢*[ge] es : τs.
   Proof. intros H; inversion H; subst; eauto. Qed.
 
   Lemma has_type_prim_inv Γ op args τ :
-    has_type ge Γ (EPrim op args) τ ->
-    τ = snd (prim_sig op) /\ has_types ge Γ args (fst (prim_sig op)).
+    Γ ⊢[ge] EPrim op args : τ ->
+    τ = snd (prim_sig op) /\ Γ ⊢*[ge] args : fst (prim_sig op).
   Proof. intros H; inversion H; subst; auto. Qed.
 
   (* Unify two hypotheses [a = Some x], [a = Some y]. *)
@@ -245,7 +270,7 @@ Section Soundness.
     inversion HF; subst; clear HF.
 
   Theorem preservation s s' τf :
-    genv_ok ge -> state_typed s τf -> step ge s s' -> state_typed s' τf.
+    genv_ok ge -> ⊢ˢ[ge] s : τf -> s ⟶[ge] s' -> ⊢ˢ[ge] s' : τf.
   Proof.
     intros Hok Hs Hstep. destruct Hstep.
     (* ---- evaluation steps ---- *)
@@ -274,7 +299,7 @@ Section Soundness.
     - (* S_TupleCons *)
       apply eval_inv in Hs as (τ & He & HK). inversion He; subst. inv_types.
       eapply SS_Eval; [eassumption|]. eapply ST_cons; [|exact HK].
-      apply (FT_Tuple [] es []); auto using has_types.
+      apply (FT_Tuple ge [] es []); auto using has_types.
     - (* S_Proj *)
       apply eval_inv in Hs as (τ & He & HK). inversion He; subst.
       eapply SS_Eval; [eassumption|]. eapply ST_cons; [|exact HK].
@@ -293,7 +318,7 @@ Section Soundness.
       apply has_type_prim_inv in He as [-> Hargs].
       apply has_types_cons_inv in Hargs as (τ0 & τs & Ets & He0 & Hes).
       eapply SS_Eval; [exact He0|]. eapply ST_cons; [|exact HK].
-      apply (FT_Prim op [] es [] τ0 τs); auto using has_types.
+      apply (FT_Prim ge op [] es [] τ0 τs); auto using has_types.
     (* ---- return steps ---- *)
     - (* S_AppFunNil *)
       open_ret Hs. inv_types. inversion Hvt; subst.
@@ -302,7 +327,7 @@ Section Soundness.
     - (* S_AppFunCons *)
       open_ret Hs. inv_types.
       eapply SS_Eval; [eassumption|]. eapply ST_cons; [|exact HK].
-      eapply (FT_AppArg f [] args []); eauto using has_types, Forall.
+      eapply (FT_AppArg ge f [] args []); eauto using has_types, Forall.
     - (* S_AppArgLast *)
       open_ret Hs. inv_types.
       match goal with Hf : has_type _ _ (ELam _ _ _) _ |- _ => inversion Hf; subst end.
@@ -314,7 +339,7 @@ Section Soundness.
       eapply SS_Eval; [eassumption|]. eapply ST_cons; [|exact HK].
       match goal with
       | Hf : has_type _ _ f (TArrow (?psd ++ ?t :: ?ta :: ?psr) _) |- _ =>
-          apply (FT_AppArg f (done ++ [v]) rest (psd ++ [t]) ta psr);
+          apply (FT_AppArg ge f (done ++ [v]) rest (psd ++ [t]) ta psr);
           [ assumption
           | rewrite <- app_assoc; exact Hf
           | apply Forall_snoc; assumption
@@ -338,7 +363,7 @@ Section Soundness.
       open_ret Hs. inv_types.
       eapply SS_Eval; [eassumption|]. eapply ST_cons; [|exact HK].
       match goal with
-      | |- frame_typed _ _ (TTuple (?a ++ ?t :: ?rest)) =>
+      | |- ⊢ᶠ[_] _ : _ ⇒ TTuple (?a ++ ?t :: ?rest) =>
           replace (a ++ t :: rest) with ((a ++ [t]) ++ rest) by (now rewrite <- app_assoc)
       end.
       constructor; [apply Forall_snoc | apply has_types_snoc | ]; assumption.
@@ -367,7 +392,7 @@ Section Soundness.
       eapply SS_Eval; [eassumption|]. eapply ST_cons; [|exact HK].
       match goal with
       | E : fst (prim_sig op) = ?a ++ ?t :: ?te :: ?r |- _ =>
-          apply (FT_Prim op (done ++ [v]) rest (a ++ [t]) te r);
+          apply (FT_Prim ge op (done ++ [v]) rest (a ++ [t]) te r);
           [ rewrite E, <- app_assoc; reflexivity
           | apply Forall_snoc; assumption
           | apply has_types_snoc; assumption
@@ -378,16 +403,16 @@ Section Soundness.
   (** ** Soundness *)
 
   Lemma star_preservation s s' τf :
-    genv_ok ge -> state_typed s τf -> star ge s s' -> state_typed s' τf.
+    genv_ok ge -> ⊢ˢ[ge] s : τf -> s ⟶*[ge] s' -> ⊢ˢ[ge] s' : τf.
   Proof. intros Hok Hs H; induction H; eauto using preservation. Qed.
 
   Lemma initial_typed e τ :
-    has_type ge [] e τ -> state_typed (SEval [] e) τ.
+    [] ⊢[ge] e : τ -> ⊢ˢ[ge] ⟨[] ▷ e⟩ : τ.
   Proof. intros; econstructor; eauto; constructor. Qed.
 
   (** A well-typed program never gets stuck. *)
   Theorem soundness e τ s :
-    genv_ok ge -> has_type ge [] e τ -> star ge (SEval [] e) s -> ~ stuck ge s.
+    genv_ok ge -> [] ⊢[ge] e : τ -> ⟨[] ▷ e⟩ ⟶*[ge] s -> ~ stuck ge s.
   Proof.
     intros Hok He Hstar [Hnf Hns].
     destruct (progress s τ Hok (star_preservation _ _ _ Hok (initial_typed _ _ He) Hstar))
@@ -397,8 +422,8 @@ Section Soundness.
   (** If a well-typed program terminates normally, the result is a value of
       the program's type. *)
   Theorem soundness_value e τ v :
-    genv_ok ge -> has_type ge [] e τ -> star ge (SEval [] e) (SRet [] v) ->
-    value v /\ has_type ge [] v τ.
+    genv_ok ge -> [] ⊢[ge] e : τ -> ⟨[] ▷ e⟩ ⟶*[ge] ⟨[] ◁ v⟩ ->
+    value v /\ [] ⊢[ge] v : τ.
   Proof.
     intros Hok He Hstar.
     apply (star_preservation _ _ _ Hok (initial_typed _ _ He)) in Hstar.

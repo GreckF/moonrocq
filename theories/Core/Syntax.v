@@ -54,10 +54,10 @@ Inductive ty : Type :=
 | TTuple (ts : list ty)
 | TArrow (ps : list ty) (r : ty).
 
-Notation TUnit   := (TBase BUnit).
-Notation TBool   := (TBase BBool).
-Notation TInt k  := (TBase (BInt k)).
-Notation TString := (TBase BString).
+Abbreviation TUnit   := (TBase BUnit).
+Abbreviation TBool   := (TBase BBool).
+Abbreviation TInt k  := (TBase (BInt k)).
+Abbreviation TString := (TBase BString).
 
 (** Induction principle that sees through the nested lists. *)
 Section ty_ind'.

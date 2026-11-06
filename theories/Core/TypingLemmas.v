@@ -28,10 +28,10 @@ Section Lemmas.
   Qed.
 
   Lemma rename_typing :
-    (forall Γ e τ, has_type ge Γ e τ ->
-       forall Δ ξ, ren_ok Γ Δ ξ -> has_type ge Δ (rename ξ e) τ) /\
-    (forall Γ es τs, has_types ge Γ es τs ->
-       forall Δ ξ, ren_ok Γ Δ ξ -> has_types ge Δ (map (rename ξ) es) τs).
+    (forall Γ e τ, Γ ⊢[ge] e : τ ->
+       forall Δ ξ, ren_ok Γ Δ ξ -> Δ ⊢[ge] rename ξ e : τ) /\
+    (forall Γ es τs, Γ ⊢*[ge] es : τs ->
+       forall Δ ξ, ren_ok Γ Δ ξ -> Δ ⊢*[ge] map (rename ξ) es : τs).
   Proof.
     apply has_type_mutind; intros; simpl.
     - constructor; auto.
@@ -49,7 +49,7 @@ Section Lemmas.
   Qed.
 
   Lemma shift_typing Γ e τ ps :
-    has_type ge Γ e τ -> has_type ge (ps ++ Γ) (rename (Nat.add (length ps)) e) τ.
+    Γ ⊢[ge] e : τ -> ps ++ Γ ⊢[ge] rename (Nat.add (length ps)) e : τ.
   Proof.
     intros H; apply (proj1 rename_typing _ _ _ H).
     intros x τ' Hx. rewrite nth_error_app2 by lia.
@@ -59,7 +59,7 @@ Section Lemmas.
   (** ** Substitution *)
 
   Definition sub_ok (Γ Δ : ctx) (σ : nat -> expr) : Prop :=
-    forall x τ, nth_error Γ x = Some τ -> has_type ge Δ (σ x) τ.
+    forall x τ, nth_error Γ x = Some τ -> Δ ⊢[ge] σ x : τ.
 
   Lemma sub_ok_up Γ Δ σ ps :
     sub_ok Γ Δ σ -> sub_ok (ps ++ Γ) (ps ++ Δ) (upsub (length ps) σ).
@@ -71,10 +71,10 @@ Section Lemmas.
   Qed.
 
   Lemma subst_typing :
-    (forall Γ e τ, has_type ge Γ e τ ->
-       forall Δ σ, sub_ok Γ Δ σ -> has_type ge Δ (subst σ e) τ) /\
-    (forall Γ es τs, has_types ge Γ es τs ->
-       forall Δ σ, sub_ok Γ Δ σ -> has_types ge Δ (map (subst σ) es) τs).
+    (forall Γ e τ, Γ ⊢[ge] e : τ ->
+       forall Δ σ, sub_ok Γ Δ σ -> Δ ⊢[ge] subst σ e : τ) /\
+    (forall Γ es τs, Γ ⊢*[ge] es : τs ->
+       forall Δ σ, sub_ok Γ Δ σ -> Δ ⊢*[ge] map (subst σ) es : τs).
   Proof.
     apply has_type_mutind; intros; simpl.
     - auto.
@@ -93,8 +93,8 @@ Section Lemmas.
 
   (** β-reduction: substituting typed closed arguments for the parameters. *)
   Lemma subst_args_typing ps b r vs :
-    has_type ge (ps ++ []) b r -> has_types ge [] vs ps ->
-    has_type ge [] (subst (args_sub vs) b) r.
+    ps ++ [] ⊢[ge] b : r -> [] ⊢*[ge] vs : ps ->
+    [] ⊢[ge] subst (args_sub vs) b : r.
   Proof.
     intros Hb Hvs. apply (proj1 subst_typing _ _ _ Hb).
     intros x τ Hx. rewrite app_nil_r in Hx. unfold args_sub.
@@ -104,10 +104,10 @@ Section Lemmas.
   (** ** Type substitution *)
 
   Lemma tsubst_typing σ :
-    (forall Γ e τ, has_type ge Γ e τ ->
-       has_type ge (map (tsubst σ) Γ) (esubst_ty σ e) (tsubst σ τ)) /\
-    (forall Γ es τs, has_types ge Γ es τs ->
-       has_types ge (map (tsubst σ) Γ) (map (esubst_ty σ) es) (map (tsubst σ) τs)).
+    (forall Γ e τ, Γ ⊢[ge] e : τ ->
+       map (tsubst σ) Γ ⊢[ge] esubst_ty σ e : tsubst σ τ) /\
+    (forall Γ es τs, Γ ⊢*[ge] es : τs ->
+       map (tsubst σ) Γ ⊢*[ge] map (esubst_ty σ) es : map (tsubst σ) τs).
   Proof.
     apply has_type_mutind; intros; simpl.
     - constructor. rewrite nth_error_map, H; reflexivity.
@@ -132,10 +132,9 @@ Section Lemmas.
       closed, well-typed λ-abstraction. *)
   Lemma global_inst_typing f fd ts :
     genv_ok ge -> lookup_fn ge f = Some fd ->
-    has_type ge []
-      (ELam (map (tsubst (inst ts)) (fd_params fd)) (tsubst (inst ts) (fd_ret fd))
-            (esubst_ty (inst ts) (fd_body fd)))
-      (TArrow (map (tsubst (inst ts)) (fd_params fd)) (tsubst (inst ts) (fd_ret fd))).
+    [] ⊢[ge] ELam (map (tsubst (inst ts)) (fd_params fd)) (tsubst (inst ts) (fd_ret fd))
+                  (esubst_ty (inst ts) (fd_body fd))
+       : TArrow (map (tsubst (inst ts)) (fd_params fd)) (tsubst (inst ts) (fd_ret fd)).
   Proof.
     intros [_ Hall] Hl. constructor. rewrite app_nil_r.
     apply lookup_fn_in in Hl. rewrite Forall_forall in Hall.

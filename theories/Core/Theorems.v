@@ -16,7 +16,7 @@ From MoonRocq.Core Require Import Syntax Typing Check CheckComplete Semantics So
 Import ListNotations.
 
 Definition program_ok (ge : genv) (e : expr) (τ : ty) : Prop :=
-  genv_ok ge /\ has_type ge [] e τ.
+  genv_ok ge /\ [] ⊢[ge] e : τ.
 
 Definition check_program (ge : genv) (e : expr) :
     result {τ | program_ok ge e τ} type_error :=
@@ -42,8 +42,8 @@ Defined.
 
 Theorem checked_program_safe ge e τ H :
   check_program ge e = Ok (exist _ τ H) ->
-  (forall s, star ge (SEval [] e) s -> ~ stuck ge s) /\
-  (forall v, star ge (SEval [] e) (SRet [] v) -> value v /\ has_type ge [] v τ).
+  (forall s, ⟨[] ▷ e⟩ ⟶*[ge] s -> ~ stuck ge s) /\
+  (forall v, ⟨[] ▷ e⟩ ⟶*[ge] ⟨[] ◁ v⟩ -> value v /\ [] ⊢[ge] v : τ).
 Proof.
   intros _. destruct H as [Hg He]. split.
   - intros s; apply soundness with (τ := τ); assumption.

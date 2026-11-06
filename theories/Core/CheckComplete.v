@@ -36,9 +36,9 @@ Section Complete.
   Variable ge : genv.
 
   Theorem infer_complete_mut :
-    (forall Γ e τ, has_type ge Γ e τ ->
+    (forall Γ e τ, Γ ⊢[ge] e : τ ->
        exists H, infer ge Γ e = Ok (exist _ τ H)) /\
-    (forall Γ es τs, has_types ge Γ es τs ->
+    (forall Γ es τs, Γ ⊢*[ge] es : τs ->
        (exists H, infer_list ge Γ (infer ge Γ) es = Ok (exist _ τs H)) /\
        (exists H, check_list ge Γ (infer ge Γ) es τs = Ok H)).
   Proof.
@@ -55,7 +55,10 @@ Section Complete.
     - (* T_Lam *)
       step_ok H0. step_ok (expect_ty_ok r r eq_refl). eauto.
     - (* T_App *)
-      step_ok H0. destruct H2 as [_ H2]. step_ok H2. eauto.
+      step_ok H0.
+      step_ok (expect_nat_ok (length ps) (length args) (E_ArgArity (length ps) (length args))
+                 (has_types_length _ _ _ _ H1)).
+      destruct H2 as [_ H2]. step_ok H2. eauto.
     - (* T_Let *)
       step_ok H0. step_ok H2. eauto.
     - (* T_If *)
@@ -66,6 +69,8 @@ Section Complete.
     - (* T_Proj *)
       step_ok H0. step_ok (of_option_some _ _ (E_TupleIndex i (TTuple τs)) H1). eauto.
     - (* T_Prim *)
+      step_ok (expect_nat_ok _ _ (E_ArgArity (length (fst (prim_sig op))) (length args))
+                 (has_types_length _ _ _ _ H)).
       destruct H0 as [_ H0]. step_ok H0. eauto.
     - (* Ts_nil *)
       split; eexists; reflexivity.
@@ -79,12 +84,12 @@ Section Complete.
   Qed.
 
   Theorem infer_complete Γ e τ :
-    has_type ge Γ e τ -> exists H, infer ge Γ e = Ok (exist _ τ H).
+    Γ ⊢[ge] e : τ -> exists H, infer ge Γ e = Ok (exist _ τ H).
   Proof. apply (proj1 infer_complete_mut). Qed.
 
   (** Types are unique (the checker is a function). *)
   Corollary has_type_unique Γ e τ1 τ2 :
-    has_type ge Γ e τ1 -> has_type ge Γ e τ2 -> τ1 = τ2.
+    Γ ⊢[ge] e : τ1 -> Γ ⊢[ge] e : τ2 -> τ1 = τ2.
   Proof.
     intros H1 H2.
     destruct (infer_complete _ _ _ H1) as [p1 E1].
@@ -94,7 +99,7 @@ Section Complete.
 
   (** ** Decidability *)
 
-  Definition has_type_dec Γ e τ : {has_type ge Γ e τ} + {~ has_type ge Γ e τ}.
+  Definition has_type_dec Γ e τ : {Γ ⊢[ge] e : τ} + {~ Γ ⊢[ge] e : τ}.
   Proof.
     destruct (infer ge Γ e) as [[τ' H]|err] eqn:E.
     - destruct (ty_eq_dec τ' τ) as [<-|Hne]; [left; exact H | right].
@@ -106,7 +111,7 @@ Section Complete.
 
   (** Whether an expression is typable at all. *)
   Definition typable_dec Γ e :
-    {τ | has_type ge Γ e τ} + {forall τ, ~ has_type ge Γ e τ}.
+    {τ | Γ ⊢[ge] e : τ} + {forall τ, ~ Γ ⊢[ge] e : τ}.
   Proof.
     destruct (infer ge Γ e) as [p|err] eqn:E; [left; exact p | right].
     intros τ Ht. destruct (infer_complete _ _ _ Ht) as [p E'].

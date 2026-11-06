@@ -50,87 +50,106 @@ Fixpoint as_lits (vs : list expr) : option (list lit) :=
   | _ :: _ => None
   end.
 
-Section Step.
-  Variable ge : genv.
+(** ** Notations
 
-  Inductive step : state -> state -> Prop :=
-  (* ---- evaluation: push a frame or produce a value ---- *)
-  | S_Lit K l :
-      step (SEval K (ELit l)) (SRet K (ELit l))
-  | S_Lam K ps r b :
-      step (SEval K (ELam ps r b)) (SRet K (ELam ps r b))
-  | S_Global K f ts fd :
-      lookup_fn ge f = Some fd ->
-      step (SEval K (EGlobal f ts))
-           (SRet K (ELam (map (tsubst (inst ts)) (fd_params fd))
-                         (tsubst (inst ts) (fd_ret fd))
-                         (esubst_ty (inst ts) (fd_body fd))))
-  | S_App K f args :
-      step (SEval K (EApp f args)) (SEval (FAppFun args :: K) f)
-  | S_Let K e1 e2 :
-      step (SEval K (ELet e1 e2)) (SEval (FLet e2 :: K) e1)
-  | S_If K c t e :
-      step (SEval K (EIf c t e)) (SEval (FIf t e :: K) c)
-  | S_TupleNil K :
-      step (SEval K (ETuple [])) (SRet K (ETuple []))
-  | S_TupleCons K e es :
-      step (SEval K (ETuple (e :: es))) (SEval (FTuple [] es :: K) e)
-  | S_Proj K e i :
-      step (SEval K (EProj e i)) (SEval (FProj i :: K) e)
-  | S_PrimNil K op l :
-      prim_eval op [] = PVal l ->
-      step (SEval K (EPrim op [])) (SRet K (ELit l))
-  | S_PrimNilAbort K op :
-      prim_eval op [] = PAbort ->
-      step (SEval K (EPrim op [])) SAbort
-  | S_PrimCons K op e es :
-      step (SEval K (EPrim op (e :: es))) (SEval (FPrim op [] es :: K) e)
+    - [⟨K ▷ e⟩]      : [SEval K e], evaluate [e] under stack [K];
+    - [⟨K ◁ v⟩]      : [SRet K v], return [v] to the top frame of [K];
+    - [s ⟶[ge] s']  : one step ([step ge s s']);
+    - [s ⟶*[ge] s'] : any number of steps ([star ge s s']). *)
 
-  (* ---- return: consume the top frame ---- *)
-  | S_AppFunNil K ps r b :
-      step (SRet (FAppFun [] :: K) (ELam ps r b)) (SEval K (subst (args_sub []) b))
-  | S_AppFunCons K f a args :
-      step (SRet (FAppFun (a :: args) :: K) f) (SEval (FAppArg f [] args :: K) a)
-  | S_AppArgLast K ps r b done v :
-      step (SRet (FAppArg (ELam ps r b) done [] :: K) v)
-           (SEval K (subst (args_sub (done ++ [v])) b))
-  | S_AppArgNext K f done v a rest :
-      step (SRet (FAppArg f done (a :: rest) :: K) v)
-           (SEval (FAppArg f (done ++ [v]) rest :: K) a)
-  | S_LetRet K e2 v :
-      step (SRet (FLet e2 :: K) v) (SEval K (subst (args_sub [v]) e2))
-  | S_IfTrue K t e :
-      step (SRet (FIf t e :: K) (ELit (LBool true))) (SEval K t)
-  | S_IfFalse K t e :
-      step (SRet (FIf t e :: K) (ELit (LBool false))) (SEval K e)
-  | S_TupleLast K done v :
-      step (SRet (FTuple done [] :: K) v) (SRet K (ETuple (done ++ [v])))
-  | S_TupleNext K done v e rest :
-      step (SRet (FTuple done (e :: rest) :: K) v) (SEval (FTuple (done ++ [v]) rest :: K) e)
-  | S_ProjRet K i vs v :
-      nth_error vs i = Some v ->
-      step (SRet (FProj i :: K) (ETuple vs)) (SRet K v)
-  | S_PrimLast K op done v ls l :
-      as_lits (done ++ [v]) = Some ls ->
-      prim_eval op ls = PVal l ->
-      step (SRet (FPrim op done [] :: K) v) (SRet K (ELit l))
-  | S_PrimLastAbort K op done v ls :
-      as_lits (done ++ [v]) = Some ls ->
-      prim_eval op ls = PAbort ->
-      step (SRet (FPrim op done [] :: K) v) SAbort
-  | S_PrimNext K op done v e rest :
-      step (SRet (FPrim op done (e :: rest) :: K) v) (SEval (FPrim op (done ++ [v]) rest :: K) e).
+Notation "⟨ K ▷ e ⟩" := (SEval K e)
+  (at level 0, K at level 200, e at level 200, format "⟨ K  ▷  e ⟩").
+Notation "⟨ K ◁ v ⟩" := (SRet K v)
+  (at level 0, K at level 200, v at level 200, format "⟨ K  ◁  v ⟩").
 
-  (** Reflexive-transitive closure. *)
-  Inductive star : state -> state -> Prop :=
-  | star_refl s : star s s
-  | star_step s1 s2 s3 : step s1 s2 -> star s2 s3 -> star s1 s3.
-End Step.
+Reserved Notation "s ⟶[ ge ] s'"
+  (at level 70, ge at level 200, no associativity, format "s  ⟶[ ge ]  s'").
+Reserved Notation "s ⟶*[ ge ] s'"
+  (at level 70, ge at level 200, no associativity, format "s  ⟶*[ ge ]  s'").
+
+Inductive step (ge : genv) : state -> state -> Prop :=
+(* ---- evaluation: push a frame or produce a value ---- *)
+| S_Lit K l :
+    ⟨K ▷ ELit l⟩ ⟶[ge] ⟨K ◁ ELit l⟩
+| S_Lam K ps r b :
+    ⟨K ▷ ELam ps r b⟩ ⟶[ge] ⟨K ◁ ELam ps r b⟩
+| S_Global K f ts fd :
+    lookup_fn ge f = Some fd ->
+    ⟨K ▷ EGlobal f ts⟩
+      ⟶[ge] ⟨K ◁ ELam (map (tsubst (inst ts)) (fd_params fd))
+                       (tsubst (inst ts) (fd_ret fd))
+                       (esubst_ty (inst ts) (fd_body fd))⟩
+| S_App K f args :
+    ⟨K ▷ EApp f args⟩ ⟶[ge] ⟨FAppFun args :: K ▷ f⟩
+| S_Let K e1 e2 :
+    ⟨K ▷ ELet e1 e2⟩ ⟶[ge] ⟨FLet e2 :: K ▷ e1⟩
+| S_If K c t e :
+    ⟨K ▷ EIf c t e⟩ ⟶[ge] ⟨FIf t e :: K ▷ c⟩
+| S_TupleNil K :
+    ⟨K ▷ ETuple []⟩ ⟶[ge] ⟨K ◁ ETuple []⟩
+| S_TupleCons K e es :
+    ⟨K ▷ ETuple (e :: es)⟩ ⟶[ge] ⟨FTuple [] es :: K ▷ e⟩
+| S_Proj K e i :
+    ⟨K ▷ EProj e i⟩ ⟶[ge] ⟨FProj i :: K ▷ e⟩
+| S_PrimNil K op l :
+    prim_eval op [] = PVal l ->
+    ⟨K ▷ EPrim op []⟩ ⟶[ge] ⟨K ◁ ELit l⟩
+| S_PrimNilAbort K op :
+    prim_eval op [] = PAbort ->
+    ⟨K ▷ EPrim op []⟩ ⟶[ge] SAbort
+| S_PrimCons K op e es :
+    ⟨K ▷ EPrim op (e :: es)⟩ ⟶[ge] ⟨FPrim op [] es :: K ▷ e⟩
+
+(* ---- return: consume the top frame ---- *)
+| S_AppFunNil K ps r b :
+    ⟨FAppFun [] :: K ◁ ELam ps r b⟩ ⟶[ge] ⟨K ▷ subst (args_sub []) b⟩
+| S_AppFunCons K f a args :
+    ⟨FAppFun (a :: args) :: K ◁ f⟩ ⟶[ge] ⟨FAppArg f [] args :: K ▷ a⟩
+| S_AppArgLast K ps r b done v :
+    ⟨FAppArg (ELam ps r b) done [] :: K ◁ v⟩
+      ⟶[ge] ⟨K ▷ subst (args_sub (done ++ [v])) b⟩
+| S_AppArgNext K f done v a rest :
+    ⟨FAppArg f done (a :: rest) :: K ◁ v⟩
+      ⟶[ge] ⟨FAppArg f (done ++ [v]) rest :: K ▷ a⟩
+| S_LetRet K e2 v :
+    ⟨FLet e2 :: K ◁ v⟩ ⟶[ge] ⟨K ▷ subst (args_sub [v]) e2⟩
+| S_IfTrue K t e :
+    ⟨FIf t e :: K ◁ ELit (LBool true)⟩ ⟶[ge] ⟨K ▷ t⟩
+| S_IfFalse K t e :
+    ⟨FIf t e :: K ◁ ELit (LBool false)⟩ ⟶[ge] ⟨K ▷ e⟩
+| S_TupleLast K done v :
+    ⟨FTuple done [] :: K ◁ v⟩ ⟶[ge] ⟨K ◁ ETuple (done ++ [v])⟩
+| S_TupleNext K done v e rest :
+    ⟨FTuple done (e :: rest) :: K ◁ v⟩ ⟶[ge] ⟨FTuple (done ++ [v]) rest :: K ▷ e⟩
+| S_ProjRet K i vs v :
+    nth_error vs i = Some v ->
+    ⟨FProj i :: K ◁ ETuple vs⟩ ⟶[ge] ⟨K ◁ v⟩
+| S_PrimLast K op done v ls l :
+    as_lits (done ++ [v]) = Some ls ->
+    prim_eval op ls = PVal l ->
+    ⟨FPrim op done [] :: K ◁ v⟩ ⟶[ge] ⟨K ◁ ELit l⟩
+| S_PrimLastAbort K op done v ls :
+    as_lits (done ++ [v]) = Some ls ->
+    prim_eval op ls = PAbort ->
+    ⟨FPrim op done [] :: K ◁ v⟩ ⟶[ge] SAbort
+| S_PrimNext K op done v e rest :
+    ⟨FPrim op done (e :: rest) :: K ◁ v⟩ ⟶[ge] ⟨FPrim op (done ++ [v]) rest :: K ▷ e⟩
+
+where "s ⟶[ ge ] s'" := (step ge s s').
+
+(** Reflexive-transitive closure. *)
+Inductive star (ge : genv) : state -> state -> Prop :=
+| star_refl s :
+    s ⟶*[ge] s
+| star_step s1 s2 s3 :
+    s1 ⟶[ge] s2 -> s2 ⟶*[ge] s3 -> s1 ⟶*[ge] s3
+
+where "s ⟶*[ ge ] s'" := (star ge s s').
 
 (** Terminal states: a value returned to the empty stack, or an abort. *)
 Definition final (s : state) : Prop :=
   match s with
-  | SRet [] v => value v
+  | ⟨[] ◁ v⟩ => value v
   | SAbort => True
   | _ => False
   end.
@@ -138,4 +157,4 @@ Definition final (s : state) : Prop :=
 (** A state that is not terminal and cannot step is stuck: this is what
     type soundness rules out. *)
 Definition stuck (ge : genv) (s : state) : Prop :=
-  ~ final s /\ ~ exists s', step ge s s'.
+  ~ final s /\ ~ exists s', s ⟶[ge] s'.
