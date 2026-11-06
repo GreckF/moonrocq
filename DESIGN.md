@@ -165,6 +165,7 @@ ref/moonbit-docs   语言文档（不入库）
 - **临时 elaborator**（`Surface/Elab.v`）：名字解析、运算符按左操作数类型选原语、期望类型传播、
   泛型调用的类型实参用一阶**匹配**求出；参数类型未知的 lambda 实参推迟到其他实参之后再处理。
   需要子项类型时调用 Core 的 `infer`（在只含签名的“头部环境”里），所以类型的定义只有一份。
-- **版本**：本机 MoonBit 工具链是 2026-08-14 的，parser 用 `moonbitlang/parser@0.3.18`
-  （更新的版本依赖更新的工具链）。
+- **版本**：MoonBit 工具链 moonc v0.10.20（2026-11），parser 用 `moonbitlang/parser@0.4.7`。
+  parser 升级后要重跑 `extract.sh`（重新生成 `Parser.v`）和 `test_frontend.sh`；
+  胶水按构造子匹配 `@syntax` AST，AST 变了要相应修改 `lower.mbt`。
 

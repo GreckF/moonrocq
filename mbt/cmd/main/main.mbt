@@ -15,8 +15,8 @@ fn main {
   for i in 1..<args.length() {
     let path = args[i]
     let src = @fs.read_file_to_string(path) catch {
-      e => {
-        println("\{path}: cannot read: \{e}")
+      _ => {
+        println("\{path}: cannot read file")
         ok = false
         continue
       }

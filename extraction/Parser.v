@@ -12,8 +12,6 @@ Axiom list_List : Type -> Type.
 Extract Constant list_List "T0" => "@list.List[T0]".
 Axiom basic_Report : Type.
 Extract Inlined Constant basic_Report => "@basic.Report".
-Axiom fs_IOError : Type.
-Extract Inlined Constant fs_IOError => "@fs.IOError".
 
 (** * Types *)
 
@@ -24,7 +22,5 @@ Extract Inductive Parser => "@parser.Parser" [ "@parser.Parser::MoonYacc" "@pars
 
 (** * Functions and values *)
 
-Axiom parse_file : String -> (Result ((list_List syntax_Impl) * (Array basic_Report)) fs_IOError).
-Extract MoonBit Function parse_file => "(try @parser.parse_file($0) catch { rocq_e => Result::Err(rocq_e) } noraise { rocq_v => Result::Ok(rocq_v) })".
 Axiom parse_string : String -> ((list_List syntax_Impl) * (Array basic_Report)).
 Extract MoonBit Function parse_string => "@parser.parse_string($0)".

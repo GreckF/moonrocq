@@ -367,7 +367,7 @@ fn lower_type(t : @syntax.Type) -> Sty raise Unsupported {
         }
       }
     Tuple(tys~, loc~) => Sty::STuple(pos_of_loc(loc), lower_types(tys))
-    Arrow(args~, res~, err~, is_async~, loc~) => {
+    Arrow(args~, res~, err~, is_async~, loc~, ..) => {
       match err {
         NoErrorType => ()
         _ => unsupported("function type with an error type", loc)
@@ -512,8 +512,8 @@ fn lower_expr(e : @syntax.Expr) -> Sexpr raise Unsupported {
       Sexpr::SAnnot(pos_of_loc(loc), lower_expr(expr), lower_type(ty))
     Group(expr~, ..) => lower_expr(expr)
     _ => {
-      unsupported(expr_kind(e), expr_loc(e))
-      Sexpr::SLit(pos_of_loc(expr_loc(e)), Slit::SLUnit)
+      unsupported(expr_kind(e), e.loc())
+      Sexpr::SLit(pos_of_loc(e.loc()), Slit::SLUnit)
     }
   }
 }
@@ -554,75 +554,7 @@ fn expr_kind(e : @syntax.Expr) -> String {
     }
     n = n + 1
   }
-  "expression `" + s.view(end_offset=n).to_owned() + "`"
-}
-
-///|
-fn expr_loc(e : @syntax.Expr) -> @basic.Location {
-  match e {
-    Apply(loc~, ..)
-    | Infix(loc~, ..)
-    | Unary(loc~, ..)
-    | Array(loc~, ..)
-    | ArraySpread(loc~, ..)
-    | ListComprehension(loc~, ..)
-    | ArrayGet(loc~, ..)
-    | ArrayGetSlice(loc~, ..)
-    | ArraySet(loc~, ..)
-    | ArrayAugmentedSet(loc~, ..)
-    | Constant(loc~, ..)
-    | MultilineString(loc~, ..)
-    | Interp(loc~, ..)
-    | BytesInterp(loc~, ..)
-    | Constraint(loc~, ..)
-    | Constr(loc~, ..)
-    | LabelledBlock(loc~, ..)
-    | While(loc~, ..)
-    | Function(loc~, ..)
-    | Ident(loc~, ..)
-    | If(loc~, ..)
-    | Guard(loc~, ..)
-    | Is(loc~, ..)
-    | RegexMatch(loc~, ..)
-    | Defer(loc~, ..)
-    | LetFn(loc~, ..)
-    | LetAnd(loc~, ..)
-    | Let(loc~, ..)
-    | Sequence(loc~, ..)
-    | Tuple(loc~, ..)
-    | Record(loc~, ..)
-    | RecordUpdate(loc~, ..)
-    | Field(loc~, ..)
-    | Method(loc~, ..)
-    | DotApply(loc~, ..)
-    | As(loc~, ..)
-    | Mutate(loc~, ..)
-    | Match(loc~, ..)
-    | LexMatch(loc~, ..)
-    | LexScan(loc~, ..)
-    | LetMut(loc~, ..)
-    | Pipe(loc~, ..)
-    | RevPipe(loc~, ..)
-    | Assign(loc~, ..)
-    | Hole(loc~, ..)
-    | Return(loc~, ..)
-    | Raise(loc~, ..)
-    | Quantifier(loc~, ..)
-    | Implies(loc~, ..)
-    | ProofAssert(loc~, ..)
-    | ProofLet(loc~, ..)
-    | Unit(loc~, ..)
-    | Break(loc~, ..)
-    | Continue(loc~, ..)
-    | For(loc~, ..)
-    | ForEach(loc~, ..)
-    | Try(loc~, ..)
-    | TryOperator(loc~, ..)
-    | Map(loc~, ..)
-    | Group(loc~, ..)
-    | TemplateWriting(loc~, ..) => loc
-    StaticAssert(body~, ..) => expr_loc(body)
-  }
+  "expression `" + s.clamped_view(start=0, end=n).to_owned() + "`"
 }
 
 // ---------------------------------------------------------------------------

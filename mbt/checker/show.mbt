@@ -68,7 +68,7 @@ pub fn string_of_ident(s : String0) -> String {
     bytes.push(byte_of_ascii(a))
     c = r
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < bytes.length() {
     let b = bytes[i]
