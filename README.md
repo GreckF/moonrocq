@@ -1,9 +1,7 @@
 # MoonRocq
 
-用 [Rocq](https://rocq-prover.org) 写的 [MoonBit](https://www.moonbitlang.com) 类型检查器。类型系统的
-**soundness** 和类型检查的 **decidability** 都有机器证明。检查器经
-[rocq2mbt](https://github.com/GreckF/rocq2mbt) 抽取成 MoonBit 代码，接上官方 parser，得到可以直接运行的
-`moonrocq` 命令。
+经形式化验证的第三方 [MoonBit](https://www.moonbitlang.com) 类型检查器，用 [Rocq](https://rocq-prover.org)
+编写。检查器经 [rocq2mbt](https://github.com/GreckF/rocq2mbt) 抽取成可执行的 MoonBit 代码。
 
 ```
 $ moonrocq examples/ok/traits.mbt
@@ -18,18 +16,18 @@ examples/ok/traits.mbt: OK
 ## 方法
 
 ```
- 源码 ──官方 parser──▶ AST ──lower（MoonBit 胶水）──▶ Surface ──elaborate──▶ Core ──certified checker──▶ 结论
+ 源码 ──官方 parser──▶ AST ──lower（MoonBit 胶水代码）──▶ Surface ──elaborate──▶ Core ──类型检查器──▶ 结论
 ```
 
 - **Core** 是一个显式类型的小内核演算。它的类型规则（`Γ ⊢[ge;Σ;Λ] e : τ`）和小步语义（带 store 的栈机器）
   都用 `Inductive` 定义。小步语义只用来证明 soundness（progress + preservation），不写解释器。
-- **检查器 correct by construction**：`infer` 的返回值带着类型推导，所以它的可靠性由构造保证；完备性单独证明。
+- **检查器按 correct by construction 的方式编写**：`infer` 的返回值带着类型推导，所以它的可靠性由构造保证；完备性单独证明。
   两者合在一起，得到类型检查的可判定性。
 - **Surface → Core** 的 elaboration 负责名字解析、局部类型推断、trait 的字典传递等。它的输出会交给
-  certified checker 重新检查，所以 `check_source_sound` 不依赖 parser、胶水和 elaborator 的任何性质。
+  经过验证的 Core 检查器重新检查，所以 `check_source_sound` 不依赖 parser、胶水代码和 elaborator 的任何性质。
   trait 的实例解析（`Surface/Resolve.v`）有规范，也有证明：解析器的完备性、一致性下解析的唯一性、
   解析出的字典良类型。
-- 主线上没有 `Admitted`，也没有新增公理。`scripts/check_assumptions.sh` 会检查每条主定理都是
+- 代码中没有 `Admitted`，也没有新增公理。`scripts/check_assumptions.sh` 会确认每条主定理都是
   `Closed under the global context`。
 
 主要定理（详见 `DESIGN.md`）：
@@ -88,9 +86,9 @@ examples/ok/traits.mbt: OK
    ```bash
    cd ../moonrocq
    bash scripts/build.sh              # 编译 Rocq 库，最后一行 BUILD_OK
-   bash scripts/check_assumptions.sh  # 公理审计和 vm_compute 测试，最后一行 TESTS_OK
+   bash scripts/check_assumptions.sh  # 确认主定理不依赖公理，并运行 vm_compute 测试，最后一行 TESTS_OK
    bash scripts/extract.sh            # 抽取到 mbt/checker/moonrocq.mbt，最后一行 EXTRACT_OK
-   bash scripts/test_frontend.sh      # 构建命令行工具，与 moon check 做差分测试，最后一行 FRONTEND_OK
+   bash scripts/test_frontend.sh      # 构建命令行工具，与 moon check 的结果对比，最后一行 FRONTEND_OK
    ```
 
    `test_frontend.sh` 会把 `examples/` 下的每个文件分别交给 moonrocq 和官方 `moon check`：
@@ -115,10 +113,10 @@ theories/
   Prelude/    Result、EqDec、Ident、可判定的 NoDup
   Core/       Syntax、Typing、Semantics、Soundness、Check、CheckComplete、Theorems
   Surface/    Syntax、Elab（临时 elaborator）、Resolve（trait 实例解析，有证明）
-extraction/   Driver.v（胶水公理、check_source、抽取命令）、Parser.v（mbti2rocq 生成）
-mbt/          MoonBit 工程：checker/（抽取结果 + 胶水 lower/show）、cmd/main/（命令行）
+extraction/   Driver.v（胶水代码对应的公理、check_source、抽取命令）、Parser.v（mbti2rocq 生成）
+mbt/          MoonBit 工程：checker/（抽取结果 + 胶水代码 lower/show）、cmd/main/（命令行）
 examples/     ok / bad / unsupported 三类示例
-tests/        公理审计（Assumptions.v）与 vm_compute 测试（Examples.v）
+tests/        主定理的公理检查（Assumptions.v）与 vm_compute 测试（Examples.v）
 scripts/      env.sh、build.sh、check_assumptions.sh、extract.sh、test_frontend.sh
 docs/         decisions.md：语言细节上的决定
 ```
@@ -127,9 +125,9 @@ docs/         decisions.md：语言细节上的决定
 
 | 里程碑 | 状态 |
 |---|---|
-| M1 Core λ：原始类型、函数、`let`、`if`、元组、递归泛型函数、原语 | ✅ |
+| M1 Core 演算：原始类型、函数、`let`、`if`、元组、递归泛型函数、原语运算 | ✅ |
 | M1.5 前端：抽取到 MoonBit，接上官方 parser | ✅ |
-| M2 名义 ADT 与模式匹配 | ✅ |
+| M2 代数数据类型（struct、enum）与模式匹配 | ✅ |
 | M3 状态与循环 | ✅ |
 | M4 错误与 effect | ✅ |
 | M5 trait（字典传递、实例解析、trait object） | ✅ |
