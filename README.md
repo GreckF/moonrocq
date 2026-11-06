@@ -13,40 +13,59 @@ examples/ok/traits.mbt: OK
   main : Unit
 ```
 
-## 方法
+## 它保证什么
+
+MoonRocq 对它所支持的 MoonBit 子集给出两方面的保证，都在 Rocq 中有完整的机器证明：
+
+- **类型安全（soundness）**：被接受的程序在运行时不会出现类型错误。程序要么正常结束并得到正确类型的结果，
+  要么以 MoonBit 允许的方式停止（例如 `panic`、数组越界），绝不会进入"不知道该怎么继续"的状态。
+- **检查结果可信且完整（decidability）**：检查器接受一个程序，当且仅当这个程序按类型规则是良类型的。
+  它既不会放过错误的程序，也不会拒绝正确的程序。
+
+这些证明不依赖任何额外的公理，代码中也没有未完成的证明（`Admitted`）。
+
+## 它是怎么工作的
 
 ```
- 源码 ──官方 parser──▶ AST ──lower（MoonBit 胶水代码）──▶ Surface ──elaborate──▶ Core ──类型检查器──▶ 结论
+ 源码 ──官方 parser──▶ 语法树 ──转换──▶ Surface ──elaborate──▶ Core ──类型检查器──▶ 结论
 ```
 
-- **Core** 是一个显式类型的小内核演算。它的类型规则（`Γ ⊢[ge;Σ;Λ] e : τ`）和小步语义（带 store 的栈机器）
-  都用 `Inductive` 定义。小步语义只用来证明 soundness（progress + preservation），不写解释器。
-- **检查器按 correct by construction 的方式编写**：`infer` 的返回值带着类型推导，所以它的可靠性由构造保证；完备性单独证明。
-  两者合在一起，得到类型检查的可判定性。
-- **Surface → Core** 的 elaboration 负责名字解析、局部类型推断、trait 的字典传递等。它的输出会交给
-  经过验证的 Core 检查器重新检查，所以 `check_source_sound` 不依赖 parser、胶水代码和 elaborator 的任何性质。
-  trait 的实例解析（`Surface/Resolve.v`）有规范，也有证明：解析器的完备性、一致性下解析的唯一性、
-  解析出的字典良类型。
-- 代码中没有 `Admitted`，也没有新增公理。`scripts/check_assumptions.sh` 会确认每条主定理都是
-  `Closed under the global context`。
+1. **解析**：直接使用 MoonBit 官方的 parser（`moonbitlang/parser`），再由一小段 MoonBit 代码把语法树转换成
+   Rocq 能处理的 Surface 语法。
+2. **Elaboration**：把 Surface 程序翻译成一个更小、类型完全显式的核心语言 Core。名字解析、局部类型推断、
+   trait 的展开（翻译成显式传递的"字典"）都在这一步完成。
+3. **Core 类型检查**：Core 的类型检查器会重新检查 elaboration 的结果，前面所有的保证都落在这一步上。
 
-主要定理（详见 `DESIGN.md`）：
+关键在于第 3 步。前两步就算有错误，也只会让检查器拒绝本该接受的程序，或者给出不够友好的报错，
+不会让一个有类型错误的程序蒙混过关。所以整个系统可以信任的部分只有 Core 和它的检查器，它们都经过了证明：
 
-| 定理 | 内容 |
+- Core 的类型规则和运行时行为（一台带内存的抽象机器，按小步执行）都在 Rocq 中精确定义。
+  这台抽象机器的作用是给出"程序如何运行"的数学定义，类型安全就是针对它来证明的，并不需要真的拿它运行程序。
+- 检查器每次给出"通过"的结论时，都会同时构造出一份类型推导。这份推导就是程序良类型的证明，
+  所以检查器"说通过就一定对"是由构造本身保证的；"该通过的一定通过"则另外证明。
+- trait 的实例解析（为每个约束选出用哪个实现）也单独做了证明：只要存在合适的实现就一定能找到；
+  在实现不重叠的前提下，找到的实现是唯一的；生成的代码类型正确。
+
+主要定理：
+
+| 定理 | 含义 |
 |---|---|
-| `Soundness.progress` / `preservation` / `soundness` | 良类型程序不会卡住；正常结束时，结果的类型就是程序的类型 |
-| `CheckComplete.infer_complete`、`has_type_dec`、`genv_ok_dec` | 检查器完备；类型判断和全局环境的良构性可判定 |
+| `Soundness.progress`、`preservation`、`soundness` | 良类型的程序不会卡住；正常结束时，结果具有程序的类型 |
+| `CheckComplete.infer_complete`、`has_type_dec` | 检查器完备；类型判断可判定 |
 | `Theorems.checked_program_safe` | 检查器接受的程序是安全的 |
-| `Resolve.resolve_complete` / `entails_unique` / `entails_typed` | trait 实例解析：完备、唯一、良类型 |
-| `Driver.check_source_sound` | 从源码到结论的整条管线 |
+| `Resolve.resolve_complete`、`entails_unique`、`entails_typed` | trait 实例解析完备、唯一、类型正确 |
+| `Driver.check_source_sound` | 从源码到结论的整条流程：结论不依赖 parser 和 elaboration 的正确性 |
 
-设计说明见 [`DESIGN.md`](DESIGN.md)。语言细节上自行做出的决定（大多用 `moon` 做实验确认过）见
-[`docs/decisions.md`](docs/decisions.md)。
+更详细的设计见 [`DESIGN.md`](DESIGN.md)。MoonBit 文档没有写清楚的语言细节，我们大多用官方工具链做实验确认，
+记录在 [`docs/decisions.md`](docs/decisions.md)。
 
 ## 构建
 
-需要 Linux，或 Windows 上的 WSL（Ubuntu）。MoonRocq 与 [rocq2mbt](https://github.com/GreckF/rocq2mbt)
-共用后者的项目本地 opam switch（Rocq 9.4+alpha，带可扩展的 extraction API），两个仓库要**并排放置**：
+需要 Linux，或 Windows 上的 WSL（Ubuntu）。
+
+MoonRocq 依赖 [rocq2mbt](https://github.com/GreckF/rocq2mbt)：它提供把 Rocq 代码抽取成 MoonBit 的插件，
+以及一个装好了合适 Rocq 版本（9.4+alpha）的本地 opam 环境，MoonRocq 直接复用这个环境。
+两个仓库需要放在同一个目录下：
 
 ```
 <dir>/
@@ -54,86 +73,89 @@ examples/ok/traits.mbt: OK
   moonrocq/
 ```
 
-（也可以设置环境变量 `ROCQ2MBT` 指向 rocq2mbt 的位置。）
+如果 rocq2mbt 放在别处，可以用环境变量 `ROCQ2MBT` 指向它。
 
-1. 安装 MoonBit 工具链（`moon`，在 moonc v0.10.20 上测试过）：
+**1. 安装 MoonBit 工具链**（在 moonc v0.10.20 上测试过）：
 
-   ```bash
-   curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-   ```
+```bash
+curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+```
 
-2. 克隆并构建 rocq2mbt（建立 opam switch，编译 MoonBit 抽取插件），细节见它的
-   [README](https://github.com/GreckF/rocq2mbt) 与 `docs/USAGE.md`：
+**2. 获取并构建 rocq2mbt。** 这一步会建立 opam 环境并编译插件，详见 rocq2mbt 的
+[README](https://github.com/GreckF/rocq2mbt) 和 `docs/USAGE.md`：
 
-   ```bash
-   git clone git@github.com:GreckF/rocq2mbt.git
-   git clone git@github.com:GreckF/moonrocq.git
-   cd rocq2mbt
-   bash scripts/setup-opam.sh
-   source scripts/env.sh
-   dune build
-   ```
+```bash
+git clone git@github.com:GreckF/rocq2mbt.git
+git clone git@github.com:GreckF/moonrocq.git
+cd rocq2mbt
+bash scripts/setup-opam.sh
+source scripts/env.sh
+dune build
+```
 
-3. 在同一个 switch 里安装 rocq-stdlib，取与 Rocq 版本同期的 commit：
+**3. 在同一个 opam 环境里安装 Rocq 标准库**，版本与 Rocq 对应：
 
-   ```bash
-   opam pin add rocq-stdlib \
-     git+https://github.com/rocq-prover/stdlib.git#22fcaa27d17bc28ab4be728ed10a1fb73afb23ee
-   ```
+```bash
+opam pin add rocq-stdlib \
+  git+https://github.com/rocq-prover/stdlib.git#22fcaa27d17bc28ab4be728ed10a1fb73afb23ee
+```
 
-4. 构建并检查 MoonRocq（脚本会自己 source 环境，不需要手动进入 switch）：
+**4. 构建 MoonRocq。** 下面的脚本会自动进入上面的 opam 环境：
 
-   ```bash
-   cd ../moonrocq
-   bash scripts/build.sh              # 编译 Rocq 库，最后一行 BUILD_OK
-   bash scripts/check_assumptions.sh  # 确认主定理不依赖公理，并运行 vm_compute 测试，最后一行 TESTS_OK
-   bash scripts/extract.sh            # 抽取到 mbt/checker/moonrocq.mbt，最后一行 EXTRACT_OK
-   bash scripts/test_frontend.sh      # 构建命令行工具，与 moon check 的结果对比，最后一行 FRONTEND_OK
-   ```
+```bash
+cd ../moonrocq
+bash scripts/build.sh              # 编译所有证明
+bash scripts/check_assumptions.sh  # 确认主定理不依赖公理，并运行 Rocq 内的测试
+bash scripts/extract.sh            # 把检查器抽取成 MoonBit 代码
+bash scripts/test_frontend.sh      # 构建 moonrocq 命令，并在示例程序上与 moon check 的结果对比
+```
 
-   `test_frontend.sh` 会把 `examples/` 下的每个文件分别交给 moonrocq 和官方 `moon check`：
-   `ok/` 两边都接受，`bad/` 两边都拒绝，`unsupported/` 是 MoonBit 接受、moonrocq 暂不支持的程序。
+每个脚本成功时，最后一行分别是 `BUILD_OK`、`TESTS_OK`、`EXTRACT_OK`、`FRONTEND_OK`。
 
-5. 使用：
+`test_frontend.sh` 用到的示例分成三类：`examples/ok/` 中的程序 MoonRocq 和官方工具链都应接受，
+`examples/bad/` 中的都应拒绝，`examples/unsupported/` 是官方工具链接受、但 MoonRocq 目前还不支持的程序。
 
-   ```bash
-   mbt/_build/native/release/build/moonrocq/moonrocq/cmd/main/main.exe FILE.mbt...
-   ```
+## 使用
 
-   程序被接受时，退出码为 0，并打印 elaborate 后各声明的 Core 签名与 `main` 的类型；
-   被拒绝时，打印出错位置和原因。
+```bash
+mbt/_build/native/release/build/moonrocq/moonrocq/cmd/main/main.exe FILE.mbt...
+```
 
-用 VS Code 浏览证明：把 vsrocq 的 `vsrocq.path` 设成 switch 里的 `vsrocqtop`
-（`opam install vsrocq-language-server`），先跑一次 `scripts/build.sh`。
+程序通过检查时，退出码为 0，并列出翻译到 Core 之后各个声明的签名和 `main` 的类型；没有通过时，
+给出出错的位置和原因。
+
+如果想在 VS Code 里阅读证明，可以安装 vsrocq 插件和 `vsrocq-language-server`（`opam install
+vsrocq-language-server`），把插件设置里的 `vsrocq.path` 指向 opam 环境中的 `vsrocqtop`，
+再运行一次 `scripts/build.sh`。
 
 ## 目录
 
 ```
 theories/
-  Prelude/    Result、EqDec、Ident、可判定的 NoDup
-  Core/       Syntax、Typing、Semantics、Soundness、Check、CheckComplete、Theorems
-  Surface/    Syntax、Elab（临时 elaborator）、Resolve（trait 实例解析，有证明）
-extraction/   Driver.v（胶水代码对应的公理、check_source、抽取命令）、Parser.v（mbti2rocq 生成）
-mbt/          MoonBit 工程：checker/（抽取结果 + 胶水代码 lower/show）、cmd/main/（命令行）
-examples/     ok / bad / unsupported 三类示例
-tests/        主定理的公理检查（Assumptions.v）与 vm_compute 测试（Examples.v）
-scripts/      env.sh、build.sh、check_assumptions.sh、extract.sh、test_frontend.sh
-docs/         decisions.md：语言细节上的决定
+  Prelude/    通用工具：Result、可判定相等、标识符
+  Core/       核心语言：语法、类型规则、运行语义、类型安全证明、类型检查器及其完备性
+  Surface/    Surface 语法、elaboration、trait 实例解析及其证明
+extraction/   连接 parser 与检查器的入口，以及抽取命令
+mbt/          MoonBit 工程：抽取出的检查器、语法树转换和输出代码、命令行程序
+examples/     示例程序（ok / bad / unsupported）
+tests/        Rocq 内的测试，以及检查主定理所依赖公理的文件
+scripts/      构建和测试脚本
+docs/         语言细节上的决定
 ```
 
 ## 进度
 
-| 里程碑 | 状态 |
-|---|---|
-| M1 Core 演算：原始类型、函数、`let`、`if`、元组、递归泛型函数、原语运算 | ✅ |
-| M1.5 前端：抽取到 MoonBit，接上官方 parser | ✅ |
-| M2 代数数据类型（struct、enum）与模式匹配 | ✅ |
-| M3 状态与循环 | ✅ |
-| M4 错误与 effect | ✅ |
-| M5 trait（字典传递、实例解析、trait object） | ✅ |
-| M6 有规范、有证明的 elaborator（取代临时 elaborator），完整的类型推断 | 计划中 |
-| M7 包与可见性 | 计划中 |
-| M8 静态分析：穷尽性、未使用绑定等 | 计划中 |
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| M1 | 核心语言：原始类型、函数、`let`、`if`、元组、递归泛型函数、内建运算 | ✅ |
+| M1.5 | 抽取成 MoonBit，接上官方 parser | ✅ |
+| M2 | 代数数据类型（struct、enum）与模式匹配 | ✅ |
+| M3 | 可变状态、数组与循环 | ✅ |
+| M4 | 错误处理与 effect | ✅ |
+| M5 | trait、方法与 trait object | ✅ |
+| M6 | 经过证明的 elaboration，以及更完整的类型推断 | 计划中 |
+| M7 | 包与可见性 | 计划中 |
+| M8 | 静态分析：模式匹配的穷尽性、未使用的绑定等 | 计划中 |
 
 ## 支持的语法
 
@@ -180,9 +202,10 @@ docs/         decisions.md：语言细节上的决定
 - **声明**：类型别名、带标签或 `mut` 的构造子字段、构造子 tag、`extenum`
 - **包与模块**：`import`、可见性（`pub`/`priv`）、顶层 `let`、`test` 块、`fn init`
 - **其他**：`async`/`nocancel`、`Bytes`、`Map`、`Json`、正则、`lexmatch`/`lexscan`、FFI、attributes
-- **推断能力的限制**（临时 elaborator，M6 解决）：
-  - lambda 的参数类型需要注解或期望类型；
-  - 带值的标签块、无条件的 `for` 循环需要期望类型；
-  - lambda 不会从函数体推出 `raise`；
-  - `try` 体的错误类型推断是近似的。
-- **检查比 MoonBit 宽松的地方**：`match` 和 `catch` 的穷尽性还不检查（M8），没有分支匹配时运行时 `Abort`
+- **类型推断上的限制**（M6 会改进）：
+  - lambda 的参数类型需要写注解，或能从上下文得知；
+  - 带返回值的标签块、没有条件的 `for` 循环，需要从上下文得知结果类型；
+  - lambda 不会根据函数体自动推断出 `raise`；
+  - `try` 中错误类型的推断只是近似。
+- **比官方工具链宽松的地方**：还不检查 `match` 和 `catch` 是否覆盖了所有情况（M8）。
+  这类程序会被接受，运行到没有分支匹配的值时停止（与 `panic` 相同）。
