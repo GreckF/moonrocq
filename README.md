@@ -131,6 +131,135 @@ mbt/_build/native/release/build/cmd/main/main.exe FILE.mbt...
 vsrocq-language-server`），把插件设置里的 `vsrocq.path` 指向 opam 环境中的 `vsrocqtop`，
 再运行一次 `scripts/build.sh`。
 
+## 作为 MoonBit 包使用
+
+抽取出的检查器已发布为 mooncakes.io 上的模块 [`GreckF/moonrocq`](https://mooncakes.io/docs/GreckF/moonrocq)，
+不需要安装 Rocq 就能在 MoonBit 项目里使用。
+
+### 引入
+
+```bash
+moon add GreckF/moonrocq
+```
+
+在要使用检查器的包的 `moon.pkg` 中导入 `checker` 包：
+
+```
+import {
+  "GreckF/moonrocq/checker" @checker,
+}
+```
+
+### 基本用法
+
+最简单的用法是把一段 MoonBit 源码交给 `check_source`，再用 `render_outcome` 转成可读的文字：
+
+```moonbit
+fn main {
+  let src = "fn add(a : Int, b : Int) -> Int { a + b }\nfn main { ignore(add(1, 2)) }"
+  let (accepted, lines) = @checker.render_outcome(@checker.check_source(src))
+  println(if accepted { "accepted" } else { "rejected" })
+  for l in lines {
+    println("  " + l)
+  }
+}
+```
+
+输出：
+
+```
+accepted
+  fn add(Int, Int) -> Int
+  main : Unit
+```
+
+如果需要区分失败的原因，或者读取检查结果，可以直接对 `check_source` 的返回值做模式匹配：
+
+```moonbit
+fn describe(src : String) -> String {
+  match @checker.check_source(src) {
+    O_Ok(Mk_genv(_, fds), _, t) => "ok, main : " + @checker.show_ty(t)
+    O_Type(e) => "type error: " + @checker.show_type_error(e)
+    O_Elab(e) => @checker.show_elab_error(e)
+    O_Unsupported(LowerUnsupported(what, p)) => @checker.show_pos(p) + ": unsupported: " + what
+    O_Parse(reports) => "\{reports.length()} parse error(s)"
+  }
+}
+```
+
+### 主要函数
+
+| 函数 | 说明 |
+|---|---|
+| `check_source(src : String) -> Outcome` | 完整流程：解析、转换、elaboration、Core 类型检查 |
+| `render_outcome(o : Outcome) -> (Bool, Array[String])` | 是否通过，以及可读的结果（通过时是各声明的签名，失败时是错误信息） |
+| `check_program(ge : Genv, e : Expr) -> Result0[Ty, Type_error]` | 直接检查一个 Core 程序：全局环境 `ge` 加入口表达式 `e` |
+| `infer(ge, Σ, Λ, Γ, e) -> Result0[Ty, Type_error]` | Core 表达式的类型推导（`check_program` 用 `Σ = Nil`、`Λ = cc0`、`Γ = Nil` 调用它） |
+| `elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error]` | Surface 程序到 Core 的 elaboration |
+| `check_sprog(sp : Sprog) -> Outcome` | elaboration 之后再做 Core 类型检查 |
+| `lower_impls(impls) -> Result0[Sprog, Lower_error]` | 把官方 parser 的语法树转换成 Surface 程序 |
+| `show_ty`、`show_type_error`、`show_elab_error`、`show_pos` | 把类型、错误、位置转成字符串 |
+| `string_of_ident`、`ident_of_string` | 标识符与 MoonBit `String` 之间的转换 |
+
+`check_program` 和 `infer` 是经过证明的部分：它们给出 `Ok` 时，程序一定良类型（证明在抽取时被擦除，
+保证来自 Rocq 中的定理）。其余函数负责把源码变成 Core，即使有错误，也只会让结果偏向拒绝。
+
+### 主要类型
+
+检查结果：
+
+```moonbit
+pub(all) enum Outcome {
+  O_Parse(Array[@basic.Report])   // 语法错误（来自官方 parser）
+  O_Unsupported(Lower_error)      // 用到了暂不支持的语法
+  O_Elab(Elab_error)              // 名字解析、类型推断等阶段的错误
+  O_Type(Type_error)              // Core 类型检查发现的错误
+  O_Ok(Genv, Expr, Ty)            // 通过：Core 全局环境、main 的 Core 表达式、main 的类型
+}
+```
+
+Core 的全局环境和类型：
+
+```moonbit
+pub(all) enum Genv { Mk_genv(List[Tdef], List[Fdef]) }      // 数据类型、函数
+pub(all) enum Fdef { Mk_fdef(Ident, Nat, List[Ty], Ty, Ty, Expr) }
+                     // 名字、类型参数个数、参数类型、返回类型、可能 raise 的错误类型、函数体
+pub(all) enum Tdef { Mk_tdef(Ident, Nat, List[Cdef], Bool) }  // 名字、类型参数个数、构造子、是否 suberror
+pub(all) enum Cdef { Mk_cdef(Ident, List[Ty]) }               // 构造子名、字段类型
+
+pub(all) enum Ty {
+  TBase(Base_ty)               // Unit、Bool、各种整数、Char、Double、Float、String，以及内部的 Never
+  TVar(Nat)                    // 类型参数（按位置编号）
+  TTuple(List[Ty])
+  TArrow(List[Ty], Ty, Ty)     // 参数、返回类型、可能 raise 的错误类型（Never 表示 noraise）
+  TData(Ident, List[Ty])       // 用户定义的数据类型；trait 被翻译成同名的字典类型，&Tr 是对象类型
+  TRef(Ty)                     // 可变单元（let mut、mut 字段）
+  TArray(Array_kind, Ty)       // AGrow 是 Array，AFixed 是 FixedArray
+  TError                       // Error
+}
+```
+
+Core 表达式 `Expr` 的构造子有 `EVar`、`EGlobal`、`ELit`、`ELam`、`EApp`、`ELet`、`EIf`、`ETuple`、`EProj`、
+`EPrim`（内建运算）、`EConstr`、`EMatch`、`EMem`（读写可变单元和数组）、`ELoop`、`EJump`
+（`break`/`continue`/`return`）、`EAbort`、`EUp`、`ERaise`、`ETry`、`EDefer`。它们的含义见
+`theories/Core/Syntax.v`。
+
+需要注意，这些类型是从 Rocq 直接抽取出来的，保留了 Rocq 的表示方式：
+
+- `List[A]` 是 `Nil`/`Cons` 构成的链表，`Nat` 是 `O`/`S` 构成的自然数，`Result0` 是 `Ok`/`Err`；
+- 标识符 `Ident` 是逐字节表示的字符串，用 `string_of_ident` 转成 MoonBit 的 `String`；
+- 变量用 de Bruijn 编号（`EVar(n)` 指向第 `n` 个外层绑定），没有名字。
+
+例如，取出第一个函数的名字和返回类型：
+
+```moonbit
+match @checker.check_source("fn f() -> Int { 1 }") {
+  O_Ok(Mk_genv(_, Cons(Mk_fdef(name, _, _, ret, _, _), _)), _, _) =>
+    println(@checker.string_of_ident(name) + " returns " + @checker.show_ty(ret))
+  _ => ()
+}
+```
+
 ## 目录
 
 ```
