@@ -1,0 +1,678 @@
+% MoonRocq 的类型规则。
+% 与 theories/Core/Typing.v、theories/Core/Soundness.v、theories/Surface/Resolve.v 一一对应。
+% 编译：latexmk -xelatex rules.tex（需要 ctex 与 mathpartir）
+\documentclass[11pt,a4paper]{ctexart}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{stmaryrd}  % \lightning
+\usepackage{mathpartir}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+% ---------------------------------------------------------------------------
+% 高亮
+\definecolor{kwcolor}{HTML}{1F4E9A}     % 语法关键字、构造子
+\definecolor{storecolor}{HTML}{0B7A75}  % store typing Σ（M3）
+\definecolor{ctlcolor}{HTML}{7A2E8E}    % 控制上下文 Λ：循环与错误（M3、M4）
+\definecolor{effcolor}{HTML}{B85C00}    % effect 条件（M4）
+\definecolor{rulecolor}{HTML}{555555}   % 规则名
+
+\newcommand{\kw}[1]{\textcolor{kwcolor}{\mathsf{#1}}}
+\newcommand{\ty}[1]{\mathsf{#1}}
+\newcommand{\Sig}{\textcolor{storecolor}{\Sigma}}
+\newcommand{\Lam}{\textcolor{ctlcolor}{\Lambda}}
+\newcommand{\hlstore}[1]{\textcolor{storecolor}{#1}}
+\newcommand{\hlctl}[1]{\textcolor{ctlcolor}{#1}}
+\newcommand{\hleff}[1]{\colorbox{effcolor!12}{$\textcolor{effcolor}{#1}$}}
+\newcommand{\rn}[1]{\textcolor{rulecolor}{\textsf{\small #1}}}
+
+% 判断
+\newcommand{\J}{\vdash_{\Sig;\Lam}}                       % 表达式
+\newcommand{\Jc}[1]{\vdash_{\Sig;\,\hlctl{#1}}}           % 改变了控制上下文的子判断
+\newcommand{\Jp}{\vdash^{\mathsf{p}}}                     % 模式
+\newcommand{\Jf}[1]{\vdash^{\mathsf{f}}_{\Sig;\hlctl{#1}}} % 帧
+\newcommand{\Jk}{\vdash^{\mathsf{k}}_{\Sig}}              % 栈
+\newcommand{\Js}{\vdash^{\mathsf{s}}}                     % 状态
+\newcommand{\binds}{\leadsto}
+\newcommand{\vs}[1]{\overline{#1}}
+\newcommand{\eff}[2]{#1 \sqsubseteq #2}                   % effect 允许关系 eff_le
+\newcommand{\arr}[3]{(#1) \to #2 \mathbin{\kw{raise}} #3}
+\newcommand{\Never}{\ty{Never}}
+\newcommand{\Err}{\ty{Error}}
+\newcommand{\Unit}{\ty{Unit}}
+\newcommand{\Bool}{\ty{Bool}}
+\newcommand{\Int}{\ty{Int}}
+\newcommand{\lbls}{\mathit{lbls}}
+\newcommand{\exn}{\mathit{exn}}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+\mprset{sep=1.6em}
+
+\title{MoonRocq 类型规则}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+本文用常规的数学记号写出 MoonRocq 当前（里程碑 M5）的全部类型规则。每条规则都与 Rocq 源码中的一个构造子一一对应，
+规则名与源码中的名字相同，例如 \rn{T\_App} 对应 \texttt{Typing.v} 中的构造子 \texttt{T\_App}。
+构造子的字段写成一个元组，内存位置只在运行时出现。
+
+MoonBit 程序先被翻译（elaborate）成一个类型完全显式的核心语言 Core，本文的规则都是 Core 的规则。
+翻译过程本身没有规范，它的结果由经过证明的 Core 类型检查器重新检查；
+trait 的实例解析是例外，它有自己的规则（第~\ref{sec:resolve}~节）。
+
+\paragraph{高亮约定}
+\begin{itemize}
+  \item \textcolor{kwcolor}{\textsf{蓝色无衬线}}：语法中的关键字与构造子。
+  \item $\Sig$（\textcolor{storecolor}{青色}）：store typing，记录运行时每个内存位置的类型，源程序中为空。
+  \item $\Lam$（\textcolor{ctlcolor}{紫色}）：控制上下文，记录外围的循环和此处允许逃出的错误类型；
+        规则中改变它的地方也用紫色标出。
+  \item \hleff{\text{橙色底}}：effect 条件，即“这里允许抛出这种错误吗”。
+\end{itemize}
+
+全局环境 $\mathit{ge}$（数据类型与函数的声明）在所有判断中固定不变，为简洁起见不写出来。
+
+\tableofcontents
+
+% ===========================================================================
+\section{语法}
+
+\subsection{类型}
+
+\[
+\begin{array}{rcll}
+b & ::= & \Unit \mid \Bool \mid \Int_k \mid \ty{Char} \mid \ty{Double} \mid \ty{Float} \mid \ty{String} \mid \Never
+  & \text{基本类型} \\
+k & ::= & \ty{Int16} \mid \ty{Int} \mid \ty{Int64} \mid \ty{UInt16} \mid \ty{UInt}
+  & \text{整数种类} \\
+  & \mid & \ty{UInt64} \mid \ty{Byte} \mid \ty{BigInt} & \\
+\tau, \varepsilon & ::= & b & \\
+  & \mid & X_i & \text{类型参数（按位置编号）} \\
+  & \mid & (\tau_1, \dots, \tau_n) & \text{元组} \\
+  & \mid & \arr{\tau_1, \dots, \tau_n}{\tau}{\varepsilon} & \text{函数，可能抛出 $\varepsilon$} \\
+  & \mid & T[\tau_1, \dots, \tau_n] & \text{数据类型} \\
+  & \mid & \ty{Ref}\ \tau & \text{可变单元} \\
+  & \mid & \ty{Array}_a\ \tau & \text{数组，$a ::= \kw{grow} \mid \kw{fixed}$} \\
+  & \mid & \Err & \text{任意错误}
+\end{array}
+\]
+
+函数类型中的 effect $\varepsilon$ 只会是以下几种：$\Never$（没有值的内部类型，表示 \texttt{noraise}）、
+$\Err$、某个 suberror 类型，或者类型参数（表示 \texttt{raise?}）。$\Never$ 没有任何值，
+因此“可能抛出 $\Never$”就是“不会抛出”。
+
+\subsection{模式与表达式}
+
+变量在实现中用 de Bruijn 编号：$\#n$ 指向从内向外的第 $n$ 个绑定（从 0 开始），上下文 $\Gamma$ 是类型的列表，
+$\Gamma(n)$ 是第 $n$ 项。一个同时绑定多个变量的结构（函数参数、模式、循环参数）中，最左边的变量编号为 0，
+写作 $\vs{\tau} \cdot \Gamma$。
+
+\[
+\begin{array}{rcll}
+p & ::= & \_ \mid x \mid \ell \mid (p_1, \dots, p_n) \mid c(p_1, \dots, p_n)
+  \mid \kw{ref}\ p \mid \kw{up}_T\ p & \text{模式} \\[0.6em]
+e & ::= & \#n \mid f[\vs{\tau}] \mid \ell & \text{变量、全局函数、字面量} \\
+  & \mid & \lambda(\vs{\tau}) \to \tau \mathbin{\kw{raise}} \varepsilon.\ e \mid e(\vs{e}) & \text{函数与调用} \\
+  & \mid & \kw{let}\ e_1\ \kw{in}\ e_2 \mid \kw{if}\ e\ \kw{then}\ e_1\ \kw{else}\ e_2 & \\
+  & \mid & (\vs{e}) \mid e.i \mid \mathit{op}(\vs{e}) & \text{元组、投影、内建运算} \\
+  & \mid & T{::}c[\vs{\tau}](e) \mid \kw{match}\ e : \tau\ \{\, \vs{p \Rightarrow e}\, \} & \text{构造子、匹配} \\
+  & \mid & \mathit{loc}_l \mid \mathit{mop}(\vs{e}) & \text{内存位置、内存操作} \\
+  & \mid & \kw{loop}\ e\ (\vs{\tau}) : \tau\ \{\, e' \,\} & \text{循环：$e$ 是初始参数元组} \\
+  & \mid & \kw{break}_k\ e : \tau \mid \kw{continue}_k\ e : \tau & \text{跳到第 $k$ 层外围循环} \\
+  & \mid & \kw{abort} : \tau & \text{\texttt{panic()}} \\
+  & \mid & \kw{up}_T(e) \mid \kw{raise}\ e : \tau & \text{提升到 $\Err$、抛出错误} \\
+  & \mid & \kw{try}\ e\ \kw{catch}_{\tau_e}\ h\ \kw{noraise}\ k & \text{$h$、$k$ 各绑定一个变量} \\
+  & \mid & \kw{defer}\ c;\ e \mid \kw{errdefer}\ c;\ e & \text{离开 $e$ 时运行清理代码 $c$}
+\end{array}
+\]
+
+几个表达式自带类型标注（$\kw{match}$ 的结果类型、跳转和 $\kw{abort}$、$\kw{raise}$ 自身的类型）。
+它们要么可能没有分支，要么根本不会返回，标注保证每个表达式只有唯一的类型。
+
+\texttt{while}、\texttt{for}、\texttt{for .. in}、带标签的块和 \texttt{return} 都由 elaboration 翻译成
+$\kw{loop}$ 与 $\kw{break}$/$\kw{continue}$；\texttt{let mut} 与 \texttt{mut} 字段翻译成 $\ty{Ref}$ 单元；
+trait 翻译成字典（第~\ref{sec:resolve}~节）。
+
+\subsection{上下文}
+
+\[
+\begin{array}{rcll}
+\Gamma & ::= & \tau_0, \tau_1, \dots & \text{变量的类型（下标即编号）} \\
+\Sig & ::= & s_0, s_1, \dots \qquad s ::= \kw{cell}\ \tau \mid \kw{arr}_a\ \tau & \text{store typing} \\
+\Lam & ::= & \langle \lbls,\ \exn \rangle & \text{控制上下文} \\
+\lbls & ::= & (\vs{\tau}_0, \tau_0), (\vs{\tau}_1, \tau_1), \dots & \text{外围循环（最内层为 0）} \\
+\exn & ::= & \tau & \text{此处允许逃出的错误类型}
+\end{array}
+\]
+
+\[
+\begin{array}{rcl}
+\Lambda_0 & = & \langle \cdot,\ \Never \rangle \qquad \text{（空控制上下文：没有循环，不允许错误逃出）} \\
+\hlctl{\Lambda + (\vs{\tau}, \tau)} & = & \langle (\vs{\tau}, \tau) \cdot \Lambda.\lbls,\ \Lambda.\exn \rangle \\
+\hlctl{\Lambda[\exn := \tau_e]} & = & \langle \Lambda.\lbls,\ \tau_e \rangle
+\end{array}
+\]
+
+% ===========================================================================
+\section{辅助定义}
+
+\paragraph{类型实参代换} $\tau[\vs{\tau}]$ 把类型参数 $X_i$ 替换为 $\vs{\tau}$ 的第 $i$ 项。
+
+\paragraph{构造子的字段} 若数据类型 $T$ 有 $n$ 个类型参数，其构造子 $c$ 的字段类型为 $\vs{\sigma}$（含 $X_i$），则
+\[
+\mathit{fields}(T, c, \vs{\tau}) = \vs{\sigma}[\vs{\tau}] .
+\]
+
+\paragraph{字面量的类型} $\mathit{lit}(\ell)$：整数字面量带有种类 $k$，类型为 $\Int_k$；其余字面量的类型显然。
+
+\paragraph{effect 的允许关系} 一个可能抛出 $\varepsilon$ 的计算，可以出现在允许 $\rho$ 逃出的地方，当且仅当
+\[
+\hleff{\eff{\varepsilon}{\rho}} \quad\iff\quad \varepsilon = \Never \ \lor\ \varepsilon = \rho .
+\]
+effect 之间没有其他子类型关系。把具体的错误类型转换成 $\Err$ 需要显式的 $\kw{up}_T$，elaboration 会自动插入。
+
+\paragraph{跳转携带的值} 对第 $k$ 层循环 $(\vs{\tau}, \tau)$：
+$\kw{break}$ 携带循环的结果，类型为 $\tau$；$\kw{continue}$ 携带新的循环参数，类型为 $(\vs{\tau})$。
+\[
+\mathit{jty}(\kw{break}, (\vs{\tau}, \tau)) = \tau \qquad
+\mathit{jty}(\kw{continue}, (\vs{\tau}, \tau)) = (\vs{\tau})
+\]
+
+\paragraph{内建运算的签名} $\mathit{sig}(\mathit{op}) = \vs{\tau} \to \tau$：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+运算 & 签名 \\
+\midrule
+整数算术 $+_k, -_k, \times_k, /_k, \%_k$ & $(\Int_k, \Int_k) \to \Int_k$ \\
+整数取负 $-_k$ & $(\Int_k) \to \Int_k$ \\
+整数比较 $=_k, \neq_k, <_k, \le_k, >_k, \ge_k$ & $(\Int_k, \Int_k) \to \Bool$ \\
+字符比较 & $(\ty{Char}, \ty{Char}) \to \Bool$ \\
+布尔取反、布尔相等 & $(\Bool) \to \Bool$，\ $(\Bool, \Bool) \to \Bool$ \\
+字符串连接、字符串相等 & $(\ty{String}, \ty{String}) \to \ty{String}$，\ $(\ty{String}, \ty{String}) \to \Bool$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{内存操作的签名} $\mathit{msig}(\mathit{mop}) = \vs{\tau} \to \tau$（操作上标注的类型 $\tau$ 保证签名唯一）：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+操作 & 签名 & 含义 \\
+\midrule
+$\kw{ref}_\tau$ & $(\tau) \to \ty{Ref}\ \tau$ & 分配单元 \\
+$\kw{get}_\tau$ & $(\ty{Ref}\ \tau) \to \tau$ & 读单元 \\
+$\kw{set}_\tau$ & $(\ty{Ref}\ \tau, \tau) \to \Unit$ & 写单元 \\
+$\kw{array}_{a,\tau,n}$ & $(\tau, \dots, \tau) \to \ty{Array}_a\ \tau$（$n$ 个参数） & 数组字面量 \\
+$\kw{make}_{a,\tau}$ & $(\Int, \tau) \to \ty{Array}_a\ \tau$ & \texttt{make(n, v)} \\
+$\kw{index}_{a,\tau}$ & $(\ty{Array}_a\ \tau, \Int) \to \tau$ & \texttt{a[i]} \\
+$\kw{setindex}_{a,\tau}$ & $(\ty{Array}_a\ \tau, \Int, \tau) \to \Unit$ & \texttt{a[i] = v} \\
+$\kw{length}_{a,\tau}$ & $(\ty{Array}_a\ \tau) \to \Int$ & \texttt{a.length()} \\
+$\kw{push}_\tau$ & $(\ty{Array}_{\kw{grow}}\ \tau, \tau) \to \Unit$ & \texttt{a.push(v)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{内存位置的类型} $\mathit{ty}(\kw{cell}\ \tau) = \ty{Ref}\ \tau$，\ $\mathit{ty}(\kw{arr}_a\ \tau) = \ty{Array}_a\ \tau$。
+
+% ===========================================================================
+\section{模式}
+
+判断 $\Jp p : \tau \binds \Delta$：模式 $p$ 匹配类型为 $\tau$ 的值，并依次绑定类型为 $\Delta$ 的变量（最左边的在前）。
+$\Jp \vs{p} : \vs{\tau} \binds \Delta$ 是逐项的版本，各项的绑定按顺序拼接。
+
+\begin{mathpar}
+\inferrule*[right=\rn{P\_Wild}]{ }{\Jp \_ : \tau \binds \cdot}
+\and
+\inferrule*[right=\rn{P\_Var}]{ }{\Jp x : \tau \binds \tau}
+\and
+\inferrule*[right=\rn{P\_Lit}]{ }{\Jp \ell : \mathit{lit}(\ell) \binds \cdot}
+\\
+\inferrule*[right=\rn{P\_Tuple}]
+  {\Jp \vs{p} : \vs{\tau} \binds \Delta}
+  {\Jp (\vs{p}) : (\vs{\tau}) \binds \Delta}
+\and
+\inferrule*[right=\rn{P\_Constr}]
+  {\mathit{fields}(T, c, \vs{\tau}) = \vs{\sigma} \\ \Jp \vs{p} : \vs{\sigma} \binds \Delta}
+  {\Jp c(\vs{p}) : T[\vs{\tau}] \binds \Delta}
+\\
+\inferrule*[right=\rn{P\_Ref}]
+  {\Jp p : \tau \binds \Delta}
+  {\Jp \kw{ref}\ p : \ty{Ref}\ \tau \binds \Delta}
+\and
+\inferrule*[right=\rn{P\_Up}]
+  {\Jp p : T[\,] \binds \Delta}
+  {\Jp \kw{up}_T\ p : \Err \binds \Delta}
+\\
+\inferrule*[right=\rn{Ps\_nil}]{ }{\Jp \cdot : \cdot \binds \cdot}
+\and
+\inferrule*[right=\rn{Ps\_cons}]
+  {\Jp p : \tau \binds \Delta_1 \\ \Jp \vs{p} : \vs{\tau} \binds \Delta_2}
+  {\Jp p \cdot \vs{p} : \tau \cdot \vs{\tau} \binds \Delta_1 \cdot \Delta_2}
+\end{mathpar}
+
+$\kw{ref}\ p$ 匹配可变单元的当前内容（用于 \texttt{mut} 字段）；
+$\kw{up}_T\ p$ 匹配一个 $\Err$ 值，要求它来自错误类型 $T$（用于 \texttt{catch} 中的构造子模式）。
+
+% ===========================================================================
+\section{表达式}
+
+判断 $\Gamma \J e : \tau$：在 store typing $\Sig$、控制上下文 $\Lam$ 与变量上下文 $\Gamma$ 下，表达式 $e$ 的类型为 $\tau$。
+$\Gamma \J \vs{e} : \vs{\tau}$ 是逐项的版本：
+
+\begin{mathpar}
+\inferrule*[right=\rn{Ts\_nil}]{ }{\Gamma \J \cdot : \cdot}
+\and
+\inferrule*[right=\rn{Ts\_cons}]
+  {\Gamma \J e : \tau \\ \Gamma \J \vs{e} : \vs{\tau}}
+  {\Gamma \J e \cdot \vs{e} : \tau \cdot \vs{\tau}}
+\end{mathpar}
+
+\subsection{变量、函数与基本结构}
+
+\begin{mathpar}
+\inferrule*[right=\rn{T\_Var}]
+  {\Gamma(n) = \tau}
+  {\Gamma \J \#n : \tau}
+\and
+\inferrule*[right=\rn{T\_Lit}]{ }{\Gamma \J \ell : \mathit{lit}(\ell)}
+\\
+\inferrule*[right=\rn{T\_Global}]
+  {\mathit{ge}\ \text{声明了}\ \kw{fn}[X_0, \dots, X_{m-1}]\ f(\vs{\sigma}) \to \sigma \mathbin{\kw{raise}} \varepsilon \\
+   |\vs{\tau}| = m}
+  {\Gamma \J f[\vs{\tau}] : \arr{\vs{\sigma}[\vs{\tau}]}{\sigma[\vs{\tau}]}{\varepsilon[\vs{\tau}]}}
+\\
+\inferrule*[right=\rn{T\_Lam}]
+  {\vs{\tau} \cdot \Gamma \Jc{\langle \cdot,\ \varepsilon \rangle} e : \tau}
+  {\Gamma \J \lambda(\vs{\tau}) \to \tau \mathbin{\kw{raise}} \varepsilon.\ e : \arr{\vs{\tau}}{\tau}{\varepsilon}}
+\and
+\inferrule*[right=\rn{T\_App}]
+  {\Gamma \J f : \arr{\vs{\tau}}{\tau}{\varepsilon} \\
+   \Gamma \J \vs{e} : \vs{\tau} \\
+   \hleff{\eff{\varepsilon}{\Lam.\exn}}}
+  {\Gamma \J f(\vs{e}) : \tau}
+\end{mathpar}
+
+函数体在新的控制上下文 \hlctl{$\langle \cdot, \varepsilon \rangle$} 中检查：外面的循环在函数体内不可见
+（\texttt{break}/\texttt{continue} 不能跨越函数），函数体允许抛出的正是它声明的 effect。
+调用时要求被调函数的 effect 在调用处允许逃出。
+
+\begin{mathpar}
+\inferrule*[right=\rn{T\_Let}]
+  {\Gamma \J e_1 : \tau_1 \\ \tau_1 \cdot \Gamma \J e_2 : \tau_2}
+  {\Gamma \J \kw{let}\ e_1\ \kw{in}\ e_2 : \tau_2}
+\and
+\inferrule*[right=\rn{T\_If}]
+  {\Gamma \J e : \Bool \\ \Gamma \J e_1 : \tau \\ \Gamma \J e_2 : \tau}
+  {\Gamma \J \kw{if}\ e\ \kw{then}\ e_1\ \kw{else}\ e_2 : \tau}
+\\
+\inferrule*[right=\rn{T\_Tuple}]
+  {\Gamma \J \vs{e} : \vs{\tau}}
+  {\Gamma \J (\vs{e}) : (\vs{\tau})}
+\and
+\inferrule*[right=\rn{T\_Proj}]
+  {\Gamma \J e : (\tau_0, \dots, \tau_{n-1}) \\ i < n}
+  {\Gamma \J e.i : \tau_i}
+\and
+\inferrule*[right=\rn{T\_Prim}]
+  {\mathit{sig}(\mathit{op}) = \vs{\tau} \to \tau \\ \Gamma \J \vs{e} : \vs{\tau}}
+  {\Gamma \J \mathit{op}(\vs{e}) : \tau}
+\end{mathpar}
+
+\subsection{数据类型与模式匹配}
+
+\begin{mathpar}
+\inferrule*[right=\rn{T\_Constr}]
+  {T\ \text{有}\ |\vs{\tau}|\ \text{个类型参数和构造子}\ c \\
+   \Gamma \J e : (\mathit{fields}(T, c, \vs{\tau}))}
+  {\Gamma \J T{::}c[\vs{\tau}](e) : T[\vs{\tau}]}
+\and
+\inferrule*[right=\rn{T\_Match}]
+  {\Gamma \J e : \tau_s \\ \Gamma \J \vs{p \Rightarrow b} : \tau_s \Rightarrow \tau}
+  {\Gamma \J \kw{match}\ e : \tau\ \{\, \vs{p \Rightarrow b} \,\} : \tau}
+\end{mathpar}
+
+分支的判断 $\Gamma \J \vs{p \Rightarrow b} : \tau_s \Rightarrow \tau$：每个模式匹配类型为 $\tau_s$ 的值，
+每个分支体在模式绑定的变量下具有类型 $\tau$。
+
+\begin{mathpar}
+\inferrule*[right=\rn{Bs\_nil}]{ }{\Gamma \J \cdot : \tau_s \Rightarrow \tau}
+\and
+\inferrule*[right=\rn{Bs\_cons}]
+  {\Jp p : \tau_s \binds \Delta \\ \Delta \cdot \Gamma \J b : \tau \\
+   \Gamma \J \vs{p \Rightarrow b} : \tau_s \Rightarrow \tau}
+  {\Gamma \J (p \Rightarrow b) \cdot \vs{p \Rightarrow b} : \tau_s \Rightarrow \tau}
+\end{mathpar}
+
+类型规则不要求模式匹配穷尽：没有分支匹配时，程序在运行时停止（等同于 \texttt{panic}）。
+
+\subsection{内存（M3）}
+
+\begin{mathpar}
+\inferrule*[right=\rn{T\_Loc}]
+  {\hlstore{\Sigma(l) = s}}
+  {\Gamma \J \mathit{loc}_l : \mathit{ty}(s)}
+\and
+\inferrule*[right=\rn{T\_Mem}]
+  {\mathit{msig}(\mathit{mop}) = \vs{\tau} \to \tau \\ \Gamma \J \vs{e} : \vs{\tau}}
+  {\Gamma \J \mathit{mop}(\vs{e}) : \tau}
+\end{mathpar}
+
+内存位置只在运行时出现：源程序在 $\Sigma = \cdot$ 下检查，\rn{T\_Loc} 只用于证明类型安全。
+
+\subsection{循环与跳转（M3）}
+
+\begin{mathpar}
+\inferrule*[right=\rn{T\_Loop}]
+  {\Gamma \J e : (\vs{\tau}) \\
+   \vs{\tau} \cdot \Gamma \Jc{\Lambda + (\vs{\tau},\ \tau)} b : \tau}
+  {\Gamma \J \kw{loop}\ e\ (\vs{\tau}) : \tau\ \{\, b \,\} : \tau}
+\and
+\inferrule*[right=\rn{T\_Jump}]
+  {\hlctl{\Lambda.\lbls(k) = L} \\ \Gamma \J e : \mathit{jty}(j, L)}
+  {\Gamma \J j_k\ e : \tau : \tau}
+\quad (j \in \{\kw{break}, \kw{continue}\})
+\and
+\inferrule*[right=\rn{T\_Abort}]{ }{\Gamma \J \kw{abort} : \tau : \tau}
+\end{mathpar}
+
+循环体以循环参数为变量，并在控制上下文中多了这一层循环。循环体正常结束时的值就是循环的结果；
+$\kw{continue}_k$ 以新的参数重新进入第 $k$ 层循环，$\kw{break}_k$ 以给定的值结束它。
+跳转和 $\kw{abort}$ 都不会返回，所以可以取任意类型（由标注给出）。
+
+\subsection{错误与 effect（M4）}
+
+\begin{mathpar}
+\inferrule*[right=\rn{T\_Up}]
+  {T\ \text{是错误类型（suberror）} \\ \Gamma \J e : T[\,]}
+  {\Gamma \J \kw{up}_T(e) : \Err}
+\and
+\inferrule*[right=\rn{T\_Raise}]
+  {\Gamma \J e : \tau_e \\ \hleff{\eff{\tau_e}{\Lam.\exn}}}
+  {\Gamma \J \kw{raise}\ e : \tau : \tau}
+\\
+\inferrule*[right=\rn{T\_Try}]
+  {\Gamma \Jc{\Lambda[\exn := \tau_e]} e : \tau_0 \\
+   \tau_e \cdot \Gamma \J h : \tau \\
+   \tau_0 \cdot \Gamma \J k : \tau}
+  {\Gamma \J \kw{try}\ e\ \kw{catch}_{\tau_e}\ h\ \kw{noraise}\ k : \tau}
+\and
+\inferrule*[right=\rn{T\_Defer}]
+  {\Gamma \Jc{\langle \cdot,\ \Lambda.\exn \rangle} c : \tau_c \\ \Gamma \J e : \tau}
+  {\Gamma \J \kw{defer}\ c;\ e : \tau}
+\end{mathpar}
+
+\rn{T\_Defer} 同样适用于 $\kw{errdefer}$。
+\begin{itemize}
+  \item $\kw{try}$ 的主体允许抛出 $\tau_e$；捕获的错误绑定在 handler $h$ 中，正常结果绑定在 $k$ 中。
+  \item 清理代码 $c$ 看不到外围的循环（不能 \texttt{break}/\texttt{continue}/\texttt{return}），
+        但可以抛出外面允许的错误，它抛出的错误会取代原来的结果。
+  \item $\eff{\tau_e}{\Lam.\exn}$ 中，$\tau_e = \Never$ 总是允许的；$\Never$ 没有值，所以这种 $\kw{raise}$ 永远不会执行。
+\end{itemize}
+
+% ===========================================================================
+\section{全局声明的良构性}
+
+\paragraph{良构的类型} $\vdash_n \tau\ \mathsf{wf}$：$\tau$ 中的数据类型都已声明且参数个数正确，类型参数 $X_i$ 满足 $i < n$，
+函数类型的 effect 是良构的 effect。良构的 effect $\vdash_n \varepsilon\ \mathsf{eff}$ 为：
+\[
+\varepsilon \in \{\Never, \Err\} \quad\text{或}\quad \varepsilon = X_i\ (i < n) \quad\text{或}\quad \varepsilon = T[\,],\ T\ \text{是错误类型} .
+\]
+
+\paragraph{数据类型} $\kw{type}\ T[X_0, \dots, X_{n-1}] = c_1(\vs{\sigma}_1) \mid \dots$ 良构，当且仅当构造子名互不相同，
+且每个字段类型满足 $\vdash_n \sigma\ \mathsf{wf}$。
+
+\paragraph{函数} 对 $\kw{fn}[X_0, \dots, X_{m-1}]\ f(\vs{\sigma}) \to \sigma \mathbin{\kw{raise}} \varepsilon\ \{\, e \,\}$：
+\begin{mathpar}
+\inferrule*[right=\rn{fsig\_ok}]
+  {\vdash_m \vs{\sigma}\ \mathsf{wf} \\ \vdash_m \sigma\ \mathsf{wf} \\ \vdash_m \varepsilon\ \mathsf{eff}}
+  {f\ \text{的签名良构}}
+\and
+\inferrule*[right=\rn{fdef\_ok}]
+  {\vs{\sigma} \vdash_{\hlstore{\cdot};\ \hlctl{\langle \cdot,\ \varepsilon \rangle}} e : \sigma}
+  {f\ \text{的函数体良类型}}
+\end{mathpar}
+
+\paragraph{全局环境} $\mathit{ge}$ 良构（$\mathsf{genv\_ok}$），当且仅当：类型名互不相同、每个数据类型良构、
+函数名互不相同、每个函数的签名良构、每个函数的函数体良类型（函数体在整个环境下检查，因此函数之间可以互相递归）。
+
+\paragraph{程序}
+\[
+\mathsf{program\_ok}(\mathit{ge}, e, \tau) \quad\iff\quad \mathit{ge}\ \text{良构} \ \land\ \cdot \vdash_{\hlstore{\cdot};\ \hlctl{\Lambda_0}} e : \tau .
+\]
+入口 \texttt{fn main} 在 $\Lambda_0$ 下检查：没有外围循环，也不允许任何错误逃出。
+
+% ===========================================================================
+\section{运行时状态的类型}
+
+这一节的规则只用于证明类型安全：它们给小步语义中抽象机器的每个状态定类型。
+
+\paragraph{值}
+\[
+v ::= \ell \mid \lambda(\vs{\tau}) \to \tau \mathbin{\kw{raise}} \varepsilon.\ e \mid (\vs{v}) \mid T{::}c[\vs{\tau}](v) \mid \mathit{loc}_l \mid \kw{up}_T(v)
+\]
+值不依赖控制上下文，统一在 $\Lambda_0$ 下定型。
+
+\paragraph{内存} 内存 $\sigma$ 是对象的列表，每个对象是一个单元 $\kw{cell}(v)$ 或一个数组 $\kw{arr}(\vs{v})$。
+内存与 store typing 一致（$\hlstore{\Sigma} \vdash \sigma$），当且仅当二者长度相同，且对每个位置 $l$：
+\[
+\begin{array}{lcl}
+\sigma(l) = \kw{cell}(v),\ \Sigma(l) = \kw{cell}\ \tau & \Rightarrow & \cdot \vdash_{\Sigma;\Lambda_0} v : \tau \\
+\sigma(l) = \kw{arr}(\vs{v}),\ \Sigma(l) = \kw{arr}_a\ \tau & \Rightarrow & \text{每个}\ v_i\ \text{都有}\ \cdot \vdash_{\Sigma;\Lambda_0} v_i : \tau
+\end{array}
+\]
+
+\paragraph{栈的控制上下文} 栈 $K$ 是帧的列表（栈顶在左）。$\mathit{ctl}(K)$ 是栈中各帧共同决定的控制上下文：
+\[
+\begin{array}{rcl}
+\mathit{ctl}(\cdot) & = & \Lambda_0 \\
+\mathit{ctl}(\kw{FLoop}(\vs{\tau}, \tau, b) \cdot K) & = & \mathit{ctl}(K) + (\vs{\tau}, \tau) \\
+\mathit{ctl}(\kw{FTry}(\tau_e, h, k) \cdot K) & = & \mathit{ctl}(K)[\exn := \tau_e] \\
+\mathit{ctl}(\kw{FAfter}(P) \cdot K) & = & \langle \cdot,\ \mathit{ctl}(K).\exn \rangle \\
+\mathit{ctl}(F \cdot K) & = & \mathit{ctl}(K) \qquad \text{（其他帧）}
+\end{array}
+\]
+
+\paragraph{帧} $\Jf{\Lambda} F : \tau \Rightarrow \tau'$：往帧 $F$ 的洞里填入类型为 $\tau$ 的值，得到类型为 $\tau'$ 的计算；
+$\Lambda$ 是帧下方的栈的控制上下文。尚未求值的部分在 $\Lambda$ 下定型，已经求值的部分是值。
+
+\begin{mathpar}
+\inferrule*[right=\rn{FT\_AppFun}]
+  {\cdot \Jc{\Lambda} \vs{e} : \vs{\tau} \\ \hleff{\eff{\varepsilon}{\Lambda.\exn}}}
+  {\Jf{\Lambda} \square(\vs{e}) : \arr{\vs{\tau}}{\tau}{\varepsilon} \Rightarrow \tau}
+\and
+\inferrule*[right=\rn{FT\_AppArg}]
+  {\cdot \Jc{\Lambda_0} f : \arr{\vs{\tau}_1, \tau, \vs{\tau}_2}{\tau'}{\varepsilon} \\
+   \cdot \Jc{\Lambda_0} \vs{v} : \vs{\tau}_1 \\\\
+   \cdot \Jc{\Lambda} \vs{e} : \vs{\tau}_2 \\
+   \hleff{\eff{\varepsilon}{\Lambda.\exn}}}
+  {\Jf{\Lambda} f(\vs{v}, \square, \vs{e}) : \tau \Rightarrow \tau'}
+\\
+\inferrule*[right=\rn{FT\_Let}]
+  {\tau_1 \Jc{\Lambda} e_2 : \tau_2}
+  {\Jf{\Lambda} \kw{let}\ \square\ \kw{in}\ e_2 : \tau_1 \Rightarrow \tau_2}
+\and
+\inferrule*[right=\rn{FT\_If}]
+  {\cdot \Jc{\Lambda} e_1 : \tau \\ \cdot \Jc{\Lambda} e_2 : \tau}
+  {\Jf{\Lambda} \kw{if}\ \square\ \kw{then}\ e_1\ \kw{else}\ e_2 : \Bool \Rightarrow \tau}
+\\
+\inferrule*[right=\rn{FT\_Tuple}]
+  {\cdot \Jc{\Lambda_0} \vs{v} : \vs{\tau}_1 \\ \cdot \Jc{\Lambda} \vs{e} : \vs{\tau}_2}
+  {\Jf{\Lambda} (\vs{v}, \square, \vs{e}) : \tau \Rightarrow (\vs{\tau}_1, \tau, \vs{\tau}_2)}
+\and
+\inferrule*[right=\rn{FT\_Proj}]
+  {i < n}
+  {\Jf{\Lambda} \square.i : (\tau_0, \dots, \tau_{n-1}) \Rightarrow \tau_i}
+\\
+\inferrule*[right=\rn{FT\_Prim}]
+  {\mathit{sig}(\mathit{op}) = (\vs{\tau}_1, \tau, \vs{\tau}_2) \to \tau' \\
+   \cdot \Jc{\Lambda_0} \vs{v} : \vs{\tau}_1 \\ \cdot \Jc{\Lambda} \vs{e} : \vs{\tau}_2}
+  {\Jf{\Lambda} \mathit{op}(\vs{v}, \square, \vs{e}) : \tau \Rightarrow \tau'}
+\and
+\inferrule*[right=\rn{FT\_Mem}]
+  {\mathit{msig}(\mathit{mop}) = (\vs{\tau}_1, \tau, \vs{\tau}_2) \to \tau' \\
+   \cdot \Jc{\Lambda_0} \vs{v} : \vs{\tau}_1 \\ \cdot \Jc{\Lambda} \vs{e} : \vs{\tau}_2}
+  {\Jf{\Lambda} \mathit{mop}(\vs{v}, \square, \vs{e}) : \tau \Rightarrow \tau'}
+\\
+\inferrule*[right=\rn{FT\_Constr}]
+  {T\ \text{有}\ |\vs{\tau}|\ \text{个类型参数和构造子}\ c}
+  {\Jf{\Lambda} T{::}c[\vs{\tau}](\square) : (\mathit{fields}(T, c, \vs{\tau})) \Rightarrow T[\vs{\tau}]}
+\and
+\inferrule*[right=\rn{FT\_Match}]
+  {\cdot \Jc{\Lambda} \vs{p \Rightarrow b} : \tau_s \Rightarrow \tau}
+  {\Jf{\Lambda} \kw{match}\ \square : \tau\ \{\, \vs{p \Rightarrow b} \,\} : \tau_s \Rightarrow \tau}
+\\
+\inferrule*[right=\rn{FT\_LoopInit}]
+  {\vs{\tau} \Jc{\Lambda + (\vs{\tau},\ \tau)} b : \tau}
+  {\Jf{\Lambda} \kw{loop}\ \square\ (\vs{\tau}) : \tau\ \{\, b \,\} : (\vs{\tau}) \Rightarrow \tau}
+\and
+\inferrule*[right=\rn{FT\_Loop}]
+  {\vs{\tau} \Jc{\Lambda + (\vs{\tau},\ \tau)} b : \tau}
+  {\Jf{\Lambda} \kw{FLoop}(\vs{\tau}, \tau, b) : \tau \Rightarrow \tau}
+\\
+\inferrule*[right=\rn{FT\_Jump}]
+  {\hlctl{\Lambda.\lbls(k) = L}}
+  {\Jf{\Lambda} j_k\ \square : \mathit{jty}(j, L) \Rightarrow \tau'}
+\and
+\inferrule*[right=\rn{FT\_Up}]
+  {T\ \text{是错误类型}}
+  {\Jf{\Lambda} \kw{up}_T(\square) : T[\,] \Rightarrow \Err}
+\and
+\inferrule*[right=\rn{FT\_Raise}]
+  {\hleff{\eff{\tau_e}{\Lambda.\exn}}}
+  {\Jf{\Lambda} \kw{raise}\ \square : \tau_e \Rightarrow \tau'}
+\\
+\inferrule*[right=\rn{FT\_Try}]
+  {\tau_e \Jc{\Lambda} h : \tau \\ \tau_0 \Jc{\Lambda} k : \tau}
+  {\Jf{\Lambda} \kw{FTry}(\tau_e, h, k) : \tau_0 \Rightarrow \tau}
+\and
+\inferrule*[right=\rn{FT\_Defer}]
+  {\cdot \Jc{\langle \cdot,\ \Lambda.\exn \rangle} c : \tau_c}
+  {\Jf{\Lambda} \kw{FDefer}(c) : \tau \Rightarrow \tau}
+\and
+\inferrule*[right=\rn{FT\_After}]
+  {\Lambda \vdash P : \tau}
+  {\Jf{\Lambda} \kw{FAfter}(P) : \tau_c \Rightarrow \tau}
+\end{mathpar}
+
+$\kw{FLoop}$ 是正在运行的循环（跳转的目标），$\kw{FTry}$ 是正在运行的 $\kw{try}$ 主体，
+$\kw{FDefer}$ 是正在运行的 $\kw{defer}$ 主体，$\kw{FAfter}(P)$ 是正在运行的清理代码，$P$ 记住清理结束后要从哪个出口继续：
+\[
+\begin{array}{rcl}
+\Lambda \vdash \kw{ret}(v) : \tau & \iff & \cdot \vdash_{\Sig;\Lambda_0} v : \tau \\
+\Lambda \vdash j_k(v) : \tau & \iff & \hlctl{\Lambda.\lbls(k) = L} \ \land\ \cdot \vdash_{\Sig;\Lambda_0} v : \mathit{jty}(j, L) \\
+\Lambda \vdash \kw{raise}(v) : \tau & \iff & \cdot \vdash_{\Sig;\Lambda_0} v : \Lambda.\exn
+\end{array}
+\]
+
+\paragraph{栈} $\Jk K : \tau \Rightarrow \tau_f$：把各帧依次复合。每个帧在它下方的栈的控制上下文中定型。
+\begin{mathpar}
+\inferrule*[right=\rn{ST\_nil}]{ }{\Jk \cdot : \tau \Rightarrow \tau}
+\and
+\inferrule*[right=\rn{ST\_cons}]
+  {\Jf{\mathit{ctl}(K)} F : \tau_1 \Rightarrow \tau_2 \\ \Jk K : \tau_2 \Rightarrow \tau_f}
+  {\Jk F \cdot K : \tau_1 \Rightarrow \tau_f}
+\end{mathpar}
+
+\paragraph{状态} $\Js s : \tau_f$：抽象机器的状态 $s$ 最终产生类型为 $\tau_f$ 的结果。
+四种状态分别是：求值 $\langle \sigma \mid K \triangleright e \rangle$、返回 $\langle \sigma \mid K \triangleleft v \rangle$、
+跳转展开 $\langle \sigma \mid K \Uparrow j_k\, v \rangle$、错误展开 $\langle \sigma \mid K \lightning v \rangle$，以及停止状态 $\kw{Abort}$。
+每条规则中的 $\Sig$ 是某个与内存一致的 store typing。
+
+\begin{mathpar}
+\inferrule*[right=\rn{SS\_Eval}]
+  {\hlstore{\Sigma} \vdash \sigma \\ \cdot \vdash_{\Sig;\,\hlctl{\mathit{ctl}(K)}} e : \tau \\ \Jk K : \tau \Rightarrow \tau_f}
+  {\Js \langle \sigma \mid K \triangleright e \rangle : \tau_f}
+\and
+\inferrule*[right=\rn{SS\_Ret}]
+  {\hlstore{\Sigma} \vdash \sigma \\ \cdot \vdash_{\Sig;\Lambda_0} v : \tau \\ \Jk K : \tau \Rightarrow \tau_f}
+  {\Js \langle \sigma \mid K \triangleleft v \rangle : \tau_f}
+\\
+\inferrule*[right=\rn{SS\_Jump}]
+  {\hlstore{\Sigma} \vdash \sigma \\ \hlctl{\mathit{ctl}(K).\lbls(k) = L} \\
+   \cdot \vdash_{\Sig;\Lambda_0} v : \mathit{jty}(j, L) \\ \Jk K : \tau \Rightarrow \tau_f}
+  {\Js \langle \sigma \mid K \Uparrow j_k\, v \rangle : \tau_f}
+\and
+\inferrule*[right=\rn{SS\_Raise}]
+  {\hlstore{\Sigma} \vdash \sigma \\ \cdot \vdash_{\Sig;\Lambda_0} v : \hlctl{\mathit{ctl}(K).\exn} \\ \Jk K : \tau \Rightarrow \tau_f}
+  {\Js \langle \sigma \mid K \lightning v \rangle : \tau_f}
+\and
+\inferrule*[right=\rn{SS\_Abort}]{ }{\Js \kw{Abort} : \tau_f}
+\end{mathpar}
+
+\rn{SS\_Jump} 保证跳转一定能找到目标循环；\rn{SS\_Raise} 保证错误一定会被某个 handler 接住：
+空栈的控制上下文是 $\Lambda_0$，它允许逃出的错误类型是没有值的 $\Never$。
+
+% ===========================================================================
+\section{trait 实例解析}
+\label{sec:resolve}
+
+trait 不进入 Core，而是翻译成字典：trait $\mathit{Tr}$ 变成数据类型 $\mathit{Tr}[\mathit{Self}]$，
+它唯一的构造子依次存放 supertrait 的字典和各个方法；每个 \texttt{impl} 变成一个构造字典的全局函数；
+约束 $X : \mathit{Tr}$ 变成字典参数。决定“每个约束用哪个字典”的部分有自己的规则
+（\texttt{theories/Surface/Resolve.v}）。
+
+\paragraph{实例与假设}
+一个实例 $\iota = \kw{impl}[X_0, \dots, X_{n-1}]\ \mathit{Tr}\ \kw{for}\ h[X_0, \dots, X_{n-1}]$ 记录了它的 trait、
+类型头部 $h$（类型构造子）、参数个数 $n$、对参数的约束 $\mathit{ctx}(\iota) = \vs{(\mathit{Tr}'_j, i_j)}$（即 $X_{i_j} : \mathit{Tr}'_j$），
+以及构造字典的全局函数 $\mathit{inst}(\iota)$。假设 $\Theta$ 是三元组 $(\mathit{Tr}, \tau, d)$ 的列表：约束 $\mathit{Tr}[\tau]$ 成立，字典为 $d$
+（来自外层函数的约束及其 supertrait）。
+
+$\mathit{head}(\tau) = (h, \vs{\tau})$ 把类型拆成头部与参数，例如 $\mathit{head}(\ty{Array}_{\kw{grow}}\ \Int) = (\ty{Array}_{\kw{grow}}, \Int)$；
+类型参数和函数类型没有头部。
+
+\paragraph{规则} $\Theta \vdash_I \mathit{Tr}[\tau] \binds d$：在实例集 $I$ 与假设 $\Theta$ 下，约束 $\mathit{Tr}[\tau]$ 成立，所用的字典为 $d$。
+
+\begin{mathpar}
+\inferrule*[right=\rn{R\_Assume}]
+  {(\mathit{Tr}, \tau, d) \in \Theta}
+  {\Theta \vdash_I \mathit{Tr}[\tau] \binds d}
+\and
+\inferrule*[right=\rn{R\_Inst}]
+  {\mathit{head}(\tau) = (h, \vs{\tau}) \\
+   \iota \in I \\ \iota = \kw{impl}\ \mathit{Tr}\ \kw{for}\ h \\ |\vs{\tau}| = n \\
+   \Theta \vdash_I \mathit{ctx}(\iota)[\vs{\tau}] \binds \vs{d}}
+  {\Theta \vdash_I \mathit{Tr}[\tau] \binds \mathit{inst}(\iota)[\vs{\tau}](\vs{d})}
+\\
+\inferrule*[right=\rn{RC\_nil}]{ }{\Theta \vdash_I \cdot \binds \cdot}
+\and
+\inferrule*[right=\rn{RC\_cons}]
+  {\Theta \vdash_I \mathit{Tr}'[\tau_i] \binds d \\ \Theta \vdash_I \vs{c}[\vs{\tau}] \binds \vs{d}}
+  {\Theta \vdash_I ((\mathit{Tr}', i) \cdot \vs{c})[\vs{\tau}] \binds d \cdot \vs{d}}
+\end{mathpar}
+
+\paragraph{一致性} 实例集 $I$ 是一致的，当且仅当同一个 trait 对同一个类型头部至多有一个实例。
+因为实例的头部总是“类型构造子作用于类型参数”，\texttt{impl[T] S for Array[T]} 与
+\texttt{impl S for Array[Int]} 头部相同，是重叠的。
+
+\paragraph{性质}（均已在 Rocq 中证明）
+\begin{itemize}
+  \item 解析器是完备的：只要 $\Theta \vdash_I \mathit{Tr}[\tau] \binds d$ 对某个 $d$ 成立，它就能找到一个字典；因此约束是否成立可判定。
+  \item 一致性可判定。在一致性成立、且假设只涉及类型参数、每个约束至多一个假设时，字典是唯一的。
+  \item 若每个实例函数的类型为 $\kw{fn}[X_0..X_{n-1}](\vs{\mathit{Tr}'[X_i]}) \to \mathit{Tr}[h[X_0..X_{n-1}]]$ 且不抛出错误，
+        每个假设的字典具有类型 $\mathit{Tr}[\tau]$，那么解析出的字典 $d$ 满足 $\Gamma \J d : \mathit{Tr}[\tau]$。
+\end{itemize}
+
+% ===========================================================================
+\section{主要定理}
+
+以下定理在 Rocq 中证明，不依赖任何额外公理。
+
+\begin{itemize}
+  \item \textbf{Progress}：若 $\mathit{ge}$ 良构且 $\Js s : \tau$，则 $s$ 是终止状态（空栈上返回一个值，或 $\kw{Abort}$），或者可以再走一步。
+  \item \textbf{Preservation}：若 $\mathit{ge}$ 良构、$\Js s : \tau$ 且 $s$ 走一步到 $s'$，则 $\Js s' : \tau$。
+  \item \textbf{Soundness}：若 $\mathsf{program\_ok}(\mathit{ge}, e, \tau)$，则从 $\langle \cdot \mid \cdot \triangleright e \rangle$
+        出发的执行永远不会卡住；若它正常结束于值 $v$，则存在与最终内存一致的 $\Sig$ 使 $\cdot \vdash_{\Sig;\Lambda_0} v : \tau$。
+  \item \textbf{类型检查器}：检查器给出类型 $\tau$ 时，同时给出 $\Gamma \J e : \tau$ 的推导（可靠性由构造保证）；
+        反之，凡是 $\Gamma \J e : \tau$ 成立，检查器都会给出 $\tau$（完备性）。因此类型判断与 $\mathsf{program\_ok}$ 可判定，且每个表达式的类型唯一。
+\end{itemize}
+
+\end{document}
