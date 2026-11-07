@@ -345,4 +345,10 @@ M6 用有规范、有证明的 elaborator 取代 `Surface/Elab.v`，分四个阶
   `try .. catch .. noraise`、`defer`/`errdefer`（清理代码只能 raise，不能跳转）。`try` 体的错误类型由
   `try_err` 给出：分支模式指名的类型；指名多个则是 `Error`；都没指名时，规范允许 `Error` 或任一 suberror
   （非确定，M6b 再定），算法取体唯一能通过的那个 suberror，否则取 `Error`，与旧算法相同。
-- 待做：M5（trait、方法、对象）、顶层定义与程序，然后替换旧 Elab。
+- M5 ✅（表达式部分）：字典由 `Resolve.v` 的 `entails` 给出，假设取当前定义的字典变量中在作用域内且类型正确的那些
+  （`asm_of`），因此 `elab_typed` 只需一个全局前提：实例函数的签名符合 `inst_ok`。带约束的调用在实参前传字典
+  （`dicts`，按函数签名中字典参数的类型逐个解析）；`fn T::m` 用 `T::m(..)` 或 `x.m(..)` 调用；trait 方法
+  （`Tr::m`、类型参数 `X::m`、点调用）从字典取出，`Self` 在 `Tr::m` 中由规范存在量化，算法取第一个实参或期望
+  类型；trait object 由隐式转换 `Co_Obj` 构造（转换因此带上 Γ），其方法调用取对象的字段。方法和对象的
+  Core 类型都取自头部中的数据类型定义（`field_proj`），不依赖 trait 信息与头部一致。
+- 待做：顶层定义与程序（函数体、impl、实例函数、对象实例），然后替换旧 Elab。

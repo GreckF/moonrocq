@@ -15,8 +15,8 @@
     that may escape) and [Γ] the local variables with their names.
 
     Checking falls back on synthesis followed by an implicit conversion
-    [⊩ᶜ[E] e : τ' ≼ τ ⇝ e'] (equality, or the promotion of a suberror to
-    [Error]).  The type arguments of a generic function are not determined
+    [⊩ᶜ[E;Γ] e : τ' ≼ τ ⇝ e'] (equality, the promotion of a suberror to
+    [Error], or the construction of a trait object).  The type arguments of a generic function are not determined
     by the rules: finding them is the elaborator's business (decision 65).
 
     [ElabTyped.v] proves that every elaborated expression is well typed in
@@ -32,12 +32,16 @@
     constructors, records, patterns, [match], field access and the
     projections of tuple structs; from milestone M3 [let mut], assignment,
     arrays, [Ref::new], [Array::make], [while], [for], [for .. in] over
-    integer ranges and arrays, labelled blocks and [break]/[continue]/[return]. *)
+    integer ranges and arrays, labelled blocks and [break]/[continue]/[return];
+    from milestone M4 [raise], [fail], [try!], [try .. catch .. noraise] and
+    [defer]; from milestone M5 calls with trait bounds (dictionary
+    arguments), methods [fn T::m], trait methods ([Tr::m], [X::m], [x.m()]),
+    trait objects ([as &Tr], implicit conversion) and their methods. *)
 
 From Stdlib Require Import List ZArith String Bool.
 From MoonRocq.Prelude Require Import Result EqDec Ident.
 From MoonRocq.Core Require Import Syntax Prim Subst Typing.
-From MoonRocq.Surface Require Import Syntax Base.
+From MoonRocq.Surface Require Import Syntax Resolve Base.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -180,20 +184,6 @@ Definition wrap_call (L : cenv) (ε r : ty) (f : expr) (es : list expr) : expr :
   | _, _ => EApp f es
   end.
 
-(** ** Implicit conversions *)
-
-Reserved Notation "⊩ᶜ[ E ] e : τ ≼ τ' ⇝ e'"
-  (at level 70, E at level 200, e at level 60, τ at level 60, τ' at level 60,
-   e' at level 60, no associativity, format "⊩ᶜ[ E ]  e  :  τ  ≼  τ'  ⇝  e'").
-
-Inductive coerce_rel (E : senv) : expr -> ty -> ty -> expr -> Prop :=
-| Co_Refl e τ :
-    ⊩ᶜ[E] e : τ ≼ τ ⇝ e
-| Co_Up e T :
-    err_type E T ->
-    ⊩ᶜ[E] e : TData T [] ≼ TError ⇝ EUp T e
-where "⊩ᶜ[ E ] e : τ ≼ τ' ⇝ e'" := (coerce_rel E e τ τ' e').
-
 (** ** Data types *)
 
 Definition ctor_in (c : ident) (td : tdef) : bool :=
@@ -248,6 +238,157 @@ Definition field_proj (E : senv) (T : ident) (ts : list ty) (i : nat) (e : expr)
       end
   | None => None
   end.
+
+(** ** Traits and methods (milestone M5)
+
+    A constraint [Tr[τ]] is resolved by [entails] ([Resolve.v]), from the
+    instances and the assumptions of the current definition: its dictionary
+    variables, as far as they are in scope with the right type. *)
+
+Definition trs (E : senv) : list trinfo := x_traits (se_x E).
+
+Definition asm_of (E : senv) (Γ : lctx) : list assumption :=
+  flat_map (fun a => let '(Tr, τ, x) := a in
+              match lookup_local x Γ with
+              | Some i =>
+                  match nth_error (ctx_of Γ) i with
+                  | Some t => if eq_dec t (TData Tr [τ]) then [(Tr, τ, EVar i)] else []
+                  | None => []
+                  end
+              | None => []
+              end) (x_asm (se_x E)).
+
+Definition dict (E : senv) (Γ : lctx) (Tr : ident) (τ : ty) (d : expr) : Prop :=
+  entails (x_insts (se_x E)) (asm_of E Γ) Tr τ d.
+
+Definition has_dict (E : senv) (Γ : lctx) (Tr : ident) (τ : ty) : bool :=
+  match entails_dec (x_insts (se_x E)) (asm_of E Γ) Tr τ with
+  | inleft _ => true
+  | inright _ => false
+  end.
+
+(** The dictionary arguments of a call: one per dictionary parameter. *)
+Definition dicts (E : senv) (Γ : lctx) (τs : list ty) (ds : list expr) : Prop :=
+  Forall2 (fun t d => exists Tr τ, t = TData Tr [τ] /\ dict E Γ Tr τ d) τs ds.
+
+(** The number of dictionary parameters of a global function. *)
+Definition nbounds (E : senv) (g : ident) : nat := List.length (sbounds E g).
+
+(** Methods [fn T::m]. *)
+Definition meth_name (T m : ident) : ident := (T ++ "::" ++ m)%string.
+
+Definition has_meth (E : senv) (T m : ident) : bool :=
+  existsb (fun tm => (String.eqb (fst tm) T && String.eqb (snd tm) m)%bool) (x_meths (se_x E)).
+
+Definition meth_fn (E : senv) (τ : ty) (m : ident) : bool :=
+  match head_name τ with Some H => has_meth E H m | None => false end.
+
+(** [Ref::new(v)], [Array::make(n, v)], [Array::new()]: not methods. *)
+Definition qual_builtin (T m : ident) (n : nat) : bool :=
+  match array_kind_of T, n with
+  | None, 1 => (String.eqb T "Ref" && String.eqb m "new")%bool
+  | Some _, 2 => String.eqb m "make"
+  | Some _, 0 => String.eqb m "new"
+  | _, _ => false
+  end.
+
+(** [a.length()], [a.push(x)]: not methods. *)
+Definition arr_builtin (τ : ty) (m : ident) (n : nat) : bool :=
+  match τ, n with
+  | TArray _ _, 0 => String.eqb m "length"
+  | TArray AGrow _, 1 => String.eqb m "push"
+  | _, _ => false
+  end.
+
+Definition declares (E : senv) (m Tr : ident) : bool :=
+  match find_trait (trs E) Tr with
+  | Some ti => match method_of ti m with Some _ => true | None => false end
+  | None => false
+  end.
+
+(** The traits assumed for [τ] (bounds and their supertraits). *)
+Definition asm_traits (E : senv) (τ : ty) : list ident :=
+  map (fun a => fst (fst a)) (filter (fun a => if eq_dec (snd (fst a)) τ then true else false) (x_asm (se_x E))).
+
+(** The trait of [T::m(..)] when [T] has no method [m]: [T] itself if it
+    is a trait; for a type parameter [T], the first trait assumed for it
+    declaring [m] (and [Self] is [T]); otherwise the only trait declaring
+    [m].  [Self] is otherwise not determined by the rules. *)
+Definition qual_trait (E : senv) (T m Tr : ident) (τs : ty) : Prop :=
+  match find_trait (trs E) T, index_of T (se_tps E) with
+  | Some _, _ => Tr = T
+  | None, Some i => τs = TVar i /\ hd_error (filter (declares E m) (asm_traits E (TVar i))) = Some Tr
+  | None, None => filter (declares E m) (map ti_name (trs E)) = [Tr]
+  end.
+
+(** Dot calls of trait methods are allowed on type parameters and on the
+    program's own types (as in MoonBit; not on builtin types). *)
+Definition dot_traits (τ : ty) : bool :=
+  match τ with
+  | TVar _ => true
+  | TData T _ => negb (existsb (String.eqb T) ["Option"; "Ref"; "Result"; "Failure"])
+  | _ => false
+  end.
+
+(** The traits declaring [m] that hold for [τ]. *)
+Definition dot_trait (E : senv) (Γ : lctx) (m : ident) (τ : ty) : list ident :=
+  filter (fun Tr => (declares E m Tr && has_dict E Γ Tr τ)%bool) (map ti_name (trs E)).
+
+(** The trait whose object type is [τ]. *)
+Definition obj_of (E : senv) (τ : ty) : option ident :=
+  match τ with
+  | TData On [] => find (fun Tr => String.eqb (obj_name Tr) On) (x_objs (se_x E))
+  | _ => None
+  end.
+
+(** The field of method [m] in an object. *)
+Fixpoint obj_index (fs : list (ident * msig)) (m : ident) : option nat :=
+  match fs with
+  | [] => None
+  | (_, sg) :: fs' => if String.eqb (ms_name sg) m then Some 0 else option_map S (obj_index fs' m)
+  end.
+
+(** A field of the object of a value [self : τ] (bound at index 0 of
+    [Γo]): the closure calling the trait method with [self] first. *)
+Definition obj_meth (E : senv) (Γo : lctx) (τ : ty) (sm : ident * msig) (fty : ty) (f : expr) : Prop :=
+  exists ti i sg ps r ε d mv,
+    find_trait (trs E) (fst sm) = Some ti /\
+    method_of ti (ms_name (snd sm)) = Some (i, sg) /\
+    fty = TArrow ps r ε /\
+    dict E (List.app (map (fun t => (None, t)) ps) Γo) (fst sm) τ d /\
+    field_proj E (fst sm) [τ] i d = Some (mv, TArrow (τ :: ps) r ε) /\
+    f = ELam ps r ε (EApp mv (EVar (List.length ps) :: map EVar (seq 0 (List.length ps)))).
+
+Fixpoint obj_meths (E : senv) (Γo : lctx) (τ : ty) (sms : list (ident * msig)) (ftys : list ty)
+    (fs : list expr) : Prop :=
+  match sms, ftys, fs with
+  | [], [], [] => True
+  | sm :: sms', t :: ts', f :: fs' => obj_meth E Γo τ sm t f /\ obj_meths E Γo τ sms' ts' fs'
+  | _, _, _ => False
+  end.
+
+(** ** Implicit conversions *)
+
+Reserved Notation "⊩ᶜ[ E ; Γ ] e : τ ≼ τ' ⇝ e'"
+  (at level 70, E at level 200, Γ at level 200, e at level 60, τ at level 60, τ' at level 60,
+   e' at level 60, no associativity, format "⊩ᶜ[ E ; Γ ]  e  :  τ  ≼  τ'  ⇝  e'").
+
+Inductive coerce_rel (E : senv) (Γ : lctx) : expr -> ty -> ty -> expr -> Prop :=
+| Co_Refl e τ :
+    ⊩ᶜ[E;Γ] e : τ ≼ τ ⇝ e
+| Co_Up e T :
+    err_type E T ->
+    ⊩ᶜ[E;Γ] e : TData T [] ≼ TError ⇝ EUp T e
+(** a value where a trait object is expected: its object *)
+| Co_Obj e τ τ' Tr td cd fs :
+    obj_of E τ' = Some Tr ->
+    τ <> τ' ->
+    lookup_ty (se_hdr E) (obj_name Tr) = Some td ->
+    td_tparams td = 0 ->
+    lookup_ctor td (obj_name Tr) = Some cd ->
+    obj_meths E ((None, τ) :: Γ) τ (obj_fields (trs E) Tr) (map (tsubst (inst [])) (cd_fields cd)) fs ->
+    ⊩ᶜ[E;Γ] e : τ ≼ τ' ⇝ ELet e (EConstr (obj_name Tr) (obj_name Tr) [] (ETuple fs))
+where "⊩ᶜ[ E ; Γ ] e : τ ≼ τ' ⇝ e'" := (coerce_rel E Γ e τ τ' e').
 
 (** The sub-patterns of a record pattern, put in field order: field [j]
     gets the pattern written for it, or [_] if the pattern is open ([..]). *)
@@ -772,16 +913,18 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     List.app (lam_ctx ps τs) Γ ⊩[E;mk_cenv [] ε] body ⇒ r ⇝ b ->
     Γ ⊩[E;L] SLam p ps None a body ⇒ TArrow τs r ε ⇝ ELam τs r ε b
 (** a call of a global function at type arguments [ts] *)
-| S_Call L Γ p q g args fd ts es :
+(** the first parameters of a function with trait bounds are
+    dictionaries (milestone M5) *)
+| S_Call L Γ p q g args fd ts ds es :
     lookup_local g Γ = None ->
     lookup_fn (se_hdr E) g = Some fd ->
-    sbounds E g = [] ->
     List.length ts = fd_tparams fd ->
-    Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) (fd_params fd) ⇝ es ->
+    dicts E Γ (map (tsubst (inst ts)) (firstn (nbounds E g) (fd_params fd))) ds ->
+    Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) (skipn (nbounds E g) (fd_params fd)) ⇝ es ->
     call_ok E L (tsubst (inst ts) (fd_eff fd)) ->
     Γ ⊩[E;L] SApp p (SVar q g) args ⇒ tsubst (inst ts) (fd_ret fd)
       ⇝ wrap_call L (tsubst (inst ts) (fd_eff fd)) (tsubst (inst ts) (fd_ret fd))
-                  (EGlobal g ts) es
+                  (EGlobal g ts) (List.app ds es)
 (** a call of any other function value *)
 | S_CallExpr L Γ p f args ps r ε f' es :
     callee Γ f ->
@@ -985,7 +1128,7 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     builtin E Γ "fail" ->
     failure_ok E ->
     Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
-    ⊩ᶜ[E] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
+    ⊩ᶜ[E;Γ] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
     Γ ⊩[E;L] SApp p (SVar q "fail") [a] ⇒ TUnit ⇝ ERaise v TUnit
 (** [try! body]: an error stops the program *)
 | S_TryBang L Γ p body τ b :
@@ -1013,12 +1156,84 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     Γ ⊩[E;mk_cenv [] (ce_exn L)] c ⇐ TUnit ⇝ c' ->
     Γ ⊩[E;L] body ⇒ τ ⇝ b ->
     Γ ⊩[E;L] SDefer p d c body ⇒ τ ⇝ EDefer d c' b
+(* traits and methods (milestone M5) *)
+(** [T::m(args)] for a method [fn T::m] *)
+| S_QualFn L Γ p q T m args fd ts ds es :
+    qual_builtin T m (List.length args) = false ->
+    has_meth E T m = true ->
+    lookup_fn (se_hdr E) (meth_name T m) = Some fd ->
+    List.length ts = fd_tparams fd ->
+    dicts E Γ (map (tsubst (inst ts)) (firstn (nbounds E (meth_name T m)) (fd_params fd))) ds ->
+    Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) (skipn (nbounds E (meth_name T m)) (fd_params fd)) ⇝ es ->
+    call_ok E L (tsubst (inst ts) (fd_eff fd)) ->
+    Γ ⊩[E;L] SApp p (SQual q T m) args ⇒ tsubst (inst ts) (fd_ret fd)
+      ⇝ wrap_call L (tsubst (inst ts) (fd_eff fd)) (tsubst (inst ts) (fd_ret fd))
+                  (EGlobal (meth_name T m) ts) (List.app ds es)
+(** [Tr::m(args)], [X::m(args)]: a trait method at [Self = τs], taken from
+    the dictionary *)
+| S_TCall L Γ p q T m args Tr τs ti i sg d mv ps r ε es :
+    qual_builtin T m (List.length args) = false ->
+    has_meth E T m = false ->
+    qual_trait E T m Tr τs ->
+    find_trait (trs E) Tr = Some ti ->
+    method_of ti m = Some (i, sg) ->
+    dict E Γ Tr τs d ->
+    field_proj E Tr [τs] i d = Some (mv, TArrow ps r ε) ->
+    Γ ⊩*[E;L] args ⇐ ps ⇝ es ->
+    call_ok E L ε ->
+    Γ ⊩[E;L] SApp p (SQual q T m) args ⇒ r ⇝ wrap_call L ε r mv es
+(** [x.m(args)]: a method [fn T::m] of the type of [x]... *)
+| S_MethFn L Γ p s m args τr r' H fd ts p0 ps ds es :
+    Γ ⊩[E;L] s ⇒ τr ⇝ r' ->
+    arr_builtin τr m (List.length args) = false ->
+    head_name τr = Some H ->
+    has_meth E H m = true ->
+    lookup_fn (se_hdr E) (meth_name H m) = Some fd ->
+    List.length ts = fd_tparams fd ->
+    skipn (nbounds E (meth_name H m)) (fd_params fd) = p0 :: ps ->
+    tsubst (inst ts) p0 = τr ->
+    dicts E Γ (map (tsubst (inst ts)) (firstn (nbounds E (meth_name H m)) (fd_params fd))) ds ->
+    Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) ps ⇝ es ->
+    call_ok E L (tsubst (inst ts) (fd_eff fd)) ->
+    Γ ⊩[E;L] SMethod p s m args ⇒ tsubst (inst ts) (fd_ret fd)
+      ⇝ wrap_call L (tsubst (inst ts) (fd_eff fd)) (tsubst (inst ts) (fd_ret fd))
+                  (EGlobal (meth_name H m) ts) (List.app ds (r' :: es))
+(** ... on a trait object, its closure... *)
+| S_MethObj L Γ p s m args τr r' Tr j fv ps r ε es :
+    Γ ⊩[E;L] s ⇒ τr ⇝ r' ->
+    meth_fn E τr m = false ->
+    obj_of E τr = Some Tr ->
+    obj_index (obj_fields (trs E) Tr) m = Some j ->
+    field_proj E (obj_name Tr) [] j r' = Some (fv, TArrow ps r ε) ->
+    Γ ⊩*[E;L] args ⇐ ps ⇝ es ->
+    call_ok E L ε ->
+    Γ ⊩[E;L] SMethod p s m args ⇒ r ⇝ wrap_call L ε r fv es
+(** ... or the only trait method [m] that applies, with [x] first *)
+| S_MethTrait L Γ p s m args τr r' Tr ti i sg d mv ps r ε es :
+    Γ ⊩[E;L] s ⇒ τr ⇝ r' ->
+    meth_fn E τr m = false ->
+    obj_of E τr = None ->
+    dot_traits τr = true ->
+    dot_trait E Γ m τr = [Tr] ->
+    find_trait (trs E) Tr = Some ti ->
+    method_of ti m = Some (i, sg) ->
+    dict E Γ Tr τr d ->
+    field_proj E Tr [τr] i d = Some (mv, TArrow (τr :: ps) r ε) ->
+    Γ ⊩*[E;L] args ⇐ ps ⇝ es ->
+    call_ok E L ε ->
+    Γ ⊩[E;L] SMethod p s m args ⇒ r ⇝ wrap_call L ε r mv (r' :: es)
+(** [e as &Tr] *)
+| S_As L Γ p s Tr τ e e' :
+    existsb (String.eqb Tr) (x_objs (se_x E)) = true ->
+    Γ ⊩[E;L] s ⇒ τ ⇝ e ->
+    ⊩ᶜ[E;Γ] e : τ ≼ TData (obj_name Tr) [] ⇝ e' ->
+    Γ ⊩[E;L] SAs p s Tr ⇒ TData (obj_name Tr) [] ⇝ e'
 
 with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
 (** subsumption: synthesize, then convert *)
 | C_Sub L Γ s τ' τ e e' :
     Γ ⊩[E;L] s ⇒ τ' ⇝ e ->
-    ⊩ᶜ[E] e : τ' ≼ τ ⇝ e' ->
+    ⊩ᶜ[E;Γ] e : τ' ≼ τ ⇝ e' ->
     Γ ⊩[E;L] s ⇐ τ ⇝ e'
 (** an unsuffixed integer literal takes the expected integer type *)
 | C_Lit L Γ p z k :
@@ -1207,7 +1422,7 @@ with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     builtin E Γ "fail" ->
     failure_ok E ->
     Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
-    ⊩ᶜ[E] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
+    ⊩ᶜ[E;Γ] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
     Γ ⊩[E;L] SApp p (SVar q "fail") [a] ⇐ τ ⇝ ERaise v τ
 | C_TryBang L Γ p body τ b :
     Γ ⊩[E;set_exn TError L] body ⇐ τ ⇝ b ->

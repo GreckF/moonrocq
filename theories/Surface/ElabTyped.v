@@ -8,7 +8,7 @@
 From Stdlib Require Import List ZArith String Bool Arith Lia.
 From MoonRocq.Prelude Require Import Result EqDec Ident.
 From MoonRocq.Core Require Import Syntax Prim Subst Typing Check.
-From MoonRocq.Surface Require Import Syntax Base ElabSpec.
+From MoonRocq.Surface Require Import Syntax Resolve Base ElabSpec.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -16,6 +16,9 @@ Local Open Scope string_scope.
 Section Typed.
   Variable E : senv.
   Abbreviation ge := (se_hdr E).
+
+  (** The instance functions have the signatures resolution assumes. *)
+  Hypothesis HI : Forall (inst_ok ge) (x_insts (se_x E)).
 
   Lemma binop_typed Γ Λ p op τ a b e :
     elab_binop p op τ a b = Ok e ->
@@ -81,14 +84,6 @@ Section Typed.
       + eapply T_Up; eauto. constructor; reflexivity.
       + right; simpl; rewrite Ex; reflexivity.
     - constructor; reflexivity.
-  Qed.
-
-  Lemma coerce_typed Λ Γ e τ τ' e' :
-    ⊩ᶜ[E] e : τ ≼ τ' ⇝ e' ->
-    Γ ⊢[ge;[];Λ] e : τ -> Γ ⊢[ge;[];Λ] e' : τ'.
-  Proof.
-    destruct 1 as [|e0 T (td & Htd & Herr)]; intros He; auto.
-    eapply T_Up; eauto.
   Qed.
 
   Lemma eblock_typed Γ r ε b :
@@ -608,6 +603,116 @@ Section Typed.
     τ0 :: Γ ⊢ᵇ[ge;[];Λ] kbs : τ0 ⇒ τ -> τ0 :: Γ ⊢[ge;[];Λ] EMatch (EVar 0) τ kbs : τ.
   Proof. intros Hk; eapply T_Match; [constructor; reflexivity|exact Hk]. Qed.
 
+  (** *** Traits, methods, objects *)
+
+  Lemma asm_typed Λ Γ Tr τ d :
+    In (Tr, τ, d) (asm_of E Γ) -> ctx_of Γ ⊢[ge;[];Λ] d : TData Tr [τ].
+  Proof.
+    unfold asm_of; rewrite in_flat_map; intros ([[Tr' τ'] x] & _ & Hin); simpl in Hin.
+    destruct (lookup_local x Γ) as [i|]; [|contradiction].
+    destruct (nth_error (ctx_of Γ) i) as [t|] eqn:Hn; [|contradiction].
+    destruct (eq_dec t (TData Tr' [τ'])) as [->|]; [|contradiction].
+    destruct Hin as [Hin|[]]; injection Hin as <- <- <-.
+    constructor; exact Hn.
+  Qed.
+
+  Lemma dict_typed Λ Γ Tr τ d :
+    dict E Γ Tr τ d -> ctx_of Γ ⊢[ge;[];Λ] d : TData Tr [τ].
+  Proof.
+    intros H; eapply entails_typed; [exact HI| |exact H].
+    intros; apply asm_typed; assumption.
+  Qed.
+
+  Lemma dicts_typed Λ Γ τs ds : dicts E Γ τs ds -> ctx_of Γ ⊢*[ge;[];Λ] ds : τs.
+  Proof.
+    induction 1 as [|t d τs ds (Tr & τ & -> & Hd) _ IH]; constructor; auto.
+    apply dict_typed; exact Hd.
+  Qed.
+
+  Lemma call_typed L Γ g fd ts n ds es :
+    lookup_fn ge g = Some fd -> List.length ts = fd_tparams fd ->
+    dicts E Γ (map (tsubst (inst ts)) (firstn n (fd_params fd))) ds ->
+    ctx_of Γ ⊢*[ge;[];cc_of L] es : map (tsubst (inst ts)) (skipn n (fd_params fd)) ->
+    call_ok E L (tsubst (inst ts) (fd_eff fd)) ->
+    ctx_of Γ ⊢[ge;[];cc_of L] wrap_call L (tsubst (inst ts) (fd_eff fd)) (tsubst (inst ts) (fd_ret fd))
+                                         (EGlobal g ts) (List.app ds es) : tsubst (inst ts) (fd_ret fd).
+  Proof.
+    intros Hfd Hts Hds Hes Hok.
+    eapply wrap_call_typed; [eapply T_Global; eauto| |exact Hok].
+    rewrite <- (firstn_skipn n (fd_params fd)), map_app.
+    apply has_types_app; [apply dicts_typed|]; assumption.
+  Qed.
+
+  Lemma meth_call_typed L Γ g fd ts n p0 ps ds r' τr es :
+    lookup_fn ge g = Some fd -> List.length ts = fd_tparams fd ->
+    skipn n (fd_params fd) = p0 :: ps -> tsubst (inst ts) p0 = τr ->
+    dicts E Γ (map (tsubst (inst ts)) (firstn n (fd_params fd))) ds ->
+    ctx_of Γ ⊢[ge;[];cc_of L] r' : τr ->
+    ctx_of Γ ⊢*[ge;[];cc_of L] es : map (tsubst (inst ts)) ps ->
+    call_ok E L (tsubst (inst ts) (fd_eff fd)) ->
+    ctx_of Γ ⊢[ge;[];cc_of L] wrap_call L (tsubst (inst ts) (fd_eff fd)) (tsubst (inst ts) (fd_ret fd))
+                                         (EGlobal g ts) (List.app ds (r' :: es)) : tsubst (inst ts) (fd_ret fd).
+  Proof.
+    intros Hfd Hts Hs Hp Hds Hr Hes Hok.
+    eapply call_typed; eauto.
+    rewrite Hs; simpl; rewrite Hp; constructor; assumption.
+  Qed.
+
+  Lemma obj_of_ty τ Tr : obj_of E τ = Some Tr -> τ = TData (obj_name Tr) [].
+  Proof.
+    unfold obj_of; intros H.
+    destruct τ; try discriminate.
+    match goal with l : list ty |- _ => destruct l; [|discriminate] end.
+    apply find_some in H as [_ H]; apply String.eqb_eq in H; subst; reflexivity.
+  Qed.
+
+  Lemma ctx_of_nones ps : ctx_of (map (fun t => (None, t)) ps) = ps.
+  Proof. unfold ctx_of; rewrite map_map; apply map_id. Qed.
+
+  Lemma obj_meth_typed Λ Γ τ sm fty f :
+    obj_meth E ((None, τ) :: Γ) τ sm fty f -> τ :: ctx_of Γ ⊢[ge;[];Λ] f : fty.
+  Proof.
+    intros (ti & i & sg & ps & r & ε & d & mv & _ & _ & -> & Hd & Hp & ->).
+    apply T_Lam. eapply T_App; [| |right; reflexivity].
+    - eapply field_proj_typed; [|exact Hp].
+      pose proof (dict_typed (mk_cctx [] ε) _ _ _ _ Hd) as Hd'.
+      rewrite ctx_of_app, ctx_of_nones in Hd'. exact Hd'.
+    - constructor.
+      + constructor. rewrite nth_error_app2 by lia. rewrite Nat.sub_diag; reflexivity.
+      + apply has_types_seq; intros j t Hj; simpl; constructor.
+        rewrite nth_error_app1; [exact Hj|]. apply nth_error_Some; congruence.
+  Qed.
+
+  Lemma obj_meths_typed Λ Γ τ : forall sms ftys fs,
+    obj_meths E ((None, τ) :: Γ) τ sms ftys fs -> τ :: ctx_of Γ ⊢*[ge;[];Λ] fs : ftys.
+  Proof.
+    induction sms as [|sm sms IH]; intros [|t ts] [|f fs] H; simpl in H; try contradiction.
+    - constructor.
+    - destruct H as [H1 H2]; constructor; [eapply obj_meth_typed; exact H1 | apply IH; exact H2].
+  Qed.
+
+  Lemma coerce_typed Λ Γ e τ τ' e' :
+    ⊩ᶜ[E;Γ] e : τ ≼ τ' ⇝ e' ->
+    ctx_of Γ ⊢[ge;[];Λ] e : τ -> ctx_of Γ ⊢[ge;[];Λ] e' : τ'.
+  Proof.
+    destruct 1 as [|e0 T (td & Htd & Herr)|e0 τ0 τ1 Tr td cd fs Ho Hne Htd Hn Hc Hfs]; intros He; auto.
+    - eapply T_Up; eauto.
+    - rewrite (obj_of_ty _ _ Ho). eapply T_Let; [exact He|].
+      eapply T_Constr; [exact Htd|rewrite Hn; reflexivity|exact Hc|].
+      constructor. eapply obj_meths_typed; exact Hfs.
+  Qed.
+
+  Lemma tcall_typed L Γ Tr τs i d mv ps r ε es :
+    dict E Γ Tr τs d ->
+    field_proj E Tr [τs] i d = Some (mv, TArrow ps r ε) ->
+    ctx_of Γ ⊢*[ge;[];cc_of L] es : ps ->
+    call_ok E L ε ->
+    ctx_of Γ ⊢[ge;[];cc_of L] wrap_call L ε r mv es : r.
+  Proof.
+    intros Hd Hp Hes Hok; eapply wrap_call_typed; [|exact Hes|exact Hok].
+    eapply field_proj_typed; [apply dict_typed; exact Hd|exact Hp].
+  Qed.
+
   Theorem elab_typed :
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇒ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇐ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
@@ -709,8 +814,16 @@ Section Typed.
     all: try solve [eapply try_typed; [eassumption|eassumption|first [constructor; reflexivity
                                                                      | apply noraise_typed; assumption]]].
     all: try solve [eapply T_Defer; eassumption].
+    (* traits and methods *)
+    all: try solve [eapply call_typed; eassumption].
+    all: try solve [eapply meth_call_typed; eassumption].
+    all: try solve [eapply tcall_typed; eassumption].
+    all: try solve [eapply tcall_typed; [eassumption|eassumption|constructor; assumption|assumption]].
+    all: try solve [match goal with Ho : obj_of _ ?t = Some _, Hr : _ ⊢[_;_;_] _ : ?t |- _ =>
+                      rewrite (obj_of_ty _ _ Ho) in Hr end;
+                    eapply wrap_call_typed; [eapply field_proj_typed; eassumption|eassumption|eassumption]].
     (* conversions and calls *)
     all: try solve [eapply coerce_typed; eauto].
-    all: eapply wrap_call_typed; eauto; eapply T_Global; eauto.
+    all: eapply wrap_call_typed; eauto.
   Qed.
 End Typed.

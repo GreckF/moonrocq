@@ -530,3 +530,74 @@ Example ex_elab_try :
                         (EMatch (EVar 0) (TInt I32) [(PWild, ELit (LInt I32 0))]) (EVar 0)),
    Some (TInt I32), Some (TInt I32), Some (TInt I32), Some (TInt I32), None).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- M5 (traits, methods, objects) in the certified elaborator ---- *)
+From MoonRocq.Surface Require Import Resolve.
+
+(* trait Show { show(Self) -> Int }  impl Show for Int  struct P { x : Int }
+   fn[T : Show] twice(x : T) -> Int;  fn P::get(self : P) -> Int;  object &Show *)
+Definition show_ti : trinfo := mk_trinfo "Show" [] [mk_msig "show" [TVar 0] (TInt I32) TNever] [].
+
+Definition hdr4 : genv :=
+  mk_genv [ mk_tdef "Show" 1 [mk_cdef "Show" [TArrow [TVar 0] (TInt I32) TNever]] false;
+            mk_tdef "P" 0 [mk_cdef "P" [TInt I32]] false;
+            mk_tdef "&Show" 0 [mk_cdef "&Show" [TArrow [] (TInt I32) TNever]] false ]
+          [ mk_fdef "inst$Show$Int" 0 [] (TData "Show" [TInt I32]) TNever
+                    (EConstr "Show" "Show" [TInt I32] (ETuple [ELam [TInt I32] (TInt I32) TNever (EVar 0)]));
+            mk_fdef "twice" 1 [TData "Show" [TVar 0]; TVar 0] (TInt I32) TNever (ELit (LInt I32 0));
+            mk_fdef "P::get" 0 [TData "P" []] (TInt I32) TNever (ELit (LInt I32 0)) ].
+
+Definition x4 (asm : list (ident * ty * ident)) : xenv :=
+  mk_xenv [show_ti] [mk_idef "Show" (HBase (BInt I32)) 0 [] "inst$Show$Int"]
+          [("twice", [("Show", 0)])] [("P", "get")] ["Show"] asm.
+
+(* at top level, and inside [fn[T : Show] f(x : T)] *)
+Definition E4 : senv := mk_senv [("P", 0)] hdr4 [("P", ["x"])] [] (x4 []).
+Definition E4T : senv := mk_senv [("P", 0)] hdr4 [("P", ["x"])] ["T"] (x4 [("Show", TVar 0, "$Show$T")]).
+Definition Γ4T : lctx := [(Some "x", TVar 0); (Some "$Show$T", TData "Show" [TVar 0])].
+
+Definition syn4 (E : senv) (Γ : lctx) (s : sexpr) : option (ty * expr) :=
+  match elab E s (mk_cenv [] TNever) Γ Syn with
+  | Ok (existT _ τ (exist _ e _)) => Some (τ, e)
+  | Err _ => None
+  end.
+
+Definition ty4 (E : senv) (Γ : lctx) (s : sexpr) : option ty := option_map fst (syn4 E Γ s).
+Definition show_inst : expr := EApp (EGlobal "inst$Show$Int" []) [].
+Definition p_s : sexpr := SRecord P0 None [("x", int_s 1)].
+
+Example ex_elab_traits :
+  (* twice(1): the dictionary first *)
+  (syn4 E4 [] (SApp P0 (var_s "twice") [int_s 1]),
+   (* Show::show(1): Self from the argument *)
+   ty4 E4 [] (SApp P0 (SQual P0 "Show" "show") [int_s 1]),
+   (* rejected: 1.show() (no dot calls of trait methods on builtin types) *)
+   ty4 E4 [] (SMethod P0 (int_s 1) "show" []),
+   (* x.show(), T::show(x), twice(x) with the bound T : Show *)
+   syn4 E4T Γ4T (SMethod P0 (var_s "x") "show" []),
+   ty4 E4T Γ4T (SApp P0 (SQual P0 "T" "show") [var_s "x"]),
+   syn4 E4T Γ4T (SApp P0 (var_s "twice") [var_s "x"]),
+   (* rejected: twice(x) without the bound *)
+   ty4 E4 [(Some "x", TVar 0)] (SApp P0 (var_s "twice") [var_s "x"])) =
+  (Some (TInt I32, EApp (EGlobal "twice" [TInt I32]) [show_inst; ELit (LInt I32 1)]),
+   Some (TInt I32), None,
+   Some (TInt I32, EApp (EMatch (EVar 1) (TArrow [TVar 0] (TInt I32) TNever) [(PConstr "Show" [PVar], EVar 0)])
+                        [EVar 0]),
+   Some (TInt I32),
+   Some (TInt I32, EApp (EGlobal "twice" [TVar 0]) [EVar 1; EVar 0]),
+   None).
+Proof. vm_compute. reflexivity. Qed.
+
+Example ex_elab_methods :
+  (* p.get(), P::get(p) *)
+  (syn4 E4 [] (SMethod P0 p_s "get" []),
+   ty4 E4 [] (SApp P0 (SQual P0 "P" "get") [p_s]),
+   (* (1 as &Show).show(); (1 : &Show) by the implicit conversion *)
+   ty4 E4 [] (SMethod P0 (SAs P0 (int_s 1) "Show") "show" []),
+   ty4 E4 [] (SAnnot P0 (int_s 1) (SObj P0 "Show")),
+   (* rejected: an object of a type without the trait *)
+   ty4 E4 [] (SAs P0 p_s "Show")) =
+  (Some (TInt I32, EApp (EGlobal "P::get" [])
+                        [ELet (ETuple [ELit (LInt I32 1)]) (EConstr "P" "P" [] (ETuple [EProj (EVar 0) 0]))]),
+   Some (TInt I32), Some (TInt I32), Some (TData "&Show" []), None).
+Proof. vm_compute. reflexivity. Qed.

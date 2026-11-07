@@ -106,18 +106,102 @@ Section Elaborate.
     | ε0, ρ0 => eff_dec p ε0 ρ0
     end.
 
-  (** Implicit conversion of [e : τ'] to [τ]. *)
-  Definition coerce (p : pos) (e : expr) (τ' τ : ty) :
-      result {e' | ⊩ᶜ[E] e : τ' ≼ τ ⇝ e'} elab_error :=
-    match ty_eq_dec τ' τ with
-    | left H => Ok (exist _ e (eq_ind τ' (fun t => ⊩ᶜ[E] e : τ' ≼ t ⇝ e) (Co_Refl E e τ') τ H))
-    | right _ =>
-        match τ' as t1, τ as t2 return result {e' | ⊩ᶜ[E] e : t1 ≼ t2 ⇝ e'} elab_error with
-        | TData T [], TError =>
-            H <- err_dec p T ;;
-            Ok (exist _ (EUp T e) (Co_Up E e T H))
-        | t1, t2 => Err (EE_Annot p t2 t1)
+  Definition field_proj_dec (p : pos) (T : ident) (ts : list ty) (i : nat) (e : expr) :
+      result {r | field_proj E T ts i e = Some r} elab_error :=
+    match field_proj E T ts i e as o return field_proj E T ts i e = o -> result _ elab_error with
+    | Some r => fun H => Ok (exist _ r H)
+    | None => fun _ => Err (EE_Type p (E_TupleIndex i (TData T ts)))
+    end eq_refl.
+
+  (** *** Dictionaries and trait objects *)
+
+  Definition dict_dec (p : pos) (Γ : lctx) (Tr : ident) (τ : ty) : result {d | dict E Γ Tr τ d} elab_error :=
+    match Resolve.entails_dec (x_insts (se_x E)) (asm_of E Γ) Tr τ with
+    | inleft (exist _ d H) => Ok (exist _ d H)
+    | inright _ => Err (EE_NoInstance p Tr τ)
+    end.
+
+  Fixpoint dicts_dec (p : pos) (Γ : lctx) (τs : list ty) : result {ds | dicts E Γ τs ds} elab_error :=
+    match τs as l return result {ds | dicts E Γ l ds} elab_error with
+    | [] => Ok (exist _ [] (Forall2_nil _))
+    | t :: τs' =>
+        '(exist _ d Hd) <-
+          (match t as t0 return result {d | exists Tr τ, t0 = TData Tr [τ] /\ dict E Γ Tr τ d} elab_error with
+           | TData Tr [τ] =>
+               '(exist _ d H) <- dict_dec p Γ Tr τ ;;
+               Ok (exist _ d (ex_intro _ Tr (ex_intro _ τ (conj eq_refl H))))
+           | _ => Err (EE_Unsupported p "dictionary parameter")
+           end) ;;
+        '(exist _ ds Hds) <- dicts_dec p Γ τs' ;;
+        Ok (exist _ (d :: ds) (Forall2_cons t d Hd Hds))
+    end.
+
+  Lemma obj_meth_intro Γo τ sm ti i sg ps r ε d mv t :
+    find_trait (trs E) (fst sm) = Some ti -> method_of ti (ms_name (snd sm)) = Some (i, sg) ->
+    dict E (List.app (map (fun t => (None, t)) ps) Γo) (fst sm) τ d ->
+    field_proj E (fst sm) [τ] i d = Some (mv, t) -> t = TArrow (τ :: ps) r ε ->
+    obj_meth E Γo τ sm (TArrow ps r ε)
+      (ELam ps r ε (EApp mv (EVar (List.length ps) :: map EVar (seq 0 (List.length ps))))).
+  Proof.
+    intros H1 H2 H3 H4 ->; unfold obj_meth.
+    exists ti, i, sg, ps, r, ε, d, mv; repeat split; auto.
+  Qed.
+
+  Definition obj_meth_dec (p : pos) (Γo : lctx) (τ : ty) (sm : ident * msig) (fty : ty) :
+      result {f | obj_meth E Γo τ sm fty f} elab_error :=
+    '(exist _ ti Hti) <- of_option (find_trait (trs E) (fst sm)) (EE_NotObjectSafe p (fst sm)) ;;
+    '(exist _ (i, sg) Hm) <- of_option (method_of ti (ms_name (snd sm))) (EE_NoMethod p (ms_name (snd sm)) τ) ;;
+    match fty as t return result {f | obj_meth E Γo τ sm t f} elab_error with
+    | TArrow ps r ε =>
+        '(exist _ d Hd) <- dict_dec p (List.app (map (fun t => (None, t)) ps) Γo) (fst sm) τ ;;
+        '(exist _ (mv, t) Hp) <- field_proj_dec p (fst sm) [τ] i d ;;
+        match ty_eq_dec t (TArrow (τ :: ps) r ε) with
+        | left Ht => Ok (exist _ _ (obj_meth_intro Γo τ sm ti i sg ps r ε d mv t Hti Hm Hd Hp Ht))
+        | right _ => Err (EE_Annot p (TArrow (τ :: ps) r ε) t)
         end
+    | _ => Err (EE_NotObjectSafe p (fst sm))
+    end.
+
+  Fixpoint obj_meths_dec (p : pos) (Γo : lctx) (τ : ty) (sms : list (ident * msig)) (ftys : list ty) :
+      result {fs | obj_meths E Γo τ sms ftys fs} elab_error :=
+    match sms as l1, ftys as l2 return result {fs | obj_meths E Γo τ l1 l2 fs} elab_error with
+    | [], [] => Ok (exist _ [] I)
+    | sm :: sms', t :: ts' =>
+        '(exist _ f Hf) <- obj_meth_dec p Γo τ sm t ;;
+        '(exist _ fs Hfs) <- obj_meths_dec p Γo τ sms' ts' ;;
+        Ok (exist _ (f :: fs) (conj Hf Hfs))
+    | _, _ => Err (EE_NotObjectSafe p "object")
+    end.
+
+  Definition obj_coerce (p : pos) (Γ : lctx) (e : expr) (τ τ' : ty) (Tr : ident)
+      (Ho : obj_of E τ' = Some Tr) (Hne : τ <> τ') :
+      result {e' | ⊩ᶜ[E;Γ] e : τ ≼ τ' ⇝ e'} elab_error :=
+    '(exist _ td Htd) <- of_option (lookup_ty hdr (obj_name Tr)) (EE_UnknownType p (obj_name Tr)) ;;
+    match Nat.eq_dec (td_tparams td) 0 with
+    | left Hn =>
+        '(exist _ cd Hc) <- of_option (lookup_ctor td (obj_name Tr)) (EE_UnknownCtor p (obj_name Tr)) ;;
+        '(exist _ fs Hfs) <- obj_meths_dec p ((None, τ) :: Γ) τ (obj_fields (trs E) Tr)
+                                           (map (tsubst (inst [])) (cd_fields cd)) ;;
+        Ok (exist _ _ (Co_Obj E Γ e τ τ' Tr td cd fs Ho Hne Htd Hn Hc Hfs))
+    | right _ => Err (EE_UnknownType p (obj_name Tr))
+    end.
+
+  (** Implicit conversion of [e : τ'] to [τ]. *)
+  Definition coerce (p : pos) (Γ : lctx) (e : expr) (τ' τ : ty) :
+      result {e' | ⊩ᶜ[E;Γ] e : τ' ≼ τ ⇝ e'} elab_error :=
+    match ty_eq_dec τ' τ with
+    | left H => Ok (exist _ e (eq_ind τ' (fun t => ⊩ᶜ[E;Γ] e : τ' ≼ t ⇝ e) (Co_Refl E Γ e τ') τ H))
+    | right Hne =>
+        match obj_of E τ as o return obj_of E τ = o -> result {e' | ⊩ᶜ[E;Γ] e : τ' ≼ τ ⇝ e'} elab_error with
+        | Some Tr => fun Ho => obj_coerce p Γ e τ' τ Tr Ho Hne
+        | None => fun _ =>
+            match τ' as t1, τ as t2 return result {e' | ⊩ᶜ[E;Γ] e : t1 ≼ t2 ⇝ e'} elab_error with
+            | TData T [], TError =>
+                H <- err_dec p T ;;
+                Ok (exist _ (EUp T e) (Co_Up E Γ e T H))
+            | t1, t2 => Err (EE_Annot p t2 t1)
+            end
+        end eq_refl
     end.
 
   (** The answer in mode [m], from a synthesis: check by subsumption. *)
@@ -127,7 +211,7 @@ Section Elaborate.
     | Syn => r
     | Chk τ =>
         '(existT _ τ' (exist _ e H)) <- r ;;
-        '(exist _ e' Hc) <- coerce p e τ' τ ;;
+        '(exist _ e' Hc) <- coerce p Γ e τ' τ ;;
         Ok (exist _ e' (C_Sub E L Γ s τ' τ e e' H Hc))
     end.
 
@@ -447,7 +531,7 @@ Section Elaborate.
                          | right _ => Err (EE_Annot p τ t)
                          end
                      | existT _ s0 (AH_Syn t e H) => fun Hs =>
-                         '(exist _ e' Hc') <- coerce p e t τ ;;
+                         '(exist _ e' Hc') <- coerce p Γ e t τ ;;
                          Ok (exist _ e' (C_Sub E L Γ s t τ e e' (syn_cast L Γ s0 s t e Hs H) Hc'))
                      | existT _ _ AH_Post => fun _ => Err (EE_CannotInfer p "argument")
                      end (proj1 Hc)) ;;
@@ -456,6 +540,20 @@ Section Elaborate.
               end
           end
       end.
+
+  (** The arguments of a call of a generic function or method with
+      parameters [ps] (after the dictionaries) and [n] type parameters. *)
+  Definition gargs (rec : elab_ty_t) (p q : pos) (L : cenv) (Γ : lctx) (args : list sexpr)
+      (ps : list ty) (n : nat) (st0 : list (option ty)) (g : ident) :
+      result {ts : list ty & {es | List.length ts = n /\ Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) ps ⇝ es}}
+             elab_error :=
+    _ <- bcheck (Nat.eqb (List.length args) (List.length ps))
+                (EE_Type q (E_ArgArity (List.length ps) (List.length args))) ;;
+    '(exist _ rs1 H1, st1) <- pass1 rec L Γ args ps st0 ;;
+    '(exist _ rs2 H2, st2) <- pass2 rec L Γ args rs1 H1 ps st1 ;;
+    '(exist _ ts Hts) <- targs q g n st2 ;;
+    '(exist _ es Hes) <- finish p L Γ args rs2 H2 (map (tsubst (inst ts)) ps) ;;
+    Ok (existT _ ts (exist _ es (conj Hts Hes))).
 
   (** ** Rules up to equations
 
@@ -639,13 +737,6 @@ Section Elaborate.
     | [cd] => Ok (exist _ cd eq_refl)
     | _ => Err (EE_NotRecord p t)
     end.
-
-  Definition field_proj_dec (p : pos) (T : ident) (ts : list ty) (i : nat) (e : expr) :
-      result {r | field_proj E T ts i e = Some r} elab_error :=
-    match field_proj E T ts i e as o return field_proj E T ts i e = o -> result _ elab_error with
-    | Some r => fun H => Ok (exist _ r H)
-    | None => fun _ => Err (EE_Type p (E_TupleIndex i (TData T ts)))
-    end eq_refl.
 
   (** ** Patterns *)
 
@@ -1200,13 +1291,13 @@ Section Elaborate.
 
   Lemma fail_syn L Γ p q g a a' v :
     g = "fail" -> builtin E Γ g -> failure_ok E -> Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
-    ⊩ᶜ[E] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
+    ⊩ᶜ[E;Γ] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
     Γ ⊩[E;L] SApp p (SVar q g) [a] ⇒ TUnit ⇝ ERaise v TUnit.
   Proof. intros ->; apply S_Fail. Qed.
 
   Lemma fail_chk L Γ p q g a τ a' v :
     g = "fail" -> builtin E Γ g -> failure_ok E -> Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
-    ⊩ᶜ[E] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
+    ⊩ᶜ[E;Γ] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
     Γ ⊩[E;L] SApp p (SVar q g) [a] ⇐ τ ⇝ ERaise v τ.
   Proof. intros ->; apply C_Fail. Qed.
 
@@ -1219,6 +1310,235 @@ Section Elaborate.
     Γ ⊩[E;L] STry p body cases (Some ncs) ⇒ τ
       ⇝ ETry b τe (EMatch (EVar 0) τ hbs) (EMatch (EVar 0) τ kbs).
   Proof. intros Ht Hb (sp & h & Hp & q & Δ & h' & Hq & Hh) Hc Hk; eapply S_TryNr; eauto. Qed.
+
+  (** *** Trait and method calls *)
+
+  Lemma some_inj {A} (a b : A) : Some a = Some b -> a = b.
+  Proof. intros H; injection H; auto. Qed.
+
+  Lemma none_some {A} (a : A) (P : Prop) : None = Some a -> P.
+  Proof. discriminate. Qed.
+
+  Lemma qt_trait T mn ti τs : find_trait (trs E) T = Some ti -> qual_trait E T mn T τs.
+  Proof. unfold qual_trait; intros ->; reflexivity. Qed.
+
+  Lemma qt_param T mn i Tr :
+    find_trait (trs E) T = None -> index_of T (se_tps E) = Some i ->
+    hd_error (filter (declares E mn) (asm_traits E (TVar i))) = Some Tr -> qual_trait E T mn Tr (TVar i).
+  Proof. unfold qual_trait; intros -> -> H; auto. Qed.
+
+  Lemma qt_any T mn Tr τs :
+    find_trait (trs E) T = None -> index_of T (se_tps E) = None ->
+    filter (declares E mn) (map ti_name (trs E)) = [Tr] -> qual_trait E T mn Tr τs.
+  Proof. unfold qual_trait; intros -> -> H; exact H. Qed.
+
+  Definition qual_trait_dec (q : pos) (T mn : ident) :
+      result {Tr : ident & {os : option ty | forall τs, (forall t, os = Some t -> τs = t) ->
+                                             qual_trait E T mn Tr τs}} elab_error :=
+    match find_trait (trs E) T as o
+          return find_trait (trs E) T = o ->
+                 result {Tr : ident & {os : option ty | forall τs, (forall t, os = Some t -> τs = t) ->
+                                                        qual_trait E T mn Tr τs}} elab_error with
+    | Some ti => fun H1 => Ok (existT _ T (exist _ None (fun τs _ => qt_trait T mn ti τs H1)))
+    | None => fun H1 =>
+        match index_of T (se_tps E) as o
+              return index_of T (se_tps E) = o ->
+                     result {Tr : ident & {os : option ty | forall τs, (forall t, os = Some t -> τs = t) ->
+                                                            qual_trait E T mn Tr τs}} elab_error with
+        | Some i => fun H2 =>
+            match hd_error (filter (declares E mn) (asm_traits E (TVar i))) as h
+                  return hd_error (filter (declares E mn) (asm_traits E (TVar i))) = h ->
+                         result {Tr : ident & {os : option ty | forall τs, (forall t, os = Some t -> τs = t) ->
+                                                                qual_trait E T mn Tr τs}} elab_error with
+            | Some Tr => fun H3 =>
+                Ok (existT _ Tr (exist _ (Some (TVar i))
+                      (fun (τs : ty) (Hs : forall t, Some (TVar i) = Some t -> τs = t) =>
+                         eq_ind_r (fun u => qual_trait E T mn Tr u)
+                                  (qt_param T mn i Tr H1 H2 H3) (Hs (TVar i) eq_refl))))
+            | None => fun _ => Err (EE_NoMethod q mn (TVar i))
+            end eq_refl
+        | None => fun H2 =>
+            match filter (declares E mn) (map ti_name (trs E)) as l
+                  return filter (declares E mn) (map ti_name (trs E)) = l ->
+                         result {Tr : ident & {os : option ty | forall τs, (forall t, os = Some t -> τs = t) ->
+                                                                qual_trait E T mn Tr τs}} elab_error with
+            | [Tr] => fun H3 => Ok (existT _ Tr (exist _ None (fun τs _ => qt_any T mn Tr τs H1 H2 H3)))
+            | [] => fun _ => Err (EE_NoMethod q mn TUnit)
+            | _ => fun _ => Err (EE_AmbiguousMethod q mn)
+            end eq_refl
+        end eq_refl
+    end eq_refl.
+
+  (** The first argument, already synthesized (it gave [Self]). *)
+  Definition pre_t (L : cenv) (Γ : lctx) (args : list sexpr) : Type :=
+    match args with
+    | a0 :: _ => {t : ty & {e : expr | Γ ⊩[E;L] a0 ⇒ t ⇝ e}}
+    | [] => Empty_set
+    end.
+
+  (** [Self] of a trait method call: given, or the type of the first
+      argument if the method takes [Self] first, or the expected type if it
+      returns [Self]. *)
+  Definition tself (rec : elab_ty_t) (q : pos) (L : cenv) (Γ : lctx) (os : option ty) (sg : msig)
+      (args : list sexpr) (hm : option ty) :
+      result {τs : ty & {pre : option (pre_t L Γ args) | forall t, os = Some t -> τs = t}} elab_error :=
+    match os as o return result {τs : ty & {pre : option (pre_t L Γ args) | forall t, o = Some t -> τs = t}}
+                                elab_error with
+    | Some t => Ok (existT _ t (exist _ None (fun t' H => some_inj t t' H)))
+    | None =>
+        match ms_params sg, args as a
+              return result {τs : ty & {pre : option (pre_t L Γ a) | forall t, None = Some t -> τs = t}}
+                            elab_error with
+        | TVar 0 :: _, a0 :: rest =>
+            '(existT _ t (exist _ e H)) <- rec a0 L Γ Syn ;;
+            Ok (existT _ t (exist _ (Some (existT _ t (exist _ e H))) (fun t' Hn => none_some t' _ Hn)))
+        | _, _ =>
+            match ms_ret sg, hm with
+            | TVar 0, Some t => Ok (existT _ t (exist _ None (fun t' Hn => none_some t' _ Hn)))
+            | _, _ => Err (EE_CannotInfer q (ms_name sg))
+            end
+        end
+    end.
+
+  Definition pre_args (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (args : list sexpr)
+      (pre : option (pre_t L Γ args)) (ps : list ty) :
+      result {es | Γ ⊩*[E;L] args ⇐ ps ⇝ es} elab_error :=
+    match args as a return option (pre_t L Γ a) -> result {es | Γ ⊩*[E;L] a ⇐ ps ⇝ es} elab_error with
+    | a0 :: rest => fun pre =>
+        match pre with
+        | Some (existT _ t (exist _ e0 H0)) =>
+            match ps as l return result {es | Γ ⊩*[E;L] a0 :: rest ⇐ l ⇝ es} elab_error with
+            | p0 :: ps' =>
+                match ty_eq_dec t p0 with
+                | left Ht =>
+                    '(exist _ es Hes) <- chk_list p L Γ (fun s' τ' => rec s' L Γ (Chk τ')) rest ps' ;;
+                    Ok (exist _ (e0 :: es)
+                          (Cs_cons E L Γ a0 rest p0 ps' e0 es
+                             (C_Sub E L Γ a0 t p0 e0 e0 H0
+                                (eq_ind t (fun u => ⊩ᶜ[E;Γ] e0 : t ≼ u ⇝ e0) (Co_Refl E Γ e0 t) p0 Ht)) Hes))
+                | right _ => Err (EE_Annot p p0 t)
+                end
+            | [] => Err (EE_Type p (E_ArgArity 0 (List.length (a0 :: rest))))
+            end
+        | None => chk_list p L Γ (fun s' τ' => rec s' L Γ (Chk τ')) (a0 :: rest) ps
+        end
+    | [] => fun _ => chk_list p L Γ (fun s' τ' => rec s' L Γ (Chk τ')) [] ps
+    end pre.
+
+  (** [Tr::m(..)], [X::m(..)]: a trait method. *)
+  Definition tcall (rec : elab_ty_t) (p q : pos) (L : cenv) (Γ : lctx) (f : sexpr) (T mn : ident)
+      (args : list sexpr) (Hf : f = SQual q T mn) (Hqb : qual_builtin T mn (List.length args) = false)
+      (Hm : has_meth E T mn = false) (hm : option ty) : result (sout L Γ (SApp p f args)) elab_error :=
+    '(existT _ Tr (exist _ os Hq)) <- qual_trait_dec q T mn ;;
+    '(exist _ ti Hti) <- of_option (find_trait (trs E) Tr) (EE_NoMethod q mn TUnit) ;;
+    '(exist _ (i, sg) Hmi) <- of_option (method_of ti mn) (EE_NoMethod q mn TUnit) ;;
+    '(existT _ τs (exist _ pre Hpre)) <- tself rec q L Γ os sg args hm ;;
+    '(exist _ d Hd) <- dict_dec q Γ Tr τs ;;
+    '(exist _ (mv, t) Hp) <- field_proj_dec q Tr [τs] i d ;;
+    match t as t0 return field_proj E Tr [τs] i d = Some (mv, t0) -> result (sout L Γ (SApp p f args)) elab_error with
+    | TArrow ps r ε => fun Hp =>
+        '(exist _ es Hes) <- pre_args rec p L Γ args pre ps ;;
+        Hok <- allowed_dec p ε (ce_exn L) ;;
+        Ok (existT _ _ (exist _ _ (syn_cast L Γ _ _ _ _ (qual_eq p f q T T mn mn args Hf eq_refl eq_refl)
+              (S_TCall E L Γ p q T mn args Tr τs ti i sg d mv ps r ε es Hqb Hm (Hq τs Hpre) Hti Hmi Hd Hp Hes Hok))))
+    | t0 => fun _ => Err (EE_Type q (E_NotFunction t0))
+    end Hp.
+
+  (** [T::m(..)]: a method [fn T::m], or a trait method. *)
+  Definition qcall (rec : elab_ty_t) (p q : pos) (L : cenv) (Γ : lctx) (f : sexpr) (T mn : ident)
+      (args : list sexpr) (Hf : f = SQual q T mn) (Hqb : qual_builtin T mn (List.length args) = false)
+      (hm : option ty) : result (sout L Γ (SApp p f args)) elab_error :=
+    match has_meth E T mn as b return has_meth E T mn = b -> result (sout L Γ (SApp p f args)) elab_error with
+    | true => fun Hm =>
+        '(exist _ fd Hfd) <- of_option (lookup_fn hdr (meth_name T mn)) (EE_Unbound q (meth_name T mn)) ;;
+        let n := nbounds E (meth_name T mn) in
+        let st0 := match hm with
+                   | Some t => tmatch (fd_ret fd) t (repeat None (fd_tparams fd))
+                   | None => repeat None (fd_tparams fd)
+                   end in
+        '(existT _ ts (exist _ es (conj Hts Hes))) <-
+          gargs rec p q L Γ args (skipn n (fd_params fd)) (fd_tparams fd) st0 (meth_name T mn) ;;
+        '(exist _ ds Hds) <- dicts_dec q Γ (map (tsubst (inst ts)) (firstn n (fd_params fd))) ;;
+        Hok <- allowed_dec p (tsubst (inst ts) (fd_eff fd)) (ce_exn L) ;;
+        Ok (existT _ _ (exist _ _ (syn_cast L Γ _ _ _ _ (qual_eq p f q T T mn mn args Hf eq_refl eq_refl)
+              (S_QualFn E L Γ p q T mn args fd ts ds es Hqb Hm Hfd Hts Hds Hes Hok))))
+    | false => fun Hm => tcall rec p q L Γ f T mn args Hf Hqb Hm hm
+    end eq_refl.
+
+  (** [x.m(..)]: a method [fn T::m] of the type of [x], a method of a trait
+      object, or a trait method. *)
+  Definition dcall (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (s : sexpr) (mn : ident)
+      (args : list sexpr) (τr : ty) (r' : expr) (Hr : Γ ⊩[E;L] s ⇒ τr ⇝ r')
+      (Hab : arr_builtin τr mn (List.length args) = false) (hm : option ty) :
+      result (sout L Γ (SMethod p s mn args)) elab_error :=
+    match meth_fn E τr mn as b return meth_fn E τr mn = b -> result (sout L Γ (SMethod p s mn args)) elab_error with
+    | true => fun _ =>
+        '(exist _ H Hh) <- of_option (head_name τr) (EE_NoMethod p mn τr) ;;
+        Hm <- bcheck (has_meth E H mn) (EE_NoMethod p mn τr) ;;
+        '(exist _ fd Hfd) <- of_option (lookup_fn hdr (meth_name H mn)) (EE_Unbound p (meth_name H mn)) ;;
+        let n := nbounds E (meth_name H mn) in
+        match skipn n (fd_params fd) as l
+              return skipn n (fd_params fd) = l -> result (sout L Γ (SMethod p s mn args)) elab_error with
+        | p0 :: ps => fun Hs =>
+            let st0 := match hm with
+                       | Some t => tmatch (fd_ret fd) t (repeat None (fd_tparams fd))
+                       | None => repeat None (fd_tparams fd)
+                       end in
+            '(existT _ ts (exist _ es (conj Hts Hes))) <-
+              gargs rec p p L Γ args ps (fd_tparams fd) (tmatch p0 τr st0) (meth_name H mn) ;;
+            match ty_eq_dec (tsubst (inst ts) p0) τr with
+            | left Hp0 =>
+                '(exist _ ds Hds) <- dicts_dec p Γ (map (tsubst (inst ts)) (firstn n (fd_params fd))) ;;
+                Hok <- allowed_dec p (tsubst (inst ts) (fd_eff fd)) (ce_exn L) ;;
+                Ok (existT _ _ (exist _ _ (S_MethFn E L Γ p s mn args τr r' H fd ts p0 ps ds es
+                                             Hr Hab Hh Hm Hfd Hts Hs Hp0 Hds Hes Hok)))
+            | right _ => Err (EE_Annot p (tsubst (inst ts) p0) τr)
+            end
+        | [] => fun _ => Err (EE_Type p (E_ArgArity 0 (List.length args)))
+        end eq_refl
+    | false => fun Hmf =>
+        match obj_of E τr as o return obj_of E τr = o -> result (sout L Γ (SMethod p s mn args)) elab_error with
+        | Some Tr => fun Ho =>
+            '(exist _ j Hj) <- of_option (obj_index (obj_fields (trs E) Tr) mn) (EE_NoMethod p mn τr) ;;
+            '(exist _ (fv, t) Hp) <- field_proj_dec p (obj_name Tr) [] j r' ;;
+            match t as t0 return field_proj E (obj_name Tr) [] j r' = Some (fv, t0) ->
+                                 result (sout L Γ (SMethod p s mn args)) elab_error with
+            | TArrow ps r ε => fun Hp =>
+                '(exist _ es Hes) <- chk_list p L Γ (fun s' τ' => rec s' L Γ (Chk τ')) args ps ;;
+                Hok <- allowed_dec p ε (ce_exn L) ;;
+                Ok (existT _ _ (exist _ _ (S_MethObj E L Γ p s mn args τr r' Tr j fv ps r ε es
+                                             Hr Hmf Ho Hj Hp Hes Hok)))
+            | t0 => fun _ => Err (EE_Type p (E_NotFunction t0))
+            end Hp
+        | None => fun Ho =>
+            Hdt <- bcheck (dot_traits τr) (EE_NoMethod p mn τr) ;;
+            match dot_trait E Γ mn τr as l
+                  return dot_trait E Γ mn τr = l -> result (sout L Γ (SMethod p s mn args)) elab_error with
+            | [Tr] => fun Hdl =>
+                '(exist _ ti Hti) <- of_option (find_trait (trs E) Tr) (EE_NoMethod p mn τr) ;;
+                '(exist _ (i, sg) Hmi) <- of_option (method_of ti mn) (EE_NoMethod p mn τr) ;;
+                '(exist _ d Hd) <- dict_dec p Γ Tr τr ;;
+                '(exist _ (mv, t) Hp) <- field_proj_dec p Tr [τr] i d ;;
+                match t as t0 return field_proj E Tr [τr] i d = Some (mv, t0) ->
+                                     result (sout L Γ (SMethod p s mn args)) elab_error with
+                | TArrow (p0 :: ps) r ε => fun Hp =>
+                    match ty_eq_dec p0 τr with
+                    | left Hp0 =>
+                        '(exist _ es Hes) <- chk_list p L Γ (fun s' τ' => rec s' L Γ (Chk τ')) args ps ;;
+                        Hok <- allowed_dec p ε (ce_exn L) ;;
+                        Ok (existT _ _ (exist _ _ (S_MethTrait E L Γ p s mn args τr r' Tr ti i sg d mv ps r ε es
+                              Hr Hmf Ho Hdt Hdl Hti Hmi Hd
+                              (eq_ind p0 (fun u => field_proj E Tr [τr] i d = Some (mv, TArrow (u :: ps) r ε))
+                                      Hp τr Hp0) Hes Hok)))
+                    | right _ => Err (EE_Annot p τr p0)
+                    end
+                | t0 => fun _ => Err (EE_Type p (E_NotFunction t0))
+                end Hp
+            | [] => fun _ => Err (EE_NoMethod p mn τr)
+            | _ => fun _ => Err (EE_AmbiguousMethod p mn)
+            end eq_refl
+        end eq_refl
+    end eq_refl.
 
   (** ** Heads of calls *)
 
@@ -1437,23 +1757,18 @@ Section Elaborate.
             match lookup_fn hdr g as o return lookup_fn hdr g = o -> result (out L Γ (SApp p f args) m) elab_error with
             | Some fd => fun Hfd =>
                 fin p L Γ (SApp p f args) m
-                  (Hb <- no_bounds q g ;;
-                   let n := fd_tparams fd in
-                   let ps := fd_params fd in
-                   _ <- bcheck (Nat.eqb (List.length args) (List.length ps))
-                               (EE_Type q (E_ArgArity (List.length ps) (List.length args))) ;;
+                  (let n := nbounds E g in
                    let st0 := match hint m with
-                              | Some t => tmatch (fd_ret fd) t (repeat None n)
-                              | None => repeat None n
+                              | Some t => tmatch (fd_ret fd) t (repeat None (fd_tparams fd))
+                              | None => repeat None (fd_tparams fd)
                               end in
-                   '(exist _ rs1 H1, st1) <- pass1 elab L Γ args ps st0 ;;
-                   '(exist _ rs2 H2, st2) <- pass2 elab L Γ args rs1 H1 ps st1 ;;
-                   '(exist _ ts Hts) <- fn_targs q g fd st2 ;;
-                   '(exist _ es Hes) <- finish p L Γ args rs2 H2 (map (tsubst (inst ts)) ps) ;;
+                   '(existT _ ts (exist _ es (conj Hts Hes))) <-
+                     gargs elab p q L Γ args (skipn n (fd_params fd)) (fd_tparams fd) st0 g ;;
+                   '(exist _ ds Hds) <- dicts_dec q Γ (map (tsubst (inst ts)) (firstn n (fd_params fd))) ;;
                    Hok <- allowed_dec p (tsubst (inst ts) (fd_eff fd)) (ce_exn L) ;;
                    Ok (existT _ _ (exist _ _
                          (app_syn L Γ p f q g args _ _ Hf
-                            (S_Call E L Γ p q g args fd ts es Hl Hfd Hb Hts Hes Hok)))))
+                            (S_Call E L Γ p q g args fd ts ds es Hl Hfd Hts Hds Hes Hok)))))
             | None => fun Hfd =>
                 let Hbi : builtin E Γ g := conj Hl Hfd in
                 match string_dec g "not", args as a0
@@ -1498,7 +1813,7 @@ Section Elaborate.
                 | left Hg, [a] =>
                     Hfo <- failure_ok_dec q ;;
                     '(exist _ a' Ha) <- elab a L Γ (Chk TString) ;;
-                    '(exist _ v Hv) <- coerce q (fail_val a') (TData "Failure" []) (ce_exn L) ;;
+                    '(exist _ v Hv) <- coerce q Γ (fail_val a') (TData "Failure" []) (ce_exn L) ;;
                     match m as m0 return result (out L Γ (SApp p f [a]) m0) elab_error with
                     | Syn => Ok (existT _ _ (exist _ _ (app_syn L Γ p f q g [a] _ _ Hf
                                                           (fail_syn L Γ p q g a a' v Hg Hbi Hfo Ha Hv))))
@@ -1562,6 +1877,10 @@ Section Elaborate.
                 end
             end
         | HQual _ _ q T mn Hf =>
+            match qual_builtin T mn (List.length args) as qb
+                  return qual_builtin T mn (List.length args) = qb -> result (out L Γ (SApp p f args) m) elab_error with
+            | false => fun Hqb => fin p L Γ (SApp p f args) m (qcall elab p q L Γ f T mn args Hf Hqb (hint m))
+            | true => fun _ =>
             (* [Ref::new(v)], [Array::make(n, v)], [FixedArray::make(n, v)], [Array::new()] *)
             match string_dec T "Ref", string_dec mn "new", args as a0
                   return result (out L Γ (SApp p f a0) m) elab_error with
@@ -1635,6 +1954,7 @@ Section Elaborate.
             | None => fun _ => Err (EE_Unsupported p "method call")
             end eq_refl
             end
+            end eq_refl
         | HOther _ _ => Err (EE_Unsupported p "method call")
         end
     | SConstr p tq c =>
@@ -1804,6 +2124,10 @@ Section Elaborate.
     | SMethod p s0 mn args =>
         fin p L Γ (SMethod p s0 mn args) m
           ('(existT _ τ0 (exist _ e H)) <- elab s0 L Γ Syn ;;
+           match arr_builtin τ0 mn (List.length args) as ab
+                 return arr_builtin τ0 mn (List.length args) = ab -> result (sout L Γ (SMethod p s0 mn args)) elab_error with
+           | false => fun Hab => dcall elab p L Γ s0 mn args τ0 e H Hab (hint m)
+           | true => fun _ =>
            match string_dec mn "length", string_dec mn "push", args as a0
                  return result (sout L Γ (SMethod p s0 mn a0)) elab_error with
            | left Hm, _, [] =>
@@ -1820,7 +2144,8 @@ Section Elaborate.
                | t => fun _ => Err (EE_NoMethod p mn t)
                end H
            | _, _, _ => Err (EE_Unsupported p "method call")
-           end)
+           end
+           end eq_refl)
     | SWhile p x c body onb =>
         match onb as o return result (out L Γ (SWhile p x c body o) m) elab_error with
         | None =>
@@ -2050,6 +2375,13 @@ Section Elaborate.
             '(exist _ bs Hbs) <- arms_list elab L Γ τs τ cases ;;
             Ok (exist _ _ (C_Match E L Γ p s0 cases τs τ e bs H0 Hbs))
         end
+    (* ---- trait objects (milestone M5) ---- *)
+    | SAs p s0 Tr =>
+        fin p L Γ (SAs p s0 Tr) m
+          (Hob <- bcheck (existsb (String.eqb Tr) (x_objs (se_x E))) (EE_NotObjectSafe p Tr) ;;
+           '(existT _ τ (exist _ e H)) <- elab s0 L Γ Syn ;;
+           '(exist _ e' Hc) <- coerce p Γ e τ (TData (obj_name Tr) []) ;;
+           Ok (existT _ _ (exist _ _ (S_As E L Γ p s0 Tr τ e e' Hob H Hc))))
     (* ---- errors (milestone M4) ---- *)
     | SRaise p s0 =>
         '(exist _ e H) <- elab s0 L Γ (Chk (ce_exn L)) ;;
