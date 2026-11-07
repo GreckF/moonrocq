@@ -11,6 +11,8 @@ From MoonRocq.Core Require Import Syntax Prim Subst Typing Check.
 From MoonRocq.Surface Require Import Syntax Base ElabSpec.
 Import ListNotations.
 
+Local Open Scope string_scope.
+
 Section Typed.
   Variable E : senv.
   Abbreviation ge := (se_hdr E).
@@ -297,6 +299,141 @@ Section Typed.
     rewrite length_map, Hlen; exact Hv.
   Qed.
 
+  (** *** State and loops *)
+
+  Lemma names_ctx_ctx xs τs Γ :
+    List.length xs = List.length τs ->
+    ctx_of (List.app (names_ctx xs τs) Γ) = List.app τs (ctx_of Γ).
+  Proof.
+    unfold ctx_of, names_ctx; rewrite map_app; intros Hl; f_equal.
+    revert τs Hl; induction xs as [|x xs IH]; intros [|τ τs] Hl; simpl in *;
+      try discriminate; auto.
+    rewrite IH; auto.
+  Qed.
+
+  Lemma eblock_typed' Λ Γ r b :
+    Γ ⊢[ge;[];push_lbl ([], r) Λ] b : r -> Γ ⊢[ge;[];Λ] eblock r b : r.
+  Proof. intros Hb; eapply T_Loop; [constructor; constructor|exact Hb]. Qed.
+
+  Lemma upd_rhs_typed Λ Γ p op τ cur v e :
+    upd_rhs p op τ cur v e ->
+    Γ ⊢[ge;[];Λ] cur : τ -> Γ ⊢[ge;[];Λ] v : τ -> Γ ⊢[ge;[];Λ] e : τ.
+  Proof.
+    destruct op as [o|]; simpl; intros H Hc Hv.
+    - destruct H as [Hr He]; pose proof (binop_typed _ _ _ _ _ _ _ _ He Hc Hv) as H'; rewrite Hr in H'; exact H'.
+    - subst; exact Hv.
+  Qed.
+
+  Lemma has_types_seq Λ Γ (f : nat -> expr) : forall τs k,
+    (forall i τ, nth_error τs i = Some τ -> Γ ⊢[ge;[];Λ] f (k + i) : τ) ->
+    Γ ⊢*[ge;[];Λ] map f (seq k (List.length τs)) : τs.
+  Proof.
+    induction τs as [|τ τs IH]; intros k H; simpl; constructor.
+    - rewrite <- (Nat.add_0_r k); apply (H 0); reflexivity.
+    - apply IH; intros i τ' Hi. replace (S k + i) with (k + S i) by lia; apply (H (S i)); exact Hi.
+  Qed.
+
+  Lemma for_next_typed Λ G names τs us :
+    List.length names = List.length τs ->
+    Forall (fun yu => exists j τ, index_of (fst yu) names = Some j /\ nth_error τs j = Some τ /\
+                                  TUnit :: List.app τs G ⊢[ge;[];Λ] snd yu : τ) us ->
+    TUnit :: List.app τs G ⊢*[ge;[];Λ] for_next names us : τs.
+  Proof.
+    intros Hl Hus; unfold for_next; rewrite Hl.
+    apply has_types_seq; intros i τ Hi; simpl.
+    destruct (find _ us) as [[y u]|] eqn:Hf.
+    - apply find_some in Hf as [Hin Hj].
+      rewrite Forall_forall in Hus; destruct (Hus _ Hin) as (j & τ' & Hy & Hτ' & Hu); simpl in *.
+      rewrite Hy in Hj; apply Nat.eqb_eq in Hj; subst j.
+      rewrite Hi in Hτ'; injection Hτ' as <-; exact Hu.
+    - constructor; simpl. rewrite nth_error_app1; auto.
+      apply nth_error_Some; congruence.
+  Qed.
+
+  Lemma while_loop_typed Λ Γ τ c b nb :
+    Γ ⊢[ge;[];push_lbl ([], τ) Λ] c : TBool ->
+    Γ ⊢[ge;[];push_lbl ([], τ) Λ] b : TUnit ->
+    Γ ⊢[ge;[];push_lbl ([], τ) Λ] nb : τ ->
+    Γ ⊢[ge;[];Λ] while_loop τ c b nb : τ.
+  Proof.
+    intros Hc Hb Hnb; unfold while_loop.
+    eapply T_Loop; [constructor; constructor|]; simpl.
+    constructor; auto.
+    eapply T_Let; [exact Hb|].
+    eapply T_Jump; [reflexivity|]; simpl; constructor; constructor.
+  Qed.
+
+  Lemma for_loop_typed Λ Γ es τs τ c b names us nb :
+    Γ ⊢*[ge;[];Λ] es : τs ->
+    match c with
+    | Some c0 => List.app τs Γ ⊢[ge;[];push_lbl (τs, τ) Λ] c0 : TBool /\
+                 List.app τs Γ ⊢[ge;[];push_lbl (τs, τ) Λ] nb : τ
+    | None => True
+    end ->
+    List.app τs Γ ⊢[ge;[];push_lbl ([], TUnit) (push_lbl (τs, τ) Λ)] b : TUnit ->
+    List.length names = List.length τs ->
+    Forall (fun yu => exists j τ', index_of (fst yu) names = Some j /\ nth_error τs j = Some τ' /\
+                                   TUnit :: List.app τs Γ ⊢[ge;[];push_lbl (τs, τ) Λ] snd yu : τ') us ->
+    Γ ⊢[ge;[];Λ] for_loop es τs τ c b names us nb : τ.
+  Proof.
+    intros Hes Hc Hb Hl Hus; unfold for_loop.
+    assert (Hstep : List.app τs Γ ⊢[ge;[];push_lbl (τs, τ) Λ]
+                      ELet (eblock TUnit b) (EJump CCont 0 (ETuple (for_next names us)) τ) : τ).
+    { eapply T_Let; [apply eblock_typed'; exact Hb|].
+      eapply T_Jump; [reflexivity|]; simpl; constructor.
+      apply for_next_typed; auto. }
+    eapply T_Loop; [constructor; exact Hes|].
+    destruct c as [c0|]; [destruct Hc; constructor; auto|exact Hstep].
+  Qed.
+
+  Lemma field_cell_typed Λ Γ T ts i c n t e b :
+    field_cell E T ts i = Some (c, n, t) ->
+    Γ ⊢[ge;[];Λ] e : TData T ts ->
+    TRef t :: Γ ⊢[ge;[];Λ] b : TUnit ->
+    Γ ⊢[ge;[];Λ] EMatch e TUnit [(PConstr c (proj_pats i PVar 0 n), b)] : TUnit.
+  Proof.
+    unfold field_cell; intros H He Hb.
+    destruct (lookup_ty ge T) as [td|] eqn:Htd; [|discriminate].
+    destruct (td_ctors td) as [|cd [|]] eqn:Hc; try discriminate.
+    destruct (nth_error (map (tsubst (inst ts)) (cd_fields cd)) i) as [τ0|] eqn:Hn; [|discriminate].
+    destruct τ0; try discriminate.
+    injection H as H1 H2 H3; subst.
+    eapply T_Match; [exact He|].
+    apply Bs_cons with (Δ := [TRef t]); [|exact Hb|constructor].
+    eapply P_Constr; [eapply ctor_fields_intro; eauto using lookup_ctor_single|].
+    eapply proj_pats_typed; [constructor| |]; [lia|]. rewrite Nat.sub_0_r; exact Hn.
+  Qed.
+
+  Lemma ref_new_typed Λ Γ t v :
+    ref_ok E -> Γ ⊢[ge;[];Λ] v : t ->
+    Γ ⊢[ge;[];Λ] EConstr "Ref" "Ref" [t] (ETuple [EMem (MRef t) [v]]) : TData "Ref" [t].
+  Proof.
+    unfold ref_ok; intros (td & cd & Htd & Hn & Hc & Hf) Hv.
+    eapply T_Constr; [exact Htd|rewrite Hn; reflexivity|exact Hc|]; rewrite Hf; simpl.
+    constructor; constructor; [|constructor].
+    apply (T_Mem _ _ _ _ (MRef t) [v]); simpl; constructor; auto; constructor.
+  Qed.
+
+  Lemma index_upd_typed Λ Γ p o k t a i v rhs :
+    Γ ⊢[ge;[];Λ] a : TArray k t ->
+    TArray k t :: Γ ⊢[ge;[];Λ] i : TIndex ->
+    TIndex :: TArray k t :: Γ ⊢[ge;[];Λ] v : t ->
+    binop_res o t = t ->
+    elab_binop p o t (EMem (MIndex k t) [EVar 1; EVar 0]) v = Ok rhs ->
+    Γ ⊢[ge;[];Λ] ELet a (ELet i (EMem (MSetIndex k t) [EVar 1; EVar 0; rhs])) : TUnit.
+  Proof.
+    intros Ha Hi Hv Hr Hb.
+    eapply T_Let; [exact Ha|]; eapply T_Let; [exact Hi|].
+    apply (T_Mem _ _ _ _ (MSetIndex k t) [_; _; _]); simpl.
+    constructor; [constructor; reflexivity|].
+    constructor; [constructor; reflexivity|].
+    constructor; [|constructor].
+    assert (Hc : TIndex :: TArray k t :: Γ ⊢[ge;[];Λ] EMem (MIndex k t) [EVar 1; EVar 0] : t).
+    { apply (T_Mem _ _ _ _ (MIndex k t) [_; _]); simpl.
+      constructor; [constructor; reflexivity|constructor; [constructor; reflexivity|constructor]]. }
+    pose proof (binop_typed _ _ _ _ _ _ _ _ Hb Hc Hv) as He; rewrite Hr in He; exact He.
+  Qed.
+
   Theorem elab_typed :
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇒ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇐ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
@@ -305,6 +442,13 @@ Section Typed.
     (forall L Γ fes names fs es ixs, Γ ⊩ʳ[E;L] fes : names ; fs ⇝ es ; ixs ->
        exists taus, ctx_of Γ ⊢*[ge;[];cc_of L] es : taus /\
                     Forall2 (fun i τ => nth_error fs i = Some τ) ixs taus) /\
+    (forall L Γ inits τs es, Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+       ctx_of Γ ⊢*[ge;[];cc_of L] es : τs /\ List.length inits = List.length τs) /\
+    (forall L Γ upds names τs us, Γ ⊩ᵘ[E;L] upds : names ; τs ⇝ us ->
+       Forall (fun yu => exists j τ, index_of (fst yu) names = Some j /\ nth_error τs j = Some τ /\
+                                     ctx_of Γ ⊢[ge;[];cc_of L] snd yu : τ) us) /\
+    (forall L Γ os τ oe, Γ ⊩ᵒ[E;L] os ⇐ τ ⇝ oe ->
+       forall e, oe = Some e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ ss τs es, Γ ⊩*[E;L] ss ⇒ τs ⇝ es -> ctx_of Γ ⊢*[ge;[];cc_of L] es : τs) /\
     (forall L Γ ss τs es, Γ ⊩*[E;L] ss ⇐ τs ⇝ es -> ctx_of Γ ⊢*[ge;[];cc_of L] es : τs).
   Proof.
@@ -314,6 +458,14 @@ Section Typed.
                 | H : params_ann _ _ _ |- _ => pose proof (params_len _ _ _ H); clear H
                 | H : context [ctx_of (List.app (lam_ctx ?ps ?τs) ?Γ)] |- _ =>
                     rewrite lam_ctx_ctx in H by assumption
+                | H : _ /\ List.length ?l = List.length ?τs |- _ =>
+                    let H1 := fresh "Hes" in let H2 := fresh "Hlen" in destruct H as [H1 H2]
+                | Hl : List.length ?l = List.length ?τs,
+                  H : context [ctx_of (List.app (names_ctx (map fst ?l) ?τs) ?Γ)] |- _ =>
+                    rewrite names_ctx_ctx in H by (rewrite length_map; exact Hl)
+                | H : context [map snd (List.app (names_ctx ?xs ?τs) ?Γ)] |- _ =>
+                    change (map snd (List.app (names_ctx xs τs) Γ))
+                      with (ctx_of (List.app (names_ctx xs τs) Γ)) in H
                 | H : context [ctx_of (List.app ?Δ ?Γ)] |- _ => rewrite ctx_of_app in H
                 | H : ⊩ᵖ[E] _ : _ ⇝ _ ⊣ _ |- _ => apply (proj1 pat_typed_el) in H
                 end.
@@ -336,6 +488,27 @@ Section Typed.
     all: try solve [eapply field_proj_typed; eauto].
     all: try solve [eapply T_Constr; eauto;
                     match goal with H : cd_fields _ = [] |- _ => rewrite H end; repeat constructor].
+    (* state and loops *)
+    all: try solve [eapply upd_rhs_typed; [eassumption| |eassumption]; tc].
+    all: try solve [apply (T_Mem _ _ _ _ (MSet _) [_; _]); simpl; constructor; [tc|constructor; [|constructor]];
+                    eapply upd_rhs_typed; [eassumption| |eassumption]; tc].
+    all: try solve [eapply field_cell_typed; eauto;
+                    apply (T_Mem _ _ _ _ (MSet _) [_; _]); simpl; constructor; [tc|constructor; [|constructor]];
+                    eapply upd_rhs_typed; [eassumption| |eassumption]; tc].
+    all: try solve [eapply index_upd_typed; eauto].
+    all: try solve [eapply ref_new_typed; eauto].
+    all: try solve [eapply while_loop_typed; eauto; constructor].
+    all: try discriminate.
+    all: try solve [match goal with H : Some _ = Some _ |- _ => injection H as <- end; eauto].
+    all: try solve [match goal with |- _ ⊢[_;_;_] for_loop _ _ _ None _ _ _ _ : _ =>
+                      eapply for_loop_typed; [eassumption | exact I | eassumption
+                                             | rewrite length_map; eassumption | eassumption] end].
+    all: try solve [match goal with |- _ ⊢[_;_;_] for_loop _ _ _ ?c _ _ _ _ : _ => try destruct c end;
+                    eapply for_loop_typed; eauto; try (rewrite length_map; assumption);
+                    simpl; try split; first [solve [eauto] | constructor]].
+    all: try solve [constructor; apply eblock_typed'; assumption].
+    all: try solve [apply eblock_typed'; assumption].
+    all: try solve [eapply T_Jump; [eassumption|]; simpl; tc].
     (* conversions and calls *)
     all: try solve [eapply coerce_typed; eauto].
     all: eapply wrap_call_typed; eauto; eapply T_Global; eauto.

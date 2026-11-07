@@ -332,7 +332,7 @@ Proof. vm_compute. reflexivity. Qed.
 Definition hdr2 : genv :=
   mk_genv [ mk_tdef "Shape" 0 [mk_cdef "Circle" [TInt I32]; mk_cdef "Rect" [TInt I32; TInt I32]] false;
             mk_tdef "P" 0 [mk_cdef "P" [TInt I32; TRef (TInt I32)]] false;
-            option_tdef; mk_tdef "Box" 1 [mk_cdef "Box" [TVar 0]] false ] [].
+            option_tdef; mk_tdef "Box" 1 [mk_cdef "Box" [TVar 0]] false; ref_tdef ] [].
 
 Definition E2 : senv :=
   mk_senv [("Shape", 0); ("P", 0); ("Option", 1); ("Box", 1)] hdr2 [("P", ["x"; "y"]); ("Box", ["v"])] []
@@ -404,4 +404,55 @@ Example ex_elab_record :
               (EConstr "P" "P" [] (ETuple [EProj (EVar 0) 1; EProj (EVar 0) 0]))),
    Some (TData "Box" [TBool]),
    None).
+Proof. vm_compute. reflexivity. Qed.
+
+(* ---- M3 in the certified elaborator ---- *)
+Definition seq_s (a b : sexpr) : sexpr := SLet P0 None None a b.
+Definition lt_s (a b : sexpr) : sexpr := SInfix P0 "<" a b.
+Definition add_s (a b : sexpr) : sexpr := SInfix P0 "+" a b.
+
+(* let mut x = 1; x += 2; x *)
+Example ex_elab_mut :
+  syn2 (SLetMut P0 "x" None (int_s 1) (seq_s (SAssign P0 "x" (Some "+") (int_s 2)) (var_s "x"))) =
+  Some (TInt I32,
+        ELet (EMem (MRef (TInt I32)) [ELit (LInt I32 1)])
+          (ELet (EMem (MSet (TInt I32)) [EVar 0; EPrim (PIntArith AAdd I32)
+                                                   [EMem (MGet (TInt I32)) [EVar 0]; ELit (LInt I32 2)]])
+                (EMem (MGet (TInt I32)) [EVar 1]))).
+Proof. vm_compute. reflexivity. Qed.
+
+Example ex_elab_state :
+  (* let a = [1, 2]; a[0] = a.length(); a[1] *)
+  (ty2 (SLet P0 (Some "a") None (SArray P0 [int_s 1; int_s 2])
+          (seq_s (SIndexSet P0 (var_s "a") (int_s 0) None (SMethod P0 (var_s "a") "length" []))
+                 (SIndex P0 (var_s "a") (int_s 1)))),
+   (* while true { break 1 } nobreak { 2 } *)
+   ty2 (SWhile P0 None (SLit P0 (SLBool true)) (SBreak P0 None (Some (int_s 1))) (Some (int_s 2))),
+   (* for i = 0, s = 0; i < 3; i = i + 1, s = s + i { } nobreak { s } *)
+   ty2 (SFor P0 None [("i", int_s 0); ("s", int_s 0)] (Some (lt_s (var_s "i") (int_s 3)))
+          [("i", add_s (var_s "i") (int_s 1)); ("s", add_s (var_s "s") (var_s "i"))]
+          (SLit P0 SLUnit) (Some (var_s "s"))),
+   (* (l~: { break l~ 1 } : Int) *)
+   ty2 (SAnnot P0 (SBlock P0 "l" (SBreak P0 (Some "l") (Some (int_s 1)))) (SName P0 "Int" [])),
+   (* fn() -> Int { return 3 } *)
+   ty2 (SLam P0 [] (Some (SName P0 "Int" [])) None (SReturn P0 (Some (int_s 3)))),
+   (* fn(p : P) { p.y += 5 } *)
+   ty2 (SLam P0 [("p", Some (SName P0 "P" []))] None None (SFieldSet P0 (var_s "p") "y" (Some "+") (int_s 5))),
+   (* Ref::new(1), Array::make(3, 0), (Array::new() : Array[Int]) *)
+   ty2 (SApp P0 (SQual P0 "Ref" "new") [int_s 1]),
+   ty2 (SApp P0 (SQual P0 "Array" "make") [int_s 3; int_s 0]),
+   ty2 (SAnnot P0 (SApp P0 (SQual P0 "Array" "new") []) (SName P0 "Array" [SName P0 "Int" []]))) =
+  (Some (TInt I32), Some (TInt I32), Some (TInt I32), Some (TInt I32),
+   Some (TArrow [] (TInt I32) TNever), Some (TArrow [TData "P" []] TUnit TNever),
+   Some (TData "Ref" [TInt I32]), Some (TArray AGrow (TInt I32)), Some (TArray AGrow (TInt I32))).
+Proof. vm_compute. reflexivity. Qed.
+
+(* rejected: assigning an immutable variable or field; break outside a loop;
+   continue with the wrong number of values *)
+Example ex_elab_reject3 :
+  (ty2 (SLet P0 (Some "x") None (int_s 1) (SAssign P0 "x" None (int_s 2))),
+   ty2 (SLam P0 [("p", Some (SName P0 "P" []))] None None (SFieldSet P0 (var_s "p") "x" None (int_s 5))),
+   ty2 (SBreak P0 None None),
+   ty2 (SFor P0 None [("i", int_s 0)] None [] (SContinue P0 None [int_s 1; int_s 2]) None)) =
+  (None, None, None, None).
 Proof. vm_compute. reflexivity. Qed.

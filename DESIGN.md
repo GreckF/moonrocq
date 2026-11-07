@@ -335,5 +335,9 @@ M6 用有规范、有证明的 elaborator 取代 `Surface/Elab.v`，分四个阶
   `mut` 字段）、`match`（类型取 `pick_arm` 选出的分支）、字段访问与 tuple struct 投影（`field_proj`）。
 - 记录的构造 ✅：字段按源顺序求值成元组，构造子的各字段是元组的投影（决定 67）；泛型记录的类型实参先由
   `rpass` 求出，再统一检查字段。
-- 待做：M3（`let mut`、赋值、数组、循环与跳转）、
+- 第 3 片 ✅：M3 的 `let mut`、（复合）赋值、数组字面量与下标、`mut` 字段赋值、`length`/`push`、`Ref::new`、
+  `Array::make`/`Array::new`、`while`/`for`（含 `nobreak`）、带标签的块、`break`/`continue`/`return`。
+  跳转的目标由名字解析函数找到，规则中再写明目标标签的 Core 类型；带 `nobreak` 的循环在综合模式下，
+  类型取 `nobreak` 在 `Unit` 标签下综合出的类型（与旧算法相同，规范保持确定）。
+- 待做：`for .. in`（整数范围与数组）、
   M4（`raise`/`try`/`defer`）、M5（trait、方法、对象）、顶层定义与程序，然后替换旧 Elab。

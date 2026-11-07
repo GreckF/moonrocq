@@ -974,12 +974,114 @@ Section Elaborate.
           go fes' st'
       end.
 
+  (** *** State and loops (milestone M3) *)
+
+  Definition upd_rhs_dec (p : pos) (op : option ident) (τ : ty) (cur v : expr) :
+      result {e | upd_rhs p op τ cur v e} elab_error :=
+    match op as o return result {e | upd_rhs p o τ cur v e} elab_error with
+    | None => Ok (exist _ v eq_refl)
+    | Some o =>
+        match ty_eq_dec (binop_res o τ) τ with
+        | left Hr =>
+            '(exist _ e He) <- binop_dec p o τ cur v ;;
+            Ok (exist _ e (conj Hr He))
+        | right _ => Err (EE_NoOperator p o τ)
+        end
+    end.
+
+  Definition field_cell_dec (p : pos) (f : ident) (T : ident) (ts : list ty) (i : nat) :
+      result {r | field_cell E T ts i = Some r} elab_error :=
+    match field_cell E T ts i as o return field_cell E T ts i = o -> result {r | field_cell E T ts i = Some r} elab_error with
+    | Some r => fun H => Ok (exist _ r H)
+    | None => fun _ => Err (EE_NotMutable p f)
+    end eq_refl.
+
+  Definition ref_ok_dec (p : pos) : result (ref_ok E) elab_error :=
+    '(exist _ td Htd) <- of_option (lookup_ty hdr "Ref") (EE_UnknownType p "Ref") ;;
+    match Nat.eq_dec (td_tparams td) 1 with
+    | left Hn =>
+        '(exist _ cd Hc) <- of_option (lookup_ctor td "Ref") (EE_UnknownCtor p "Ref") ;;
+        match list_eq_dec ty_eq_dec (cd_fields cd) [TRef (TVar 0)] with
+        | left Hf => Ok (ex_intro _ td (ex_intro _ cd (conj Htd (conj Hn (conj Hc Hf)))))
+        | right _ => Err (EE_UnknownType p "Ref")
+        end
+    | right _ => Err (EE_UnknownType p "Ref")
+    end.
+
+  Definition sinits_dec (rec : elab_ty_t) (L : cenv) (Γ : lctx) :
+      forall inits, result {τs & {es | Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es}} elab_error :=
+    fix go inits :=
+      match inits as i0 return result {τs & {es | Γ ⊩ⁱ[E;L] i0 ⇒ τs ⇝ es}} elab_error with
+      | [] => Ok (existT _ [] (exist _ [] (In_nil E L Γ)))
+      | (x, s) :: inits' =>
+          '(existT _ τ (exist _ e H)) <- rec s L Γ Syn ;;
+          '(existT _ τs (exist _ es Hs)) <- go inits' ;;
+          Ok (existT _ (τ :: τs) (exist _ (e :: es) (In_cons E L Γ x s inits' τ τs e es H Hs)))
+      end.
+
+  Definition supds_dec (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (names : list ident) (τs : list ty) :
+      forall upds, result {us | Γ ⊩ᵘ[E;L] upds : names ; τs ⇝ us} elab_error :=
+    fix go upds :=
+      match upds as u0 return result {us | Γ ⊩ᵘ[E;L] u0 : names ; τs ⇝ us} elab_error with
+      | [] => Ok (exist _ [] (Up_nil E L Γ names τs))
+      | (y, s) :: upds' =>
+          '(exist _ i Hi) <- of_option (index_of y names) (EE_Unbound p y) ;;
+          '(exist _ τ Hτ) <- of_option (nth_error τs i) (EE_Unbound p y) ;;
+          '(exist _ u Hu) <- rec s L Γ (Chk τ) ;;
+          '(exist _ us Hus) <- go upds' ;;
+          Ok (exist _ ((y, u) :: us) (Up_cons E L Γ y s upds' names τs i τ u us Hi Hτ Hu Hus))
+      end.
+
+  Definition ochk_dec (rec : elab_ty_t) (L : cenv) (Γ : lctx) (τ : ty) :
+      forall os, result {oe | Γ ⊩ᵒ[E;L] os ⇐ τ ⇝ oe} elab_error :=
+    fun os =>
+      match os as o return result {oe | Γ ⊩ᵒ[E;L] o ⇐ τ ⇝ oe} elab_error with
+      | None => Ok (exist _ None (Oc_None E L Γ τ))
+      | Some s => '(exist _ e H) <- rec s L Γ (Chk τ) ;; Ok (exist _ (Some e) (Oc_Some E L Γ s τ e H))
+      end.
+
+  Definition label_at (p : pos) (L : cenv) (k : nat) : result {lbl | nth_error (core_labels (ce_labs L)) k = Some lbl} elab_error :=
+    of_option (nth_error (core_labels (ce_labs L)) k) (EE_NoTarget p).
+
+  Lemma lbl_res {L : cenv} {k ps r r'} :
+    nth_error (core_labels (ce_labs L)) k = Some (ps, r) -> r = r' ->
+    nth_error (core_labels (ce_labs L)) k = Some (ps, r').
+  Proof. intros H <-; exact H. Qed.
+
+  Lemma lbl_ps {L : cenv} {k ps ps' r} :
+    nth_error (core_labels (ce_labs L)) k = Some (ps, r) -> ps = ps' ->
+    nth_error (core_labels (ce_labs L)) k = Some (ps', r).
+  Proof. intros H <-; exact H. Qed.
+
+  Lemma tgt_res {x : option ident} {L : cenv} {k r r'} :
+    break_target x (ce_labs L) 0 = Some (k, r) -> r = r' -> break_target x (ce_labs L) 0 = Some (k, r').
+  Proof. intros H <-; exact H. Qed.
+
+  Lemma ret_res {L : cenv} {k r r'} :
+    return_target (ce_labs L) 0 = Some (k, r) -> r = r' -> return_target (ce_labs L) 0 = Some (k, r').
+  Proof. intros H <-; exact H. Qed.
+
+  Lemma cons_not_nil {A} (a : A) l : a :: l <> [].
+  Proof. discriminate. Qed.
+
+  Lemma meth_syn L Γ p s m m' args τ e :
+    m = m' -> Γ ⊩[E;L] SMethod p s m' args ⇒ τ ⇝ e -> Γ ⊩[E;L] SMethod p s m args ⇒ τ ⇝ e.
+  Proof. intros ->; auto. Qed.
+
+  Lemma qual_eq p f q T T' m m' args :
+    f = SQual q T m -> T = T' -> m = m' -> SApp p (SQual q T' m') args = SApp p f args.
+  Proof. intros -> -> ->; reflexivity. Qed.
+
+  Lemma ty_data_eq (R : ident) ts : R = "Ref" -> TData "Ref" ts = TData R ts.
+  Proof. intros ->; reflexivity. Qed.
+
   (** ** Heads of calls *)
 
   Inductive head (Γ : lctx) (f : sexpr) : Type :=
   | HName (q : pos) (g : ident) (Hf : f = SVar q g) (Hl : lookup_local g Γ = None)
   | HExpr (H : callee Γ f)
   | HCtor (q : pos) (tq : option ident) (c : ident) (Hf : f = SConstr q tq c)
+  | HQual (q : pos) (T m : ident) (Hf : f = SQual q T m)
   | HOther.
 
   Definition head_of (Γ : lctx) (f : sexpr) : head Γ f :=
@@ -990,7 +1092,7 @@ Section Elaborate.
         | Some i => fun H => HExpr Γ (SVar q g) (some_not_none _ i H)
         end eq_refl
     | SConstr q tq c => HCtor Γ (SConstr q tq c) q tq c eq_refl
-    | SQual _ _ _ => HOther Γ _
+    | SQual q T m => HQual Γ (SQual q T m) q T m eq_refl
     | f0 => HExpr Γ f0 I
     end.
 
@@ -1300,6 +1402,80 @@ Section Elaborate.
                 | t0 => fin p L Γ (SApp p f args) (Chk t0) syn_c
                 end
             end
+        | HQual _ _ q T mn Hf =>
+            (* [Ref::new(v)], [Array::make(n, v)], [FixedArray::make(n, v)], [Array::new()] *)
+            match string_dec T "Ref", string_dec mn "new", args as a0
+                  return result (out L Γ (SApp p f a0) m) elab_error with
+            | left HT, left Hm, [v] =>
+                let Heq := qual_eq p f q T "Ref" mn "new" [v] Hf HT Hm in
+                Hr <- ref_ok_dec q ;;
+                match m as m0 return result (out L Γ (SApp p f [v]) m0) elab_error with
+                | Chk τ =>
+                    let syn_r :=
+                      '(existT _ t (exist _ v' Hv)) <- elab v L Γ Syn ;;
+                      Ok (existT _ _ (exist _ _ (syn_cast L Γ _ _ _ _ Heq (S_RefNew E L Γ p q v t v' Hr Hv)))) in
+                    match τ as t0 return result (out L Γ (SApp p f [v]) (Chk t0)) elab_error with
+                    | TData R [t] =>
+                        match string_dec R "Ref" with
+                        | left HR =>
+                            '(exist _ v' Hv) <- elab v L Γ (Chk t) ;;
+                            Ok (exist _ _ (chk_cast L Γ _ _ _ _ _ Heq (ty_data_eq R [t] HR)
+                                             (C_RefNew E L Γ p q v t v' Hr Hv)))
+                        | right _ => fin p L Γ (SApp p f [v]) (Chk (TData R [t])) syn_r
+                        end
+                    | t0 => fin p L Γ (SApp p f [v]) (Chk t0) syn_r
+                    end
+                | Syn =>
+                    '(existT _ t (exist _ v' Hv)) <- elab v L Γ Syn ;;
+                    Ok (existT _ _ (exist _ _ (syn_cast L Γ _ _ _ _ Heq (S_RefNew E L Γ p q v t v' Hr Hv))))
+                end
+            | _, _, a0 =>
+            match array_kind_of T as ok return array_kind_of T = ok -> result (out L Γ (SApp p f a0) m) elab_error with
+            | Some k => fun Hk =>
+                match string_dec mn "make", string_dec mn "new", a0 as a1
+                      return result (out L Γ (SApp p f a1) m) elab_error with
+                | left Hm, _, [n; v] =>
+                    let Heq := qual_eq p f q T T mn "make" [n; v] Hf eq_refl Hm in
+                    '(exist _ n' Hn) <- elab n L Γ (Chk TIndex) ;;
+                    let syn_m :=
+                      '(existT _ t (exist _ v' Hv)) <- elab v L Γ Syn ;;
+                      Ok (existT _ _ (exist _ _ (syn_cast L Γ _ _ _ _ Heq (S_Make E L Γ p q T n v k t n' v' Hk Hn Hv)))) in
+                    match m as m0 return result (out L Γ (SApp p f [n; v]) m0) elab_error with
+                    | Syn => syn_m
+                    | Chk τ =>
+                        match τ as t0 return result (out L Γ (SApp p f [n; v]) (Chk t0)) elab_error with
+                        | TArray k' t =>
+                            match array_kind_eq_dec k k' with
+                            | left Hkk =>
+                                '(exist _ v' Hv) <- elab v L Γ (Chk t) ;;
+                                Ok (exist _ _ (chk_cast L Γ _ _ _ _ _ Heq (f_equal (fun kk => TArray kk t) Hkk)
+                                                 (C_Make E L Γ p q T n v k t n' v' Hk Hn Hv)))
+                            | right _ => fin p L Γ (SApp p f [n; v]) (Chk (TArray k' t)) syn_m
+                            end
+                        | t0 => fin p L Γ (SApp p f [n; v]) (Chk t0) syn_m
+                        end
+                    end
+                | _, left Hm, [] =>
+                    let Heq := qual_eq p f q T T mn "new" [] Hf eq_refl Hm in
+                    match m as m0 return result (out L Γ (SApp p f []) m0) elab_error with
+                    | Chk τ =>
+                        match τ as t0 return result (out L Γ (SApp p f []) (Chk t0)) elab_error with
+                        | TArray k' t =>
+                            match array_kind_eq_dec k k' with
+                            | left Hkk =>
+                                Ok (exist _ _ (chk_cast L Γ _ _ _ _ _ Heq (f_equal (fun kk => TArray kk t) Hkk)
+                                                 (C_ArrNew E L Γ p q T k t Hk)))
+                            | right _ => Err (EE_CannotInfer q mn)
+                            end
+                        | _ => Err (EE_CannotInfer q mn)
+                        end
+                    | Syn => Err (EE_CannotInfer q mn)
+                    end
+                | _, _, _ => Err (EE_Unsupported p "method call")
+                end
+            | None => fun _ => Err (EE_Unsupported p "method call")
+            end eq_refl
+            end
         | HOther _ _ => Err (EE_Unsupported p "method call")
         end
     | SConstr p tq c =>
@@ -1372,6 +1548,291 @@ Section Elaborate.
                 end eq_refl
             | t0 => fin p L Γ (SRecord p tq fes) (Chk t0) syn_r
             end
+        end
+    | SLetMut p x ann s1 s2 =>
+        '(existT _ τ1 (exist _ e1 H1)) <-
+          (match ann as a0 return result {τ & {e | Γ ⊩[E;L] s1 ⦂ a0 ⇒ τ ⇝ e}} elab_error with
+           | None =>
+               '(existT _ τ (exist _ e H)) <- elab s1 L Γ Syn ;;
+               Ok (existT _ τ (exist _ e (B_Syn E L Γ s1 τ e H)))
+           | Some t =>
+               '(exist _ τ Ht) <- ety_dec t ;;
+               '(exist _ e H) <- elab s1 L Γ (Chk τ) ;;
+               Ok (existT _ τ (exist _ e (B_Ann E L Γ s1 t τ e Ht H)))
+           end) ;;
+        match m as m0 return result (out L Γ (SLetMut p x ann s1 s2) m0) elab_error with
+        | Syn =>
+            '(existT _ τ (exist _ e2 H2)) <- elab s2 L ((Some x, TRef τ1) :: Γ) Syn ;;
+            Ok (existT _ τ (exist _ _ (S_LetMut E L Γ p x ann s1 s2 τ1 τ e1 e2 H1 H2)))
+        | Chk τ =>
+            '(exist _ e2 H2) <- elab s2 L ((Some x, TRef τ1) :: Γ) (Chk τ) ;;
+            Ok (exist _ _ (C_LetMut E L Γ p x ann s1 s2 τ1 τ e1 e2 H1 H2))
+        end
+    | SAssign p x op s0 =>
+        fin p L Γ (SAssign p x op s0) m
+          ('(exist _ i Hl) <- of_option (lookup_local x Γ) (EE_NotMutable p x) ;;
+           '(exist _ τc Hn) <- of_option (nth_error (ctx_of Γ) i) (EE_NotMutable p x) ;;
+           match τc as t return nth_error (ctx_of Γ) i = Some t -> result (sout L Γ (SAssign p x op s0)) elab_error with
+           | TRef τ => fun Hn =>
+               '(exist _ v Hv) <- elab s0 L Γ (Chk τ) ;;
+               '(exist _ e He) <- upd_rhs_dec p op τ (EMem (MGet τ) [EVar i]) v ;;
+               Ok (existT _ _ (exist _ _ (S_Assign E L Γ p x op s0 i τ v e Hl Hn Hv He)))
+           | _ => fun _ => Err (EE_NotMutable p x)
+           end Hn)
+    | SArray p ss =>
+        let syn_a :=
+          match ss as l return result (sout L Γ (SArray p l)) elab_error with
+          | s0 :: ss' =>
+              '(existT _ t (exist _ e H)) <- elab s0 L Γ Syn ;;
+              '(exist _ es Hs) <- chk_list p L Γ (fun s' τ' => elab s' L Γ (Chk τ')) ss' (repeat t (List.length ss')) ;;
+              Ok (existT _ _ (exist _ _ (S_Array E L Γ p s0 ss' t e es H Hs)))
+          | [] => Err (EE_CannotInfer p "[]")
+          end in
+        match m as m0 return result (out L Γ (SArray p ss) m0) elab_error with
+        | Syn => syn_a
+        | Chk τ =>
+            match τ as t0 return result (out L Γ (SArray p ss) (Chk t0)) elab_error with
+            | TArray k t =>
+                '(exist _ es Hs) <- chk_list p L Γ (fun s' τ' => elab s' L Γ (Chk τ')) ss (repeat t (List.length ss)) ;;
+                Ok (exist _ _ (C_Array E L Γ p ss k t es Hs))
+            | t0 => fin p L Γ (SArray p ss) (Chk t0) syn_a
+            end
+        end
+    | SIndex p a i =>
+        fin p L Γ (SIndex p a i) m
+          ('(existT _ τa (exist _ a' Ha)) <- elab a L Γ Syn ;;
+           match τa as t return Γ ⊩[E;L] a ⇒ t ⇝ a' -> result (sout L Γ (SIndex p a i)) elab_error with
+           | TArray k t => fun Ha =>
+               '(exist _ i' Hi) <- elab i L Γ (Chk TIndex) ;;
+               Ok (existT _ _ (exist _ _ (S_Index E L Γ p a i k t a' i' Ha Hi)))
+           | t => fun _ => Err (EE_NoMethod p "[]" t)
+           end Ha)
+    | SIndexSet p a i op v =>
+        fin p L Γ (SIndexSet p a i op v) m
+          ('(existT _ τa (exist _ a' Ha)) <- elab a L Γ Syn ;;
+           match τa as t return Γ ⊩[E;L] a ⇒ t ⇝ a' -> result (sout L Γ (SIndexSet p a i op v)) elab_error with
+           | TArray k t => fun Ha =>
+               match op as o return result (sout L Γ (SIndexSet p a i o v)) elab_error with
+               | None =>
+                   '(exist _ i' Hi) <- elab i L Γ (Chk TIndex) ;;
+                   '(exist _ v' Hv) <- elab v L Γ (Chk t) ;;
+                   Ok (existT _ _ (exist _ _ (S_IndexSet E L Γ p a i v k t a' i' v' Ha Hi Hv)))
+               | Some o =>
+                   '(exist _ i' Hi) <- elab i L ((None, TArray k t) :: Γ) (Chk TIndex) ;;
+                   '(exist _ v' Hv) <- elab v L ((None, TIndex) :: (None, TArray k t) :: Γ) (Chk t) ;;
+                   match ty_eq_dec (binop_res o t) t with
+                   | left Hr =>
+                       '(exist _ rhs He) <- binop_dec p o t (EMem (MIndex k t) [EVar 1; EVar 0]) v' ;;
+                       Ok (existT _ _ (exist _ _ (S_IndexUpd E L Γ p a i o v k t a' i' v' rhs Ha Hi Hv Hr He)))
+                   | right _ => Err (EE_NoOperator p o t)
+                   end
+               end
+           | t => fun _ => Err (EE_NoMethod p "[]=" t)
+           end Ha)
+    | SFieldSet p s0 f op v =>
+        fin p L Γ (SFieldSet p s0 f op v) m
+          ('(existT _ τ0 (exist _ e H)) <- elab s0 L Γ Syn ;;
+           match τ0 as t return Γ ⊩[E;L] s0 ⇒ t ⇝ e -> result (sout L Γ (SFieldSet p s0 f op v)) elab_error with
+           | TData T ts => fun H =>
+               '(exist _ names Hn) <- of_option (assoc T (se_sinfo E)) (EE_NotRecord p (TData T ts)) ;;
+               '(exist _ i Hi) <- of_option (index_of f names) (EE_UnknownField p f) ;;
+               '(exist _ (c, n, t) Hc) <- field_cell_dec p f T ts i ;;
+               '(exist _ v' Hv) <- elab v L ((None, TRef t) :: Γ) (Chk t) ;;
+               '(exist _ rhs He) <- upd_rhs_dec p op t (EMem (MGet t) [EVar 0]) v' ;;
+               Ok (existT _ _ (exist _ _ (S_FieldSet E L Γ p s0 f op v T ts e names i c n t v' rhs H Hn Hi Hc Hv He)))
+           | t => fun _ => Err (EE_NotRecord p t)
+           end H)
+    | SMethod p s0 mn args =>
+        fin p L Γ (SMethod p s0 mn args) m
+          ('(existT _ τ0 (exist _ e H)) <- elab s0 L Γ Syn ;;
+           match string_dec mn "length", string_dec mn "push", args as a0
+                 return result (sout L Γ (SMethod p s0 mn a0)) elab_error with
+           | left Hm, _, [] =>
+               match τ0 as t return Γ ⊩[E;L] s0 ⇒ t ⇝ e -> result (sout L Γ (SMethod p s0 mn [])) elab_error with
+               | TArray k t => fun H =>
+                   Ok (existT _ _ (exist _ _ (meth_syn L Γ p s0 mn "length" [] _ _ Hm (S_Length E L Γ p s0 k t e H))))
+               | t => fun _ => Err (EE_NoMethod p mn t)
+               end H
+           | _, left Hm, [a] =>
+               match τ0 as t return Γ ⊩[E;L] s0 ⇒ t ⇝ e -> result (sout L Γ (SMethod p s0 mn [a])) elab_error with
+               | TArray AGrow t => fun H =>
+                   '(exist _ a' Ha) <- elab a L Γ (Chk t) ;;
+                   Ok (existT _ _ (exist _ _ (meth_syn L Γ p s0 mn "push" [a] _ _ Hm (S_Push E L Γ p s0 a t e a' H Ha))))
+               | t => fun _ => Err (EE_NoMethod p mn t)
+               end H
+           | _, _, _ => Err (EE_Unsupported p "method call")
+           end)
+    | SWhile p x c body onb =>
+        match onb as o return result (out L Γ (SWhile p x c body o) m) elab_error with
+        | None =>
+            fin p L Γ (SWhile p x c body None) m
+              ('(exist _ c' Hc) <- elab c (hd_env [] TUnit L) Γ (Chk TBool) ;;
+               '(exist _ b' Hb) <- elab body (push_lab (mk_lab x LKWhile [] TUnit) L) Γ (Chk TUnit) ;;
+               Ok (existT _ _ (exist _ _ (S_While E L Γ p x c body c' b' Hc Hb))))
+        | Some nb =>
+            match m as m0 return result (out L Γ (SWhile p x c body (Some nb)) m0) elab_error with
+            | Syn =>
+                '(existT _ τ (exist _ nb0 H0)) <- elab nb (hd_env [] TUnit L) Γ Syn ;;
+                '(exist _ c' Hc) <- elab c (hd_env [] τ L) Γ (Chk TBool) ;;
+                '(exist _ b' Hb) <- elab body (push_lab (mk_lab x LKWhile [] τ) L) Γ (Chk TUnit) ;;
+                '(exist _ nb' Hn) <- elab nb (hd_env [] τ L) Γ (Chk τ) ;;
+                Ok (existT _ _ (exist _ _ (S_WhileNb E L Γ p x c body nb τ nb0 c' b' nb' H0 Hc Hb Hn)))
+            | Chk τ =>
+                '(exist _ c' Hc) <- elab c (hd_env [] τ L) Γ (Chk TBool) ;;
+                '(exist _ b' Hb) <- elab body (push_lab (mk_lab x LKWhile [] τ) L) Γ (Chk TUnit) ;;
+                '(exist _ nb' Hn) <- elab nb (hd_env [] τ L) Γ (Chk τ) ;;
+                Ok (exist _ _ (C_WhileNb E L Γ p x c body nb τ c' b' nb' Hc Hb Hn))
+            end
+        end
+    | SFor p x inits oc upds body onb =>
+        '(existT _ τs (exist _ es Hi)) <- sinits_dec elab L Γ inits ;;
+        let Γ' := List.app (names_ctx (map fst inits) τs) Γ in
+        let names := map fst inits in
+        (* the loop at type [τ], without [nobreak] *)
+        let parts (τ : ty) :=
+          '(exist _ c' Hc) <- ochk_dec elab (hd_env τs τ L) Γ' TBool oc ;;
+          '(exist _ b' Hb) <- elab body (push_lab (mk_lab x LKForBody [] TUnit) (hd_env τs τ L)) Γ' (Chk TUnit) ;;
+          '(exist _ us Hu) <- supds_dec elab p (hd_env τs τ L) ((None, TUnit) :: Γ') names τs upds ;;
+          Ok (exist (fun r : option expr * expr * list (ident * expr) =>
+                       let '(c', b', us) := r in
+                       Γ' ⊩ᵒ[E;hd_env τs τ L] oc ⇐ TBool ⇝ c' /\
+                       Γ' ⊩[E;push_lab (mk_lab x LKForBody [] TUnit) (hd_env τs τ L)] body ⇐ TUnit ⇝ b' /\
+                       (None, TUnit) :: Γ' ⊩ᵘ[E;hd_env τs τ L] upds : names ; τs ⇝ us)
+                    (c', b', us) (conj Hc (conj Hb Hu))) in
+        match onb as o return result (out L Γ (SFor p x inits oc upds body o) m) elab_error with
+        | None =>
+            let syn_f :=
+              '(exist _ (c', b', us) (conj Hc (conj Hb Hu))) <- parts TUnit ;;
+              Ok (existT _ _ (exist _ _ (S_For E L Γ p x inits oc upds body τs es c' b' us Hi Hc Hb Hu))) in
+            match m as m0 return result (out L Γ (SFor p x inits oc upds body None) m0) elab_error with
+            | Syn => syn_f
+            | Chk τ =>
+                match oc as o return oc = o -> result (out L Γ (SFor p x inits o upds body None) (Chk τ)) elab_error with
+                | None => fun _ =>
+                    '(exist _ b' Hb) <- elab body (push_lab (mk_lab x LKForBody [] TUnit) (hd_env τs τ L)) Γ' (Chk TUnit) ;;
+                    '(exist _ us Hu) <- supds_dec elab p (hd_env τs τ L) ((None, TUnit) :: Γ') names τs upds ;;
+                    Ok (exist _ _ (C_ForInf E L Γ p x inits upds body τs es τ b' us Hi Hb Hu))
+                | Some c0 => fun Hoc =>
+                    '(exist _ e H) <- fin p L Γ (SFor p x inits oc upds body None) (Chk τ) syn_f ;;
+                    Ok (exist _ e (chk_cast L Γ _ _ τ τ e
+                                     (f_equal (fun o' => SFor p x inits o' upds body None) Hoc) eq_refl H))
+                end eq_refl
+            end
+        | Some nb =>
+            match m as m0 return result (out L Γ (SFor p x inits oc upds body (Some nb)) m0) elab_error with
+            | Syn =>
+                '(existT _ τ (exist _ nb0 H0)) <- elab nb (hd_env τs TUnit L) Γ' Syn ;;
+                '(exist _ (c', b', us) (conj Hc (conj Hb Hu))) <- parts τ ;;
+                '(exist _ nb' Hn) <- elab nb (hd_env τs τ L) Γ' (Chk τ) ;;
+                Ok (existT _ _ (exist _ _ (S_ForNb E L Γ p x inits oc upds body nb τs es τ nb0 c' b' us nb'
+                                                   Hi H0 Hc Hb Hu Hn)))
+            | Chk τ =>
+                '(exist _ (c', b', us) (conj Hc (conj Hb Hu))) <- parts τ ;;
+                '(exist _ nb' Hn) <- elab nb (hd_env τs τ L) Γ' (Chk τ) ;;
+                Ok (exist _ _ (C_ForNb E L Γ p x inits oc upds body nb τs es τ c' b' us nb' Hi Hc Hb Hu Hn))
+            end
+        end
+    | SBlock p x body =>
+        match m as m0 return result (out L Γ (SBlock p x body) m0) elab_error with
+        | Syn =>
+            '(exist _ b Hb) <- elab body (push_lab (mk_lab (Some x) LKBlock [] TUnit) L) Γ (Chk TUnit) ;;
+            Ok (existT _ _ (exist _ _ (S_Block E L Γ p x body b Hb)))
+        | Chk τ =>
+            '(exist _ b Hb) <- elab body (push_lab (mk_lab (Some x) LKBlock [] τ) L) Γ (Chk τ) ;;
+            Ok (exist _ _ (C_Block E L Γ p x body τ b Hb))
+        end
+    | SBreak p x oa =>
+        let jmp (τ : ty) : result (cout L Γ (SBreak p x oa) τ) elab_error :=
+          '(exist _ (k, τt) Ht) <- of_option (break_target x (ce_labs L) 0) (EE_NoTarget p) ;;
+          '(exist _ (ps, r) Hn) <- label_at p L k ;;
+          match ty_eq_dec r τt with
+          | left Hr =>
+              match oa as o return result (cout L Γ (SBreak p x o) τ) elab_error with
+              | Some a =>
+                  '(exist _ a' Ha) <- elab a L Γ (Chk τt) ;;
+                  Ok (exist _ _ (C_Break E L Γ p x a τ k ps τt a' Ht (lbl_res Hn Hr) Ha))
+              | None =>
+                  match ty_eq_dec τt TUnit with
+                  | left Hu => Ok (exist _ _ (C_Break0 E L Γ p x τ k ps (tgt_res Ht Hu) (lbl_res Hn (eq_trans Hr Hu))))
+                  | right _ => Err (EE_Annot p τt TUnit)
+                  end
+              end
+          | right _ => Err (EE_NoTarget p)
+          end in
+        match m as m0 return result (out L Γ (SBreak p x oa) m0) elab_error with
+        | Syn => '(exist _ e H) <- jmp TUnit ;; Ok (existT _ _ (exist _ _ (S_Jump E L Γ (SBreak p x oa) e eq_refl H)))
+        | Chk τ => jmp τ
+        end
+    | SContinue p x args =>
+        let jmp (τ : ty) : result (cout L Γ (SContinue p x args) τ) elab_error :=
+          '(exist _ tgt Ht) <- of_option (cont_target_of x (ce_labs L) 0) (EE_NoTarget p) ;;
+          match tgt as g, args as a0 return cont_target_of x (ce_labs L) 0 = Some g ->
+                                            result (cout L Γ (SContinue p x a0) τ) elab_error with
+          | CTWhile k, [] => fun Ht =>
+              '(exist _ (ps, r) Hn) <- label_at p L k ;;
+              match list_eq_dec ty_eq_dec ps [] with
+              | left Hps => Ok (exist _ _ (C_ContWhile E L Γ p x τ k r Ht (lbl_ps Hn Hps)))
+              | right _ => Err (EE_NoTarget p)
+              end
+          | CTWhile _, a0 => fun _ => Err (EE_BadContinue p 0 (List.length a0))
+          | CTFor k ps, [] => fun Ht =>
+              '(exist _ (pk, r) Hn) <- label_at p L k ;;
+              match ty_eq_dec r TUnit with
+              | left Hr => Ok (exist _ _ (C_ContFor0 E L Γ p x τ k ps pk Ht (lbl_res Hn Hr)))
+              | right _ => Err (EE_NoTarget p)
+              end
+          | CTFor k ps, a :: a' => fun Ht =>
+              _ <- bcheck (Nat.eqb (List.length ps) (List.length (a :: a')))
+                          (EE_BadContinue p (List.length ps) (List.length (a :: a'))) ;;
+              '(exist _ (ps', r) Hn) <- label_at p L (S k) ;;
+              match list_eq_dec ty_eq_dec ps' ps with
+              | left Hps =>
+                  '(exist _ es Hes) <- chk_list p L Γ (fun s' τ' => elab s' L Γ (Chk τ')) (a :: a') ps ;;
+                  Ok (exist _ _ (C_ContFor E L Γ p x (a :: a') τ k ps r es Ht (cons_not_nil a a') (lbl_ps Hn Hps) Hes))
+              | right _ => Err (EE_NoTarget p)
+              end
+          | CTForIn k ss, [] => fun Ht =>
+              '(exist _ (pk, r) Hn) <- label_at p L k ;;
+              match ty_eq_dec r TUnit with
+              | left Hr => Ok (exist _ _ (C_ContForIn0 E L Γ p x τ k ss pk Ht (lbl_res Hn Hr)))
+              | right _ => Err (EE_NoTarget p)
+              end
+          | CTForIn k ss, a :: a' => fun Ht =>
+              _ <- bcheck (Nat.eqb (List.length ss) (List.length (a :: a')))
+                          (EE_BadContinue p (List.length ss) (List.length (a :: a'))) ;;
+              '(exist _ (pk, r) Hn) <- label_at p L (S k) ;;
+              match ty_eq_dec r (TTuple ss) with
+              | left Hr =>
+                  '(exist _ es Hes) <- chk_list p L Γ (fun s' τ' => elab s' L Γ (Chk τ')) (a :: a') ss ;;
+                  Ok (exist _ _ (C_ContForIn E L Γ p x (a :: a') τ k ss pk es Ht (cons_not_nil a a') (lbl_res Hn Hr) Hes))
+              | right _ => Err (EE_NoTarget p)
+              end
+          end Ht in
+        match m as m0 return result (out L Γ (SContinue p x args) m0) elab_error with
+        | Syn => '(exist _ e H) <- jmp TUnit ;; Ok (existT _ _ (exist _ _ (S_Jump E L Γ (SContinue p x args) e eq_refl H)))
+        | Chk τ => jmp τ
+        end
+    | SReturn p oa =>
+        let jmp (τ : ty) : result (cout L Γ (SReturn p oa) τ) elab_error :=
+          '(exist _ (k, r) Ht) <- of_option (return_target (ce_labs L) 0) (EE_NoTarget p) ;;
+          '(exist _ (ps, r') Hn) <- label_at p L k ;;
+          match ty_eq_dec r' r with
+          | left Hr =>
+              match oa as o return result (cout L Γ (SReturn p o) τ) elab_error with
+              | Some a =>
+                  '(exist _ a' Ha) <- elab a L Γ (Chk r) ;;
+                  Ok (exist _ _ (C_Return E L Γ p a τ k ps r a' Ht (lbl_res Hn Hr) Ha))
+              | None =>
+                  match ty_eq_dec r TUnit with
+                  | left Hu => Ok (exist _ _ (C_Return0 E L Γ p τ k ps (ret_res Ht Hu) (lbl_res Hn (eq_trans Hr Hu))))
+                  | right _ => Err (EE_Annot p r TUnit)
+                  end
+              end
+          | right _ => Err (EE_NoTarget p)
+          end in
+        match m as m0 return result (out L Γ (SReturn p oa) m0) elab_error with
+        | Syn => '(exist _ e H) <- jmp TUnit ;; Ok (existT _ _ (exist _ _ (S_Jump E L Γ (SReturn p oa) e eq_refl H)))
+        | Chk τ => jmp τ
         end
     | SField p s0 f =>
         fin p L Γ (SField p s0 f) m

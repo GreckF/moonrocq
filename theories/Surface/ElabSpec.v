@@ -30,7 +30,9 @@
     literals, operators, [let], [if], tuples, functions and calls), the
     builtins [not], [ignore], [panic] and [abort], and from milestone M2
     constructors, records, patterns, [match], field access and the
-    projections of tuple structs. *)
+    projections of tuple structs; from milestone M3 [let mut], assignment,
+    arrays, [Ref::new], [Array::make], [while], [for], labelled blocks and
+    [break]/[continue]/[return]. *)
 
 From Stdlib Require Import List ZArith String Bool.
 From MoonRocq.Prelude Require Import Result EqDec Ident.
@@ -300,6 +302,66 @@ Definition pick_arm (cases : list (spat * sexpr)) : option (spat * sexpr) :=
   | None => hd_error cases
   end.
 
+(** ** State and loops (milestone M3) *)
+
+(** The right-hand side of [x = v] or [x op= v] ([cur] reads the old value). *)
+Definition upd_rhs (p : pos) (op : option ident) (τ : ty) (cur v e : expr) : Prop :=
+  match op with
+  | None => e = v
+  | Some o => binop_res o τ = τ /\ elab_binop p o τ cur v = Ok e
+  end.
+
+(** The [mut] field [i] of [T[ts]]: its constructor, number of fields and
+    content type. *)
+Definition field_cell (E : senv) (T : ident) (ts : list ty) (i : nat) : option (ident * nat * ty) :=
+  match lookup_ty (se_hdr E) T with
+  | Some td =>
+      match td_ctors td with
+      | [cd] =>
+          let fs := map (tsubst (inst ts)) (cd_fields cd) in
+          match nth_error fs i with
+          | Some (TRef t) => Some (cd_name cd, List.length fs, t)
+          | _ => None
+          end
+      | _ => None
+      end
+  | None => None
+  end.
+
+(** The builtin [struct Ref[T] { mut val : T }] is declared. *)
+Definition ref_ok (E : senv) : Prop :=
+  exists td cd, lookup_ty (se_hdr E) "Ref" = Some td /\ td_tparams td = 1 /\
+                lookup_ctor td "Ref" = Some cd /\ cd_fields cd = [TRef (TVar 0)].
+
+(** Named local variables, the first one innermost. *)
+Definition names_ctx (xs : list ident) (τs : list ty) : lctx := combine (map Some xs) τs.
+
+(** A loop seen from its condition, update or [nobreak] clause. *)
+Definition hd_env (ps : list ty) (τ : ty) (L : cenv) : cenv := push_lab (mk_lab None LKHead ps τ) L.
+
+Definition while_loop (τ : ty) (c b nb : expr) : expr :=
+  ELoop (ETuple []) [] τ (EIf c (ELet b (EJump CCont 0 (ETuple []) τ)) nb).
+
+(** The next values of the variables of a [for] loop, under the binder of
+    the body's result: the update written for variable [i], else the
+    variable itself. *)
+Definition for_next (names : list ident) (us : list (ident * expr)) : list expr :=
+  map (fun i => match find (fun yu => match index_of (fst yu) names with
+                                      | Some j => Nat.eqb j i
+                                      | None => false
+                                      end) us with
+                | Some (_, u) => u
+                | None => EVar (S i)
+                end) (seq 0 (List.length names)).
+
+Definition for_loop (es : list expr) (τs : list ty) (τ : ty) (c : option expr) (b : expr)
+    (names : list ident) (us : list (ident * expr)) (nb : expr) : expr :=
+  let step := ELet (eblock TUnit b) (EJump CCont 0 (ETuple (for_next names us)) τ) in
+  ELoop (ETuple es) τs τ (match c with Some c0 => EIf c0 step nb | None => step end).
+
+Definition is_jump (s : sexpr) : bool :=
+  match s with SBreak _ _ _ | SContinue _ _ _ | SReturn _ _ => true | _ => false end.
+
 (** ** Patterns
 
     - [⊩ᵖ[E] sp : τ ⇝ q ⊣ Δ] : pattern [sp] against type [τ];
@@ -426,6 +488,16 @@ Reserved Notation "Γ ⊩ʳ[ E ; L ] fes : names ; fs ⇝ es ; ixs"
   (at level 70, E at level 200, L at level 200, fes at level 60, names at level 60,
    fs at level 60, es at level 60, ixs at level 60, no associativity,
    format "Γ  ⊩ʳ[ E ; L ]  fes  :  names ;  fs  ⇝  es ;  ixs").
+Reserved Notation "Γ ⊩ⁱ[ E ; L ] inits ⇒ τs ⇝ es"
+  (at level 70, E at level 200, L at level 200, inits at level 60, τs at level 60,
+   es at level 60, no associativity, format "Γ  ⊩ⁱ[ E ; L ]  inits  ⇒  τs  ⇝  es").
+Reserved Notation "Γ ⊩ᵘ[ E ; L ] upds : names ; τs ⇝ us"
+  (at level 70, E at level 200, L at level 200, upds at level 60, names at level 60,
+   τs at level 60, us at level 60, no associativity,
+   format "Γ  ⊩ᵘ[ E ; L ]  upds  :  names ;  τs  ⇝  us").
+Reserved Notation "Γ ⊩ᵒ[ E ; L ] os ⇐ τ ⇝ oe"
+  (at level 70, E at level 200, L at level 200, os at level 60, τ at level 60,
+   oe at level 60, no associativity, format "Γ  ⊩ᵒ[ E ; L ]  os  ⇐  τ  ⇝  oe").
 Reserved Notation "Γ ⊩*[ E ; L ] ss ⇐ τs ⇝ es"
   (at level 70, E at level 200, L at level 200, ss at level 60, τs at level 60,
    es at level 60, no associativity, format "Γ  ⊩*[ E ; L ]  ss  ⇐  τs  ⇝  es").
@@ -613,6 +685,108 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     Γ ⊩ʳ[E;L] fes : names ; map (tsubst (inst ts)) (cd_fields cd) ⇝ es ; ixs ->
     rec_vars ixs (List.length names) = Some vs ->
     Γ ⊩[E;L] SRecord p tq fes ⇒ TData T ts ⇝ ELet (ETuple es) (EConstr T (cd_name cd) ts (ETuple vs))
+(* state (milestone M3) *)
+(** [let mut x = e]: [x] names a new cell *)
+| S_LetMut L Γ p x a s1 s2 τ1 τ e1 e2 :
+    Γ ⊩[E;L] s1 ⦂ a ⇒ τ1 ⇝ e1 ->
+    (Some x, TRef τ1) :: Γ ⊩[E;L] s2 ⇒ τ ⇝ e2 ->
+    Γ ⊩[E;L] SLetMut p x a s1 s2 ⇒ τ ⇝ ELet (EMem (MRef τ1) [e1]) e2
+| S_Assign L Γ p x op s i τ v e :
+    lookup_local x Γ = Some i ->
+    nth_error (ctx_of Γ) i = Some (TRef τ) ->
+    Γ ⊩[E;L] s ⇐ τ ⇝ v ->
+    upd_rhs p op τ (EMem (MGet τ) [EVar i]) v e ->
+    Γ ⊩[E;L] SAssign p x op s ⇒ TUnit ⇝ EMem (MSet τ) [EVar i; e]
+(** an array literal takes the type of its first element *)
+| S_Array L Γ p s ss t e es :
+    Γ ⊩[E;L] s ⇒ t ⇝ e ->
+    Γ ⊩*[E;L] ss ⇐ repeat t (List.length ss) ⇝ es ->
+    Γ ⊩[E;L] SArray p (s :: ss) ⇒ TArray AGrow t ⇝ EMem (MArray AGrow t (S (List.length ss))) (e :: es)
+| S_Index L Γ p a i k t a' i' :
+    Γ ⊩[E;L] a ⇒ TArray k t ⇝ a' ->
+    Γ ⊩[E;L] i ⇐ TIndex ⇝ i' ->
+    Γ ⊩[E;L] SIndex p a i ⇒ t ⇝ EMem (MIndex k t) [a'; i']
+| S_IndexSet L Γ p a i v k t a' i' v' :
+    Γ ⊩[E;L] a ⇒ TArray k t ⇝ a' ->
+    Γ ⊩[E;L] i ⇐ TIndex ⇝ i' ->
+    Γ ⊩[E;L] v ⇐ t ⇝ v' ->
+    Γ ⊩[E;L] SIndexSet p a i None v ⇒ TUnit ⇝ EMem (MSetIndex k t) [a'; i'; v']
+(** [a[i] op= v] evaluates [a] and [i] once *)
+| S_IndexUpd L Γ p a i o v k t a' i' v' rhs :
+    Γ ⊩[E;L] a ⇒ TArray k t ⇝ a' ->
+    (None, TArray k t) :: Γ ⊩[E;L] i ⇐ TIndex ⇝ i' ->
+    (None, TIndex) :: (None, TArray k t) :: Γ ⊩[E;L] v ⇐ t ⇝ v' ->
+    binop_res o t = t ->
+    elab_binop p o t (EMem (MIndex k t) [EVar 1; EVar 0]) v' = Ok rhs ->
+    Γ ⊩[E;L] SIndexSet p a i (Some o) v ⇒ TUnit
+      ⇝ ELet a' (ELet i' (EMem (MSetIndex k t) [EVar 1; EVar 0; rhs]))
+(** [e.f = v] on a [mut] field: bind the field's cell, then write it *)
+| S_FieldSet L Γ p s f op v T ts e names i c n t v' rhs :
+    Γ ⊩[E;L] s ⇒ TData T ts ⇝ e ->
+    assoc T (se_sinfo E) = Some names ->
+    index_of f names = Some i ->
+    field_cell E T ts i = Some (c, n, t) ->
+    (None, TRef t) :: Γ ⊩[E;L] v ⇐ t ⇝ v' ->
+    upd_rhs p op t (EMem (MGet t) [EVar 0]) v' rhs ->
+    Γ ⊩[E;L] SFieldSet p s f op v ⇒ TUnit
+      ⇝ EMatch e TUnit [(PConstr c (proj_pats i PVar 0 n), EMem (MSet t) [EVar 0; rhs])]
+| S_Length L Γ p s k t e :
+    Γ ⊩[E;L] s ⇒ TArray k t ⇝ e ->
+    Γ ⊩[E;L] SMethod p s "length" [] ⇒ TIndex ⇝ EMem (MLength k t) [e]
+| S_Push L Γ p s a t e a' :
+    Γ ⊩[E;L] s ⇒ TArray AGrow t ⇝ e ->
+    Γ ⊩[E;L] a ⇐ t ⇝ a' ->
+    Γ ⊩[E;L] SMethod p s "push" [a] ⇒ TUnit ⇝ EMem (MPush t) [e; a']
+| S_RefNew L Γ p q v t v' :
+    ref_ok E ->
+    Γ ⊩[E;L] v ⇒ t ⇝ v' ->
+    Γ ⊩[E;L] SApp p (SQual q "Ref" "new") [v] ⇒ TData "Ref" [t]
+      ⇝ EConstr "Ref" "Ref" [t] (ETuple [EMem (MRef t) [v']])
+| S_Make L Γ p q T n v k t n' v' :
+    array_kind_of T = Some k ->
+    Γ ⊩[E;L] n ⇐ TIndex ⇝ n' ->
+    Γ ⊩[E;L] v ⇒ t ⇝ v' ->
+    Γ ⊩[E;L] SApp p (SQual q T "make") [n; v] ⇒ TArray k t ⇝ EMem (MMake k t) [n'; v']
+(* loops and jumps (milestone M3) *)
+(** a loop's type: [Unit], or that of its [nobreak] clause *)
+| S_While L Γ p x c body c' b' :
+    Γ ⊩[E;hd_env [] TUnit L] c ⇐ TBool ⇝ c' ->
+    Γ ⊩[E;push_lab (mk_lab x LKWhile [] TUnit) L] body ⇐ TUnit ⇝ b' ->
+    Γ ⊩[E;L] SWhile p x c body None ⇒ TUnit ⇝ while_loop TUnit c' b' (ELit LUnit)
+| S_WhileNb L Γ p x c body nb τ nb0 c' b' nb' :
+    Γ ⊩[E;hd_env [] TUnit L] nb ⇒ τ ⇝ nb0 ->
+    Γ ⊩[E;hd_env [] τ L] c ⇐ TBool ⇝ c' ->
+    Γ ⊩[E;push_lab (mk_lab x LKWhile [] τ) L] body ⇐ TUnit ⇝ b' ->
+    Γ ⊩[E;hd_env [] τ L] nb ⇐ τ ⇝ nb' ->
+    Γ ⊩[E;L] SWhile p x c body (Some nb) ⇒ τ ⇝ while_loop τ c' b' nb'
+| S_For L Γ p x inits c upds body τs es c' b' us :
+    Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+    List.app (names_ctx (map fst inits) τs) Γ ⊩ᵒ[E;hd_env τs TUnit L] c ⇐ TBool ⇝ c' ->
+    List.app (names_ctx (map fst inits) τs) Γ
+      ⊩[E;push_lab (mk_lab x LKForBody [] TUnit) (hd_env τs TUnit L)] body ⇐ TUnit ⇝ b' ->
+    (None, TUnit) :: List.app (names_ctx (map fst inits) τs) Γ
+      ⊩ᵘ[E;hd_env τs TUnit L] upds : map fst inits ; τs ⇝ us ->
+    Γ ⊩[E;L] SFor p x inits c upds body None ⇒ TUnit
+      ⇝ for_loop es τs TUnit c' b' (map fst inits) us (ELit LUnit)
+| S_ForNb L Γ p x inits c upds body nb τs es τ nb0 c' b' us nb' :
+    Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+    List.app (names_ctx (map fst inits) τs) Γ ⊩[E;hd_env τs TUnit L] nb ⇒ τ ⇝ nb0 ->
+    List.app (names_ctx (map fst inits) τs) Γ ⊩ᵒ[E;hd_env τs τ L] c ⇐ TBool ⇝ c' ->
+    List.app (names_ctx (map fst inits) τs) Γ
+      ⊩[E;push_lab (mk_lab x LKForBody [] TUnit) (hd_env τs τ L)] body ⇐ TUnit ⇝ b' ->
+    (None, TUnit) :: List.app (names_ctx (map fst inits) τs) Γ
+      ⊩ᵘ[E;hd_env τs τ L] upds : map fst inits ; τs ⇝ us ->
+    List.app (names_ctx (map fst inits) τs) Γ ⊩[E;hd_env τs τ L] nb ⇐ τ ⇝ nb' ->
+    Γ ⊩[E;L] SFor p x inits c upds body (Some nb) ⇒ τ
+      ⇝ for_loop es τs τ c' b' (map fst inits) us nb'
+| S_Block L Γ p x body b :
+    Γ ⊩[E;push_lab (mk_lab (Some x) LKBlock [] TUnit) L] body ⇐ TUnit ⇝ b ->
+    Γ ⊩[E;L] SBlock p x body ⇒ TUnit ⇝ eblock TUnit b
+(** on their own, jumps are [Unit] *)
+| S_Jump L Γ s e :
+    is_jump s = true ->
+    Γ ⊩[E;L] s ⇐ TUnit ⇝ e ->
+    Γ ⊩[E;L] s ⇒ TUnit ⇝ e
 (** the type of a [match] is that of the arm chosen by [pick_arm] *)
 | S_Match L Γ p s cases τs τ e bs sp b q Δ b' :
     Γ ⊩[E;L] s ⇒ τs ⇝ e ->
@@ -701,6 +875,99 @@ with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     Γ ⊩ʳ[E;L] fes : names ; map (tsubst (inst ts)) (cd_fields cd) ⇝ es ; ixs ->
     rec_vars ixs (List.length names) = Some vs ->
     Γ ⊩[E;L] SRecord p tq fes ⇐ TData T ts ⇝ ELet (ETuple es) (EConstr T (cd_name cd) ts (ETuple vs))
+| C_LetMut L Γ p x a s1 s2 τ1 τ e1 e2 :
+    Γ ⊩[E;L] s1 ⦂ a ⇒ τ1 ⇝ e1 ->
+    (Some x, TRef τ1) :: Γ ⊩[E;L] s2 ⇐ τ ⇝ e2 ->
+    Γ ⊩[E;L] SLetMut p x a s1 s2 ⇐ τ ⇝ ELet (EMem (MRef τ1) [e1]) e2
+| C_Array L Γ p ss k t es :
+    Γ ⊩*[E;L] ss ⇐ repeat t (List.length ss) ⇝ es ->
+    Γ ⊩[E;L] SArray p ss ⇐ TArray k t ⇝ EMem (MArray k t (List.length ss)) es
+| C_RefNew L Γ p q v t v' :
+    ref_ok E ->
+    Γ ⊩[E;L] v ⇐ t ⇝ v' ->
+    Γ ⊩[E;L] SApp p (SQual q "Ref" "new") [v] ⇐ TData "Ref" [t]
+      ⇝ EConstr "Ref" "Ref" [t] (ETuple [EMem (MRef t) [v']])
+| C_Make L Γ p q T n v k t n' v' :
+    array_kind_of T = Some k ->
+    Γ ⊩[E;L] n ⇐ TIndex ⇝ n' ->
+    Γ ⊩[E;L] v ⇐ t ⇝ v' ->
+    Γ ⊩[E;L] SApp p (SQual q T "make") [n; v] ⇐ TArray k t ⇝ EMem (MMake k t) [n'; v']
+| C_ArrNew L Γ p q T k t :
+    array_kind_of T = Some k ->
+    Γ ⊩[E;L] SApp p (SQual q T "new") [] ⇐ TArray k t ⇝ EMem (MArray k t 0) []
+| C_WhileNb L Γ p x c body nb τ c' b' nb' :
+    Γ ⊩[E;hd_env [] τ L] c ⇐ TBool ⇝ c' ->
+    Γ ⊩[E;push_lab (mk_lab x LKWhile [] τ) L] body ⇐ TUnit ⇝ b' ->
+    Γ ⊩[E;hd_env [] τ L] nb ⇐ τ ⇝ nb' ->
+    Γ ⊩[E;L] SWhile p x c body (Some nb) ⇐ τ ⇝ while_loop τ c' b' nb'
+| C_ForNb L Γ p x inits c upds body nb τs es τ c' b' us nb' :
+    Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+    List.app (names_ctx (map fst inits) τs) Γ ⊩ᵒ[E;hd_env τs τ L] c ⇐ TBool ⇝ c' ->
+    List.app (names_ctx (map fst inits) τs) Γ
+      ⊩[E;push_lab (mk_lab x LKForBody [] TUnit) (hd_env τs τ L)] body ⇐ TUnit ⇝ b' ->
+    (None, TUnit) :: List.app (names_ctx (map fst inits) τs) Γ
+      ⊩ᵘ[E;hd_env τs τ L] upds : map fst inits ; τs ⇝ us ->
+    List.app (names_ctx (map fst inits) τs) Γ ⊩[E;hd_env τs τ L] nb ⇐ τ ⇝ nb' ->
+    Γ ⊩[E;L] SFor p x inits c upds body (Some nb) ⇐ τ
+      ⇝ for_loop es τs τ c' b' (map fst inits) us nb'
+(** a [for] loop without condition nor [nobreak] only stops by jumping *)
+| C_ForInf L Γ p x inits upds body τs es τ b' us :
+    Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+    List.app (names_ctx (map fst inits) τs) Γ
+      ⊩[E;push_lab (mk_lab x LKForBody [] TUnit) (hd_env τs τ L)] body ⇐ TUnit ⇝ b' ->
+    (None, TUnit) :: List.app (names_ctx (map fst inits) τs) Γ
+      ⊩ᵘ[E;hd_env τs τ L] upds : map fst inits ; τs ⇝ us ->
+    Γ ⊩[E;L] SFor p x inits None upds body None ⇐ τ
+      ⇝ for_loop es τs τ None b' (map fst inits) us (ELit LUnit)
+| C_Block L Γ p x body τ b :
+    Γ ⊩[E;push_lab (mk_lab (Some x) LKBlock [] τ) L] body ⇐ τ ⇝ b ->
+    Γ ⊩[E;L] SBlock p x body ⇐ τ ⇝ eblock τ b
+(** [break], [continue], [return]: the target is found by name, and is an
+    enclosing loop of the given type *)
+| C_Break L Γ p x a τ k ps τt a' :
+    break_target x (ce_labs L) 0 = Some (k, τt) ->
+    nth_error (core_labels (ce_labs L)) k = Some (ps, τt) ->
+    Γ ⊩[E;L] a ⇐ τt ⇝ a' ->
+    Γ ⊩[E;L] SBreak p x (Some a) ⇐ τ ⇝ EJump CBreak k a' τ
+| C_Break0 L Γ p x τ k ps :
+    break_target x (ce_labs L) 0 = Some (k, TUnit) ->
+    nth_error (core_labels (ce_labs L)) k = Some (ps, TUnit) ->
+    Γ ⊩[E;L] SBreak p x None ⇐ τ ⇝ EJump CBreak k (ELit LUnit) τ
+| C_ContWhile L Γ p x τ k r :
+    cont_target_of x (ce_labs L) 0 = Some (CTWhile k) ->
+    nth_error (core_labels (ce_labs L)) k = Some ([], r) ->
+    Γ ⊩[E;L] SContinue p x [] ⇐ τ ⇝ EJump CCont k (ETuple []) τ
+(** [continue] in a [for] body leaves the body (the updates then apply)... *)
+| C_ContFor0 L Γ p x τ k ps pk :
+    cont_target_of x (ce_labs L) 0 = Some (CTFor k ps) ->
+    nth_error (core_labels (ce_labs L)) k = Some (pk, TUnit) ->
+    Γ ⊩[E;L] SContinue p x [] ⇐ τ ⇝ EJump CBreak k (ELit LUnit) τ
+(** ... or gives the next values directly *)
+| C_ContFor L Γ p x args τ k ps r es :
+    cont_target_of x (ce_labs L) 0 = Some (CTFor k ps) ->
+    args <> [] ->
+    nth_error (core_labels (ce_labs L)) (S k) = Some (ps, r) ->
+    Γ ⊩*[E;L] args ⇐ ps ⇝ es ->
+    Γ ⊩[E;L] SContinue p x args ⇐ τ ⇝ EJump CCont (S k) (ETuple es) τ
+| C_ContForIn0 L Γ p x τ k ss pk :
+    cont_target_of x (ce_labs L) 0 = Some (CTForIn k ss) ->
+    nth_error (core_labels (ce_labs L)) k = Some (pk, TUnit) ->
+    Γ ⊩[E;L] SContinue p x [] ⇐ τ ⇝ EJump CBreak k (ELit LUnit) τ
+| C_ContForIn L Γ p x args τ k ss pk es :
+    cont_target_of x (ce_labs L) 0 = Some (CTForIn k ss) ->
+    args <> [] ->
+    nth_error (core_labels (ce_labs L)) (S k) = Some (pk, TTuple ss) ->
+    Γ ⊩*[E;L] args ⇐ ss ⇝ es ->
+    Γ ⊩[E;L] SContinue p x args ⇐ τ ⇝ EJump CBreak (S k) (ETuple es) τ
+| C_Return L Γ p a τ k ps r a' :
+    return_target (ce_labs L) 0 = Some (k, r) ->
+    nth_error (core_labels (ce_labs L)) k = Some (ps, r) ->
+    Γ ⊩[E;L] a ⇐ r ⇝ a' ->
+    Γ ⊩[E;L] SReturn p (Some a) ⇐ τ ⇝ EJump CBreak k a' τ
+| C_Return0 L Γ p τ k ps :
+    return_target (ce_labs L) 0 = Some (k, TUnit) ->
+    nth_error (core_labels (ce_labs L)) k = Some (ps, TUnit) ->
+    Γ ⊩[E;L] SReturn p None ⇐ τ ⇝ EJump CBreak k (ELit LUnit) τ
 | C_Match L Γ p s cases τs τ e bs :
     Γ ⊩[E;L] s ⇒ τs ⇝ e ->
     Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
@@ -743,6 +1010,35 @@ with rfields (E : senv) : cenv -> lctx -> list (ident * sexpr) -> list ident -> 
     Γ ⊩ʳ[E;L] fes : names ; fs ⇝ es ; ixs ->
     Γ ⊩ʳ[E;L] (f, fe) :: fes : names ; fs ⇝ e :: es ; i :: ixs
 
+(** the variables of a [for] loop, from their initial values *)
+with sinits (E : senv) : cenv -> lctx -> list (ident * sexpr) -> list ty -> list expr -> Prop :=
+| In_nil L Γ :
+    Γ ⊩ⁱ[E;L] [] ⇒ [] ⇝ []
+| In_cons L Γ x s inits τ τs e es :
+    Γ ⊩[E;L] s ⇒ τ ⇝ e ->
+    Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+    Γ ⊩ⁱ[E;L] (x, s) :: inits ⇒ τ :: τs ⇝ e :: es
+
+(** the update clauses of a [for] loop *)
+with supds (E : senv) : cenv -> lctx -> list (ident * sexpr) -> list ident -> list ty ->
+                        list (ident * expr) -> Prop :=
+| Up_nil L Γ names τs :
+    Γ ⊩ᵘ[E;L] [] : names ; τs ⇝ []
+| Up_cons L Γ y s upds names τs i τ u us :
+    index_of y names = Some i ->
+    nth_error τs i = Some τ ->
+    Γ ⊩[E;L] s ⇐ τ ⇝ u ->
+    Γ ⊩ᵘ[E;L] upds : names ; τs ⇝ us ->
+    Γ ⊩ᵘ[E;L] (y, s) :: upds : names ; τs ⇝ (y, u) :: us
+
+(** an optional expression *)
+with ochk (E : senv) : cenv -> lctx -> option sexpr -> ty -> option expr -> Prop :=
+| Oc_None L Γ τ :
+    Γ ⊩ᵒ[E;L] None ⇐ τ ⇝ None
+| Oc_Some L Γ s τ e :
+    Γ ⊩[E;L] s ⇐ τ ⇝ e ->
+    Γ ⊩ᵒ[E;L] Some s ⇐ τ ⇝ Some e
+
 with syns (E : senv) : cenv -> lctx -> list sexpr -> list ty -> list expr -> Prop :=
 | Ss_nil L Γ :
     Γ ⊩*[E;L] [] ⇒ [] ⇝ []
@@ -764,6 +1060,9 @@ where "Γ ⊩[ E ; L ] s ⇒ τ ⇝ e" := (syn E L Γ s τ e)
   and "Γ ⊩[ E ; L ] s ⦂ a ⇒ τ ⇝ e" := (sbind E L Γ s a τ e)
   and "Γ ⊩ᵇ[ E ; L ] cs : τs ⇐ τ ⇝ bs" := (arms E L Γ cs τs τ bs)
   and "Γ ⊩ʳ[ E ; L ] fes : names ; fs ⇝ es ; ixs" := (rfields E L Γ fes names fs es ixs)
+  and "Γ ⊩ⁱ[ E ; L ] inits ⇒ τs ⇝ es" := (sinits E L Γ inits τs es)
+  and "Γ ⊩ᵘ[ E ; L ] upds : names ; τs ⇝ us" := (supds E L Γ upds names τs us)
+  and "Γ ⊩ᵒ[ E ; L ] os ⇐ τ ⇝ oe" := (ochk E L Γ os τ oe)
   and "Γ ⊩*[ E ; L ] ss ⇒ τs ⇝ es" := (syns E L Γ ss τs es)
   and "Γ ⊩*[ E ; L ] ss ⇐ τs ⇝ es" := (chks E L Γ ss τs es).
 
@@ -772,6 +1071,10 @@ Scheme syn_mut := Minimality for syn Sort Prop
   with sbind_mut := Minimality for sbind Sort Prop
   with arms_mut := Minimality for arms Sort Prop
   with rfields_mut := Minimality for rfields Sort Prop
+  with sinits_mut := Minimality for sinits Sort Prop
+  with supds_mut := Minimality for supds Sort Prop
+  with ochk_mut := Minimality for ochk Sort Prop
   with syns_mut := Minimality for syns Sort Prop
   with chks_mut := Minimality for chks Sort Prop.
-Combined Scheme elab_mutind from syn_mut, chk_mut, sbind_mut, arms_mut, rfields_mut, syns_mut, chks_mut.
+Combined Scheme elab_mutind from syn_mut, chk_mut, sbind_mut, arms_mut, rfields_mut,
+  sinits_mut, supds_mut, ochk_mut, syns_mut, chks_mut.
