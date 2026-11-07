@@ -265,3 +265,65 @@ Example ex_coherent :
   (if coherent_dec insts_ex then true else false,
    if coherent_dec (insts_ex ++ insts_ex) then true else false) = (true, false).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- milestone M6: the certified elaborator ---- *)
+From MoonRocq.Prelude Require Import Ident.
+From MoonRocq.Surface Require Import Syntax Base ElabSpec Elaborate.
+Open Scope string_scope.
+
+Definition P0 : pos := mk_pos 1 1.
+
+(* fn id[T](x : T) -> T;  fn apply[A, B](f : (A) -> B, x : A) -> B *)
+Definition hdr_ex : genv :=
+  mk_genv []
+    [ mk_fdef "id" 1 [TVar 0] (TVar 0) TNever (EVar 0);
+      mk_fdef "apply" 2 [TArrow [TVar 0] (TVar 1) TNever; TVar 0] (TVar 1) TNever
+              (EApp (EVar 0) [EVar 1]) ].
+
+Definition E_ex : senv := mk_senv [] hdr_ex [] [] (mk_xenv [] [] [] [] [] []).
+
+Definition syn_ex (s : sexpr) : option (ty * expr) :=
+  match elab E_ex s (mk_cenv [] TNever) [] Syn with
+  | Ok (existT _ τ (exist _ e _)) => Some (τ, e)
+  | Err _ => None
+  end.
+
+Definition int_s (z : Z) : sexpr := SLit P0 (SLInt None z).
+Definition var_s (x : ident) : sexpr := SVar P0 x.
+
+(* let x = 1; x + 2 *)
+Example ex_elab_let :
+  syn_ex (SLet P0 (Some "x") None (int_s 1) (SInfix P0 "+" (var_s "x") (int_s 2))) =
+  Some (TInt I32, ELet (ELit (LInt I32 1)) (EPrim (PIntArith AAdd I32) [EVar 0; ELit (LInt I32 2)])).
+Proof. vm_compute. reflexivity. Qed.
+
+(* (5 : Int64), and 1 + x where x : Int64 (the literal takes the other operand's type) *)
+Example ex_elab_lit :
+  (syn_ex (SAnnot P0 (int_s 5) (SName P0 "Int64" [])),
+   syn_ex (SLet P0 (Some "x") (Some (SName P0 "Int64" [])) (int_s 1)
+                (SInfix P0 "-" (int_s 10) (var_s "x")))) =
+  (Some (TInt I64, ELit (LInt I64 5)),
+   Some (TInt I64, ELet (ELit (LInt I64 1))
+                        (EPrim (PIntArith ASub I64) [ELit (LInt I64 10); EVar 0]))).
+Proof. vm_compute. reflexivity. Qed.
+
+(* id(1) and apply(fn(x) { x + 1 }, 2): type arguments found by matching,
+   the lambda is elaborated after the other argument *)
+Example ex_elab_generic :
+  (syn_ex (SApp P0 (var_s "id") [int_s 1]),
+   syn_ex (SApp P0 (var_s "apply")
+                [SLam P0 [("x", None)] None None (SInfix P0 "+" (var_s "x") (int_s 1)); int_s 2])) =
+  (Some (TInt I32, EApp (EGlobal "id" [TInt I32]) [ELit (LInt I32 1)]),
+   Some (TInt I32, EApp (EGlobal "apply" [TInt I32; TInt I32])
+                        [ELam [TInt I32] (TInt I32) TNever
+                              (EPrim (PIntArith AAdd I32) [EVar 0; ELit (LInt I32 1)]);
+                         ELit (LInt I32 2)])).
+Proof. vm_compute. reflexivity. Qed.
+
+(* rejected: 1 + true; a lambda without parameter types; panic() is Unit *)
+Example ex_elab_reject :
+  (syn_ex (SInfix P0 "+" (int_s 1) (SLit P0 (SLBool true))),
+   syn_ex (SLam P0 [("x", None)] None None (var_s "x")),
+   syn_ex (SApp P0 (var_s "panic") [])) =
+  (None, None, Some (TUnit, EAbort TUnit)).
+Proof. vm_compute. reflexivity. Qed.

@@ -294,3 +294,42 @@ ref/moonbit-docs   语言文档（不入库）
 - `entails_typed`：解析出的字典在 Core 中良类型（给定良类型的字典函数与假设）。
 
 解析的终止性来自 impl 头部的形状（类型构造子作用于类型参数）：约束都落在类型的真子项上，燃料取 `ty_size τ`。
+
+## 12. M6：有规范的 elaboration
+
+M6 用有规范、有证明的 elaborator 取代 `Surface/Elab.v`，分四个阶段，每个阶段单独提交：
+
+| 阶段 | 内容 |
+|---|---|
+| M6a | 现有能力（M1–M5 的全部构造）的声明式规范 + certified elaborator，功能与旧 Elab 持平后替换它 |
+| M6b | 元变量与一阶合一（单个顶层定义内）、字面量重载与默认化；规范变成确定的，并证明完备性 |
+| M6c | 语法糖：guard、或模式、`as`、范围/数组模式、标签/可选参数、管道/级联、`is`/`guard`、插值…… |
+| M6d | 一般的 `for .. in`（`Iter`）、内建 trait 的实例与运算符重载、泛型 trait 方法 |
+
+**规范（`Surface/ElabSpec.v`）**：双向的 elaboration 关系，都是 `Inductive`：
+- `Γ ⊩[E;L] s ⇒ τ ⇝ e`：在局部上下文 `Γ`（名字和类型）、控制环境 `L`（标签和允许的错误类型）下，
+  源表达式 `s` 综合出类型 `τ`，翻译成 Core 表达式 `e`；
+- `Γ ⊩[E;L] s ⇐ τ ⇝ e`：`s` 按期望类型 `τ` 检查；
+- 列表版本 `⊩*`，以及带可选注解的绑定 `Γ ⊩[E;L] s ⦂ a ⇒ τ ⇝ e`。
+
+`E : senv` 是全局信息（类型、函数签名、trait），作为 inductive 的参数。检查模式有一条 subsumption 规则：
+综合出 `τ'`，再经隐式转换 `τ' ≼ τ`（相等，或 suberror 提升为 `Error`，以后还有 trait object）。
+规则中“需要猜”的地方（泛型调用的类型实参）在规范里直接存在量化，求出它们是算法的事。
+
+**定理**：
+- `elab_typed`：`Γ ⊩ s ⇒ τ ⇝ e` 推出 `Γ ⊢[hdr;[];L] e : τ`（Core 中良类型），检查模式同理；
+  结合 Core 的 soundness，Surface 程序是类型安全的。
+- elaborator correct by construction：返回结果带着 `⊩` 的推导。它求类型实参的启发式（匹配、推迟 lambda）
+  不受信任，结果都用可判定相等验证后才构造推导。
+- 完备性要等 M6b：M6a 的规范在类型实参上是非确定的（例如 `id(1)` 规范允许 `T = Double`），
+  因此也不保证含义唯一；M6b 用合一与默认化规则使它确定。
+
+**与 Core 复检的关系**：Driver 仍然对 elaborate 的结果运行 Core checker（成本很低，可信基最小）。
+
+**进度（M6a）**：
+- `Surface/Base.v`：从 Elab.v 拆出的公共定义（错误、类型翻译、字面量与运算符、标签、局部上下文、trait 信息）。
+- 第 1 片 ✅：M1 的构造（变量、字面量、运算符、`let`、`if`、元组、lambda、调用）与内建的
+  `not`/`ignore`/`panic`/`abort`：规范 `ElabSpec.v`、`elab_typed`（`ElabTyped.v`）、
+  certified elaborator `elab`（`Elaborate.v`）。新 elaborator 暂未接入 Driver，其余构造报 unsupported。
+- 待做：M2（构造子、记录、字段、模式、`match`）、M3（`let mut`、赋值、数组、循环与跳转）、
+  M4（`raise`/`try`/`defer`）、M5（trait、方法、对象）、顶层定义与程序，然后替换旧 Elab。

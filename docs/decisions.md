@@ -101,3 +101,10 @@
 | 62 | 默认方法 | 声明为 `m(Self) -> R = _`，实现为 `impl Tr with m(self) { .. }`（全局函数 `default$Tr$m`，以 `Tr[Self]` 字典为参数）；缺少方法且无默认实现时报错；`impl Tr for T`（无方法）全部使用默认实现 | 已确认（moon：缺方法报错，默认实现可用） |
 | 63 | trait object `&Tr` | 只对 object-safe 的 trait（它和所有 supertrait 的方法都以 `Self` 为第一个参数、别处不出现 `Self`）生成对象类型 `&Tr`：闭包记录（含 supertrait 的方法），`self` 已经部分应用；`e as &Tr` 或期望类型为 `&Tr` 时隐式转换；`&Tr` 自动实现 `Tr` 及其 supertrait | 已确认（moon：隐式转换、`&Tr` 满足 `Tr` 约束、非 object-safe 报错） |
 | 64 | 暂不支持 | 内建 trait（`Eq`/`Compare`/`Show`/`Hash`/`Default`）的实例与运算符重载、`derive`、泛型 trait 方法、impl 方法签名中的 `Self`、带约束的泛型函数作为值、impl 头部的类型参数不按顺序、`impl` 的可见性与孤儿规则（M7） | 已知限制 |
+
+## M6 有规范的 elaboration
+
+| # | 问题 | 当前决定 | 状态 |
+|---|---|---|---|
+| 65 | 规范的形式 | 双向关系 `⇒`/`⇐`，检查模式有 subsumption（相等或提升到 `Error`）；泛型调用的类型实参在规范中存在量化，M6b 之前规范不确定 | 设计决定 |
+| 66 | 在允许 `Error` 处调用 `raise E` 的函数 | 先把被调函数和实参放进一个元组求值（顺序不变），再在 `try` 中调用、把错误提升为 `Error`；这样实参自己可以 raise `Error`（旧 elaborator 把实参放在 `try` 里面，会错误地拒绝这种程序） | 设计决定 |
