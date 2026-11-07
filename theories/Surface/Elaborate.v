@@ -1137,6 +1137,89 @@ Section Elaborate.
     | _ => Err (EE_PatType p (fi_elem_ty it))
     end.
 
+  (** *** Errors *)
+
+  Lemma try_err_one cases T : catch_of E cases = CIOne T -> try_err E cases (TData T []).
+  Proof. unfold try_err; intros ->; reflexivity. Qed.
+
+  Lemma try_err_many cases : catch_of E cases = CIMany -> try_err E cases TError.
+  Proof. unfold try_err; intros ->; reflexivity. Qed.
+
+  Lemma try_err_none cases : catch_of E cases = CINone -> try_err E cases TError.
+  Proof. unfold try_err; intros ->; left; reflexivity. Qed.
+
+  Lemma try_err_owner cases T : catch_of E cases = CINone -> err_type E T -> try_err E cases (TData T []).
+  Proof. unfold try_err; intros -> H; right; eauto. Qed.
+
+  (** The error types the body elaborates with. *)
+  Definition try_cands (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (body : sexpr) (bm : mode) :
+      list ident -> list {T : ident & (err_type E T * out (set_exn (TData T []) L) Γ body bm)%type} :=
+    fix go Ts :=
+      match Ts with
+      | [] => []
+      | T :: Ts' =>
+          match err_dec p T, rec body (set_exn (TData T []) L) Γ bm with
+          | Ok H, Ok o => existT _ T (H, o) :: go Ts'
+          | _, _ => go Ts'
+          end
+      end.
+
+  (** The body of [try .. catch], with its error type. *)
+  Definition try_pick (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (cases : list (spat * sexpr))
+      (body : sexpr) (bm : mode) :
+      result {τe : ty & (try_err E cases τe * out (set_exn τe L) Γ body bm)%type} elab_error :=
+    match catch_of E cases as ci
+          return catch_of E cases = ci ->
+                 result {τe : ty & (try_err E cases τe * out (set_exn τe L) Γ body bm)%type} elab_error with
+    | CIOne T => fun H =>
+        o <- rec body (set_exn (TData T []) L) Γ bm ;;
+        Ok (existT _ (TData T []) (try_err_one cases T H, o))
+    | CIMany => fun H =>
+        o <- rec body (set_exn TError L) Γ bm ;;
+        Ok (existT _ TError (try_err_many cases H, o))
+    | CINone => fun H =>
+        match try_cands rec p L Γ body bm (map td_name (filter td_err (ge_types hdr))) with
+        | [existT _ T (He, o)] => Ok (existT _ (TData T []) (try_err_owner cases T H He, o))
+        | _ =>
+            o <- rec body (set_exn TError L) Γ bm ;;
+            Ok (existT _ TError (try_err_none cases H, o))
+        end
+    end eq_refl.
+
+  Definition failure_ok_dec (p : pos) : result (failure_ok E) elab_error :=
+    '(exist _ td Htd) <- of_option (lookup_ty hdr "Failure") (EE_UnknownType p "Failure") ;;
+    match Nat.eq_dec (td_tparams td) 0 with
+    | left Hn =>
+        '(exist _ cd Hc) <- of_option (lookup_ctor td "Failure") (EE_UnknownCtor p "Failure") ;;
+        match list_eq_dec ty_eq_dec (cd_fields cd) [TString] with
+        | left Hf => Ok (ex_intro _ td (ex_intro _ cd (conj Htd (conj Hn (conj Hc Hf)))))
+        | right _ => Err (EE_UnknownType p "Failure")
+        end
+    | right _ => Err (EE_UnknownType p "Failure")
+    end.
+
+  Lemma fail_syn L Γ p q g a a' v :
+    g = "fail" -> builtin E Γ g -> failure_ok E -> Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
+    ⊩ᶜ[E] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
+    Γ ⊩[E;L] SApp p (SVar q g) [a] ⇒ TUnit ⇝ ERaise v TUnit.
+  Proof. intros ->; apply S_Fail. Qed.
+
+  Lemma fail_chk L Γ p q g a τ a' v :
+    g = "fail" -> builtin E Γ g -> failure_ok E -> Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
+    ⊩ᶜ[E] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
+    Γ ⊩[E;L] SApp p (SVar q g) [a] ⇐ τ ⇝ ERaise v τ.
+  Proof. intros ->; apply C_Fail. Qed.
+
+  Lemma trynr_syn L Γ p body cases ncs τe τ0 τ b hbs kbs :
+    try_err E cases τe ->
+    Γ ⊩[E;set_exn τe L] body ⇒ τ0 ⇝ b ->
+    (exists sp h, pick_arm cases = Some (sp, h) /\ arm_syn L ((None, τe) :: Γ) τe sp h τ) ->
+    (None, τe) :: Γ ⊩ᵇ[E;L] cases : τe ⇐ τ ⇝ hbs ->
+    (None, τ0) :: Γ ⊩ᵇ[E;L] ncs : τ0 ⇐ τ ⇝ kbs ->
+    Γ ⊩[E;L] STry p body cases (Some ncs) ⇒ τ
+      ⇝ ETry b τe (EMatch (EVar 0) τ hbs) (EMatch (EVar 0) τ kbs).
+  Proof. intros Ht Hb (sp & h & Hp & q & Δ & h' & Hq & Hh) Hc Hk; eapply S_TryNr; eauto. Qed.
+
   (** ** Heads of calls *)
 
   Inductive head (Γ : lctx) (f : sexpr) : Type :=
@@ -1409,7 +1492,21 @@ Section Elaborate.
                     | Chk τ => Ok (exist _ _ (app_chk L Γ p f q g [a] _ _ Hf
                                                 (abort_chk L Γ p q g a a' τ Hg Hbi Ha)))
                     end
+                | _, a3 =>
+                match string_dec g "fail", a3 as a4
+                      return result (out L Γ (SApp p f a4) m) elab_error with
+                | left Hg, [a] =>
+                    Hfo <- failure_ok_dec q ;;
+                    '(exist _ a' Ha) <- elab a L Γ (Chk TString) ;;
+                    '(exist _ v Hv) <- coerce q (fail_val a') (TData "Failure" []) (ce_exn L) ;;
+                    match m as m0 return result (out L Γ (SApp p f [a]) m0) elab_error with
+                    | Syn => Ok (existT _ _ (exist _ _ (app_syn L Γ p f q g [a] _ _ Hf
+                                                          (fail_syn L Γ p q g a a' v Hg Hbi Hfo Ha Hv))))
+                    | Chk τ => Ok (exist _ _ (app_chk L Γ p f q g [a] _ _ Hf
+                                                (fail_chk L Γ p q g a τ a' v Hg Hbi Hfo Ha Hv)))
+                    end
                 | _, _ => Err (EE_Unbound q g)
+                end
                 end
                 end
                 end
@@ -1952,6 +2049,59 @@ Section Elaborate.
         | Chk τ =>
             '(exist _ bs Hbs) <- arms_list elab L Γ τs τ cases ;;
             Ok (exist _ _ (C_Match E L Γ p s0 cases τs τ e bs H0 Hbs))
+        end
+    (* ---- errors (milestone M4) ---- *)
+    | SRaise p s0 =>
+        '(exist _ e H) <- elab s0 L Γ (Chk (ce_exn L)) ;;
+        match m as m0 return result (out L Γ (SRaise p s0) m0) elab_error with
+        | Syn => Ok (existT _ _ (exist _ _ (S_Raise E L Γ p s0 e H)))
+        | Chk τ => Ok (exist _ _ (C_Raise E L Γ p s0 τ e H))
+        end
+    | STryBang p body =>
+        match m as m0 return result (out L Γ (STryBang p body) m0) elab_error with
+        | Syn =>
+            '(existT _ τ (exist _ b H)) <- elab body (set_exn TError L) Γ Syn ;;
+            Ok (existT _ _ (exist _ _ (S_TryBang E L Γ p body τ b H)))
+        | Chk τ =>
+            '(exist _ b H) <- elab body (set_exn TError L) Γ (Chk τ) ;;
+            Ok (exist _ _ (C_TryBang E L Γ p body τ b H))
+        end
+    | STry p body cases onr =>
+        match onr as o return result (out L Γ (STry p body cases o) m) elab_error with
+        | None =>
+            match m as m0 return result (out L Γ (STry p body cases None) m0) elab_error with
+            | Syn =>
+                '(existT _ τe (Ht, existT _ τ (exist _ b Hb))) <- try_pick elab p L Γ cases body Syn ;;
+                '(exist _ hbs Hh) <- arms_list elab L ((None, τe) :: Γ) τe τ cases ;;
+                Ok (existT _ _ (exist _ _ (S_Try E L Γ p body cases τe τ b hbs Ht Hb Hh)))
+            | Chk τ =>
+                '(existT _ τe (Ht, exist _ b Hb)) <- try_pick elab p L Γ cases body (Chk τ) ;;
+                '(exist _ hbs Hh) <- arms_list elab L ((None, τe) :: Γ) τe τ cases ;;
+                Ok (exist _ _ (C_Try E L Γ p body cases τe τ b hbs Ht Hb Hh))
+            end
+        | Some ncs =>
+            '(existT _ τe (Ht, existT _ τ0 (exist _ b Hb))) <- try_pick elab p L Γ cases body Syn ;;
+            match m as m0 return result (out L Γ (STry p body cases (Some ncs)) m0) elab_error with
+            | Syn =>
+                '(exist _ τ Hpick) <- pick_syn elab p L ((None, τe) :: Γ) τe cases ;;
+                '(exist _ hbs Hh) <- arms_list elab L ((None, τe) :: Γ) τe τ cases ;;
+                '(exist _ kbs Hk) <- arms_list elab L ((None, τ0) :: Γ) τ0 τ ncs ;;
+                Ok (existT _ _ (exist _ _ (trynr_syn L Γ p body cases ncs τe τ0 τ b hbs kbs Ht Hb Hpick Hh Hk)))
+            | Chk τ =>
+                '(exist _ hbs Hh) <- arms_list elab L ((None, τe) :: Γ) τe τ cases ;;
+                '(exist _ kbs Hk) <- arms_list elab L ((None, τ0) :: Γ) τ0 τ ncs ;;
+                Ok (exist _ _ (C_TryNr E L Γ p body cases ncs τe τ0 τ b hbs kbs Ht Hb Hh Hk))
+            end
+        end
+    | SDefer p d c body =>
+        '(exist _ c' Hc) <- elab c (mk_cenv [] (ce_exn L)) Γ (Chk TUnit) ;;
+        match m as m0 return result (out L Γ (SDefer p d c body) m0) elab_error with
+        | Syn =>
+            '(existT _ τ (exist _ b H)) <- elab body L Γ Syn ;;
+            Ok (existT _ _ (exist _ _ (S_Defer E L Γ p d c body c' τ b Hc H)))
+        | Chk τ =>
+            '(exist _ b H) <- elab body L Γ (Chk τ) ;;
+            Ok (exist _ _ (C_Defer E L Γ p d c body c' τ b Hc H))
         end
     | _ => Err (EE_Unsupported (sexpr_pos s) "not yet in the certified elaborator")
     end.

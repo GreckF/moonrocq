@@ -341,4 +341,8 @@ M6 用有规范、有证明的 elaborator 取代 `Surface/Elab.v`，分四个阶
   类型取 `nobreak` 在 `Unit` 标签下综合出的类型（与旧算法相同，规范保持确定）。
 - `for .. in` ✅（整数范围与数组）：源绑定到两个隐藏变量，循环变量是迭代变量加状态变量；生成的 Core 项由
   `forin_loop` 给出，下标运算集中在 `forin_typed` 一条引理里。M6d 换成一般的 `Iter` 时重写。
-- 待做：M4（`raise`/`try`/`defer`）、M5（trait、方法、对象）、顶层定义与程序，然后替换旧 Elab。
+- M4 ✅：`raise`（值按当前可逃出的错误类型检查，`Error` 处由 subsumption 提升）、`fail`、`try!`、
+  `try .. catch .. noraise`、`defer`/`errdefer`（清理代码只能 raise，不能跳转）。`try` 体的错误类型由
+  `try_err` 给出：分支模式指名的类型；指名多个则是 `Error`；都没指名时，规范允许 `Error` 或任一 suberror
+  （非确定，M6b 再定），算法取体唯一能通过的那个 suberror，否则取 `Error`，与旧算法相同。
+- 待做：M5（trait、方法、对象）、顶层定义与程序，然后替换旧 Elab。

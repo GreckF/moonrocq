@@ -476,3 +476,57 @@ Example ex_elab_forin :
    ty2 (SForIn P0 None [pv "i"; pv "x"] (range_s "..<" (int_s 0) (int_s 3)) [] [] (SLit P0 SLUnit) None)) =
   (Some (TInt I32), Some TUnit, Some TUnit, Some (TInt I32), None).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- M4 (errors) in the certified elaborator ---- *)
+(* suberror E1 { A(Int) }  suberror E2 { B }  Failure;  fn f() -> Int raise E1 *)
+Definition hdr3 : genv :=
+  mk_genv [ mk_tdef "E1" 0 [mk_cdef "A" [TInt I32]] true; mk_tdef "E2" 0 [mk_cdef "B" []] true;
+            failure_tdef ]
+          [ mk_fdef "f" 0 [] (TInt I32) (TData "E1" [])
+                    (ERaise (EConstr "E1" "A" [] (ETuple [ELit (LInt I32 0)])) (TInt I32)) ].
+
+Definition E3 : senv :=
+  mk_senv [("E1", 0); ("E2", 0); ("Failure", 0)] hdr3 [] [] (mk_xenv [] [] [] [] [] []).
+
+Definition syn3 (ρ : ty) (s : sexpr) : option (ty * expr) :=
+  match elab E3 s (mk_cenv [] ρ) [] Syn with
+  | Ok (existT _ τ (exist _ e _)) => Some (τ, e)
+  | Err _ => None
+  end.
+
+Definition ty3 (ρ : ty) (s : sexpr) : option ty := option_map fst (syn3 ρ s).
+Definition call_f : sexpr := SApp P0 (var_s "f") [].
+Definition raise_a : sexpr := SRaise P0 (ctor_s "A" [int_s 1]).
+Definition int_t : sty := SName P0 "Int" [].
+
+Example ex_elab_raise :
+  (* raise A(1) where Error may escape: promoted; where nothing may: rejected *)
+  (syn3 TError raise_a, syn3 TNever raise_a,
+   (* fail("x") *)
+   ty3 TError (SApp P0 (var_s "fail") [SLit P0 (SLString [120%Z])]),
+   ty3 (TData "E1" []) (SApp P0 (var_s "fail") [SLit P0 (SLString [120%Z])])) =
+  (Some (TUnit, ERaise (EUp "E1" (EConstr "E1" "A" [] (ETuple [ELit (LInt I32 1)]))) TUnit),
+   None, Some TUnit, None).
+Proof. vm_compute. reflexivity. Qed.
+
+Example ex_elab_try :
+  (* try f() catch { A(n) => n }: the arm names E1 *)
+  (syn3 TNever (STry P0 call_f [(SPConstr P0 None "A" [pv "n"] false, var_s "n")] None),
+   (* try f() catch { _ => 0 }: E1 is the only error type the body allows *)
+   syn3 TNever (STry P0 call_f [(SPWild P0, int_s 0)] None),
+   (* (try { raise A(1) } catch { A(_) => 1; B => 2 } : Int): two error types, so Error *)
+   ty3 TNever (SAnnot P0 (STry P0 raise_a [(SPConstr P0 None "A" [SPWild P0] false, int_s 1);
+                                           (SPConstr P0 None "B" [] false, int_s 2)] None) int_t),
+   (* try f() catch { _ => 0 } noraise { x => x + 1 } *)
+   ty3 TNever (STry P0 call_f [(SPWild P0, int_s 0)] (Some [(pv "x", add_s (var_s "x") (int_s 1))])),
+   (* try! f(); defer (); 2 *)
+   ty3 TNever (STryBang P0 call_f),
+   ty3 TNever (SDefer P0 false (SLit P0 SLUnit) (int_s 2)),
+   (* rejected: a call raising E1 outside try *)
+   ty3 TNever call_f) =
+  (Some (TInt I32, ETry (EApp (EGlobal "f" []) []) (TData "E1" [])
+                        (EMatch (EVar 0) (TInt I32) [(PConstr "A" [PVar], EVar 0)]) (EVar 0)),
+   Some (TInt I32, ETry (EApp (EGlobal "f" []) []) (TData "E1" [])
+                        (EMatch (EVar 0) (TInt I32) [(PWild, ELit (LInt I32 0))]) (EVar 0)),
+   Some (TInt I32), Some (TInt I32), Some (TInt I32), Some (TInt I32), None).
+Proof. vm_compute. reflexivity. Qed.

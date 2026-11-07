@@ -463,6 +463,49 @@ Definition forin_loop (it : iter_src) (e1 e2 : expr) (es : list expr) (τs : lis
 Definition is_jump (s : sexpr) : bool :=
   match s with SBreak _ _ _ | SContinue _ _ _ | SReturn _ _ => true | _ => false end.
 
+(** ** Errors (milestone M4) *)
+
+(** The error type named by a [catch] arm: the type of a qualified
+    constructor pattern, or the only error type declaring its constructor. *)
+Definition catch_owner (E : senv) (sp : spat) : option ident :=
+  match sp with
+  | SPConstr _ (Some T) _ _ _ => Some T
+  | SPConstr _ None c _ _ =>
+      match filter (fun td => td_err td && ctor_in c td) (ge_types (se_hdr E)) with
+      | [td] => Some (td_name td)
+      | _ => None
+      end
+  | _ => None
+  end.
+
+Definition catch_step (E : senv) (acc : catch_info) (c : spat * sexpr) : catch_info :=
+  match catch_owner E (fst c), acc with
+  | None, _ => acc
+  | Some T, CINone => CIOne T
+  | Some T, CIOne T' => if String.eqb T T' then acc else CIMany
+  | Some _, CIMany => CIMany
+  end.
+
+Definition catch_of (E : senv) (cases : list (spat * sexpr)) : catch_info :=
+  fold_left (catch_step E) cases CINone.
+
+(** The error type of the body of [try .. catch]: the one the arms name,
+    [Error] if they name several; if they name none, [Error] or some error
+    type (the elaborator takes the only one the body elaborates with). *)
+Definition try_err (E : senv) (cases : list (spat * sexpr)) (τe : ty) : Prop :=
+  match catch_of E cases with
+  | CIOne T => τe = TData T []
+  | CIMany => τe = TError
+  | CINone => τe = TError \/ exists T, τe = TData T [] /\ err_type E T
+  end.
+
+(** [fail(msg)] raises [Failure(msg)]. *)
+Definition failure_ok (E : senv) : Prop :=
+  exists td cd, lookup_ty (se_hdr E) "Failure" = Some td /\ td_tparams td = 0 /\
+                lookup_ctor td "Failure" = Some cd /\ cd_fields cd = [TString].
+
+Definition fail_val (a : expr) : expr := EConstr "Failure" "Failure" [] (ETuple [a]).
+
 (** ** Patterns
 
     - [⊩ᵖ[E] sp : τ ⇝ q ⊣ Δ] : pattern [sp] against type [τ];
@@ -932,6 +975,44 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     List.app Δ Γ ⊩[E;L] b ⇒ τ ⇝ b' ->
     Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
     Γ ⊩[E;L] SMatch p s cases ⇒ τ ⇝ EMatch e τ bs
+(* errors (milestone M4) *)
+(** [raise v]: [v] is checked against the error type that may escape here;
+    on its own, [raise] is [Unit] *)
+| S_Raise L Γ p s e :
+    Γ ⊩[E;L] s ⇐ ce_exn L ⇝ e ->
+    Γ ⊩[E;L] SRaise p s ⇒ TUnit ⇝ ERaise e TUnit
+| S_Fail L Γ p q a a' v :
+    builtin E Γ "fail" ->
+    failure_ok E ->
+    Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
+    ⊩ᶜ[E] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
+    Γ ⊩[E;L] SApp p (SVar q "fail") [a] ⇒ TUnit ⇝ ERaise v TUnit
+(** [try! body]: an error stops the program *)
+| S_TryBang L Γ p body τ b :
+    Γ ⊩[E;set_exn TError L] body ⇒ τ ⇝ b ->
+    Γ ⊩[E;L] STryBang p body ⇒ τ ⇝ ETry b TError (EAbort τ) (EVar 0)
+(** [try body catch { .. }] has the type of its body... *)
+| S_Try L Γ p body cases τe τ b hbs :
+    try_err E cases τe ->
+    Γ ⊩[E;set_exn τe L] body ⇒ τ ⇝ b ->
+    (None, τe) :: Γ ⊩ᵇ[E;L] cases : τe ⇐ τ ⇝ hbs ->
+    Γ ⊩[E;L] STry p body cases None ⇒ τ ⇝ ETry b τe (EMatch (EVar 0) τ hbs) (EVar 0)
+(** ... and with [noraise { .. }], that of the arm chosen by [pick_arm] *)
+| S_TryNr L Γ p body cases ncs τe τ0 τ b sp h q Δ h' hbs kbs :
+    try_err E cases τe ->
+    Γ ⊩[E;set_exn τe L] body ⇒ τ0 ⇝ b ->
+    pick_arm cases = Some (sp, h) ->
+    ⊩ᵖ[E] sp : τe ⇝ q ⊣ Δ ->
+    List.app Δ ((None, τe) :: Γ) ⊩[E;L] h ⇒ τ ⇝ h' ->
+    (None, τe) :: Γ ⊩ᵇ[E;L] cases : τe ⇐ τ ⇝ hbs ->
+    (None, τ0) :: Γ ⊩ᵇ[E;L] ncs : τ0 ⇐ τ ⇝ kbs ->
+    Γ ⊩[E;L] STry p body cases (Some ncs) ⇒ τ
+      ⇝ ETry b τe (EMatch (EVar 0) τ hbs) (EMatch (EVar 0) τ kbs)
+(** [defer c; body]: the cleanup may raise but not jump *)
+| S_Defer L Γ p d c body c' τ b :
+    Γ ⊩[E;mk_cenv [] (ce_exn L)] c ⇐ TUnit ⇝ c' ->
+    Γ ⊩[E;L] body ⇒ τ ⇝ b ->
+    Γ ⊩[E;L] SDefer p d c body ⇒ τ ⇝ EDefer d c' b
 
 with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
 (** subsumption: synthesize, then convert *)
@@ -1119,6 +1200,34 @@ with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     Γ ⊩[E;L] s ⇒ τs ⇝ e ->
     Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
     Γ ⊩[E;L] SMatch p s cases ⇐ τ ⇝ EMatch e τ bs
+| C_Raise L Γ p s τ e :
+    Γ ⊩[E;L] s ⇐ ce_exn L ⇝ e ->
+    Γ ⊩[E;L] SRaise p s ⇐ τ ⇝ ERaise e τ
+| C_Fail L Γ p q a τ a' v :
+    builtin E Γ "fail" ->
+    failure_ok E ->
+    Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
+    ⊩ᶜ[E] fail_val a' : TData "Failure" [] ≼ ce_exn L ⇝ v ->
+    Γ ⊩[E;L] SApp p (SVar q "fail") [a] ⇐ τ ⇝ ERaise v τ
+| C_TryBang L Γ p body τ b :
+    Γ ⊩[E;set_exn TError L] body ⇐ τ ⇝ b ->
+    Γ ⊩[E;L] STryBang p body ⇐ τ ⇝ ETry b TError (EAbort τ) (EVar 0)
+| C_Try L Γ p body cases τe τ b hbs :
+    try_err E cases τe ->
+    Γ ⊩[E;set_exn τe L] body ⇐ τ ⇝ b ->
+    (None, τe) :: Γ ⊩ᵇ[E;L] cases : τe ⇐ τ ⇝ hbs ->
+    Γ ⊩[E;L] STry p body cases None ⇐ τ ⇝ ETry b τe (EMatch (EVar 0) τ hbs) (EVar 0)
+| C_TryNr L Γ p body cases ncs τe τ0 τ b hbs kbs :
+    try_err E cases τe ->
+    Γ ⊩[E;set_exn τe L] body ⇒ τ0 ⇝ b ->
+    (None, τe) :: Γ ⊩ᵇ[E;L] cases : τe ⇐ τ ⇝ hbs ->
+    (None, τ0) :: Γ ⊩ᵇ[E;L] ncs : τ0 ⇐ τ ⇝ kbs ->
+    Γ ⊩[E;L] STry p body cases (Some ncs) ⇐ τ
+      ⇝ ETry b τe (EMatch (EVar 0) τ hbs) (EMatch (EVar 0) τ kbs)
+| C_Defer L Γ p d c body c' τ b :
+    Γ ⊩[E;mk_cenv [] (ce_exn L)] c ⇐ TUnit ⇝ c' ->
+    Γ ⊩[E;L] body ⇐ τ ⇝ b ->
+    Γ ⊩[E;L] SDefer p d c body ⇐ τ ⇝ EDefer d c' b
 
 with sbind (E : senv) : cenv -> lctx -> sexpr -> option sty -> ty -> expr -> Prop :=
 | B_Syn L Γ s τ e :

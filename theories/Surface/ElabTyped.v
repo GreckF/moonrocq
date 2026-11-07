@@ -579,6 +579,35 @@ Section Typed.
       eapply T_Proj; [constructor; reflexivity|exact Hi].
   Qed.
 
+  (** *** Errors *)
+
+  Lemma fail_typed Λ Γ a :
+    failure_ok E -> Γ ⊢[ge;[];Λ] a : TString ->
+    Γ ⊢[ge;[];Λ] fail_val a : TData "Failure" [].
+  Proof.
+    intros (td & cd & Htd & Hn & Hc & Hf) Ha; unfold fail_val.
+    eapply T_Constr; [exact Htd|rewrite Hn; reflexivity|exact Hc|].
+    rewrite Hf; simpl; constructor; constructor; [exact Ha|constructor].
+  Qed.
+
+  Lemma raise_typed Λ Γ e τ :
+    Γ ⊢[ge;[];Λ] e : cc_exn Λ -> Γ ⊢[ge;[];Λ] ERaise e τ : τ.
+  Proof. intros He; eapply T_Raise; [exact He|right; reflexivity]. Qed.
+
+  Lemma try_typed Λ Γ b τe τ0 τ hbs k :
+    Γ ⊢[ge;[];with_exn τe Λ] b : τ0 ->
+    τe :: Γ ⊢ᵇ[ge;[];Λ] hbs : τe ⇒ τ ->
+    τ0 :: Γ ⊢[ge;[];Λ] k : τ ->
+    Γ ⊢[ge;[];Λ] ETry b τe (EMatch (EVar 0) τ hbs) k : τ.
+  Proof.
+    intros Hb Hh Hk; eapply T_Try; [exact Hb| |exact Hk].
+    eapply T_Match; [constructor; reflexivity|exact Hh].
+  Qed.
+
+  Lemma noraise_typed Λ Γ τ0 τ kbs :
+    τ0 :: Γ ⊢ᵇ[ge;[];Λ] kbs : τ0 ⇒ τ -> τ0 :: Γ ⊢[ge;[];Λ] EMatch (EVar 0) τ kbs : τ.
+  Proof. intros Hk; eapply T_Match; [constructor; reflexivity|exact Hk]. Qed.
+
   Theorem elab_typed :
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇒ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇐ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
@@ -673,6 +702,13 @@ Section Typed.
                       | first [eassumption | constructor] | rewrite length_map; assumption] end].
     all: try solve [apply eblock_typed'; assumption].
     all: try solve [eapply T_Jump; [eassumption|]; simpl; tc].
+    (* errors *)
+    all: try solve [apply raise_typed; assumption].
+    all: try solve [apply raise_typed; eapply coerce_typed; [eassumption|]; apply fail_typed; assumption].
+    all: try solve [eapply T_Try; [eassumption|constructor|constructor; reflexivity]].
+    all: try solve [eapply try_typed; [eassumption|eassumption|first [constructor; reflexivity
+                                                                     | apply noraise_typed; assumption]]].
+    all: try solve [eapply T_Defer; eassumption].
     (* conversions and calls *)
     all: try solve [eapply coerce_typed; eauto].
     all: eapply wrap_call_typed; eauto; eapply T_Global; eauto.
