@@ -331,5 +331,7 @@ M6 用有规范、有证明的 elaborator 取代 `Surface/Elab.v`，分四个阶
 - 第 1 片 ✅：M1 的构造（变量、字面量、运算符、`let`、`if`、元组、lambda、调用）与内建的
   `not`/`ignore`/`panic`/`abort`：规范 `ElabSpec.v`、`elab_typed`（`ElabTyped.v`）、
   certified elaborator `elab`（`Elaborate.v`）。新 elaborator 暂未接入 Driver，其余构造报 unsupported。
-- 待做：M2（构造子、记录、字段、模式、`match`）、M3（`let mut`、赋值、数组、循环与跳转）、
+- 第 2 片 ✅：M2 的构造子（检查模式取期望类型的实参）、模式判断 `⊩ᵖ`（含 `Error` 上的构造子、记录模式、
+  `mut` 字段）、`match`（类型取 `pick_arm` 选出的分支）、字段访问与 tuple struct 投影（`field_proj`）。
+- 待做：记录的构造 `T::{ .. }`、M3（`let mut`、赋值、数组、循环与跳转）、
   M4（`raise`/`try`/`defer`）、M5（trait、方法、对象）、顶层定义与程序，然后替换旧 Elab。

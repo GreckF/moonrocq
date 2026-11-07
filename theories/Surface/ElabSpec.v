@@ -22,9 +22,15 @@
     [ElabTyped.v] proves that every elaborated expression is well typed in
     Core ([elab_typed]).
 
-    This file covers the core language of milestone M1 (variables,
-    literals, operators, [let], [if], tuples, functions and calls) and the
-    builtins [not], [ignore], [panic] and [abort]. *)
+    Patterns have their own judgment [⊩ᵖ[E] sp : τ ⇝ q ⊣ Δ]: the surface
+    pattern [sp] matches values of type [τ], elaborates to the Core
+    pattern [q] and binds the named variables [Δ].
+
+    Covered so far: the core language of milestone M1 (variables,
+    literals, operators, [let], [if], tuples, functions and calls), the
+    builtins [not], [ignore], [panic] and [abort], and from milestone M2
+    constructors, patterns, [match], field access and the projections of
+    tuple structs. *)
 
 From Stdlib Require Import List ZArith String Bool.
 From MoonRocq.Prelude Require Import Result EqDec Ident.
@@ -186,6 +192,189 @@ Inductive coerce_rel (E : senv) : expr -> ty -> ty -> expr -> Prop :=
     ⊩ᶜ[E] e : TData T [] ≼ TError ⇝ EUp T e
 where "⊩ᶜ[ E ] e : τ ≼ τ' ⇝ e'" := (coerce_rel E e τ τ' e').
 
+(** ** Data types *)
+
+Definition ctor_in (c : ident) (td : tdef) : bool :=
+  match lookup_ctor td c with Some _ => true | None => false end.
+
+(** A record struct (built with [{ .. }], not by its constructor name). *)
+Definition is_rec (E : senv) (T : ident) : bool :=
+  match assoc T (se_sinfo E) with Some _ => true | None => false end.
+
+Definition tq_ok (tq : option ident) (T : ident) : Prop :=
+  match tq with Some T' => T' = T | None => True end.
+
+(** The data type of the constructor [tq::c] when nothing is expected: the
+    named type, or the only type (other than record structs) declaring a
+    constructor [c]. *)
+Definition ctor_pick (E : senv) (tq : option ident) (c T : ident) : Prop :=
+  match tq with
+  | Some T' => T' = T
+  | None =>
+      map td_name (filter (fun td => negb (is_rec E (td_name td)) && ctor_in c td)
+                          (ge_types (se_hdr E))) = [T]
+  end.
+
+(** The error type of a constructor pattern on [Error]: the named type, or
+    the only error type declaring [c]. *)
+Definition err_owner (E : senv) (tq : option ident) (c T : ident) : Prop :=
+  match tq with
+  | Some T' => T' = T
+  | None =>
+      map td_name (filter (fun td => td_err td && ctor_in c td) (ge_types (se_hdr E))) = [T]
+  end.
+
+(** Field [i] of a value [e] of a single-constructor type [T[ts]]: a
+    one-branch [match]; a [mut] field holds a cell, whose content is read. *)
+Definition proj_pats (i : nat) (q : pat) (k n : nat) : list pat :=
+  map (fun j => if Nat.eqb j i then q else PWild) (seq k n).
+
+Definition field_proj (E : senv) (T : ident) (ts : list ty) (i : nat) (e : expr) :
+    option (expr * ty) :=
+  match lookup_ty (se_hdr E) T with
+  | Some td =>
+      match td_ctors td with
+      | [cd] =>
+          let fs := map (tsubst (inst ts)) (cd_fields cd) in
+          match nth_error fs i with
+          | Some τ =>
+              let '(q, τr) := match τ with TRef t => (PRef PVar, t) | _ => (PVar, τ) end in
+              Some (EMatch e τr [(PConstr (cd_name cd) (proj_pats i q 0 (List.length fs)), EVar 0)], τr)
+          | None => None
+          end
+      | _ => None
+      end
+  | None => None
+  end.
+
+(** The sub-patterns of a record pattern, put in field order: field [j]
+    gets the pattern written for it, or [_] if the pattern is open ([..]). *)
+Fixpoint assemble (op : bool) (given : list (nat * pat * lctx)) (j : nat) (fs : list ty) :
+    option (list pat * lctx) :=
+  match fs with
+  | [] => Some ([], [])
+  | _ :: fs' =>
+      match match find (fun x => Nat.eqb (fst (fst x)) j) given with
+            | Some (_, q, Δ) => Some (q, Δ)
+            | None => if op then Some (PWild, []) else None
+            end,
+            assemble op given (S j) fs' with
+      | Some (q, Δ), Some (qs, Δs) => Some (q :: qs, List.app Δ Δs)
+      | _, _ => None
+      end
+  end.
+
+(** The arm of a [match] that gives its type: the first one that does not
+    certainly jump away, else the first one. *)
+Definition pick_arm (cases : list (spat * sexpr)) : option (spat * sexpr) :=
+  match find (fun c => negb (diverges (snd c))) cases with
+  | Some c => Some c
+  | None => hd_error cases
+  end.
+
+(** ** Patterns
+
+    - [⊩ᵖ[E] sp : τ ⇝ q ⊣ Δ] : pattern [sp] against type [τ];
+    - [⊩ᶠ[E] sp : τ ⇝ q ⊣ Δ] : against a field of type [τ]: a [mut] field
+      holds a cell, and the pattern applies to its content;
+    - [⊩ᶠ*[E] sps : τs ⇝ qs ⊣ Δ] : a list of fields;
+    - [⊩ⁿ[E] fps : names ; fs ⇝ given] : named fields of a record pattern,
+      in source order, with their field index. *)
+
+Reserved Notation "⊩ᵖ[ E ] sp : τ ⇝ q ⊣ Δ"
+  (at level 70, E at level 200, sp at level 60, τ at level 60, q at level 60,
+   Δ at level 60, no associativity, format "⊩ᵖ[ E ]  sp  :  τ  ⇝  q  ⊣  Δ").
+Reserved Notation "⊩ᶠ[ E ] sp : τ ⇝ q ⊣ Δ"
+  (at level 70, E at level 200, sp at level 60, τ at level 60, q at level 60,
+   Δ at level 60, no associativity, format "⊩ᶠ[ E ]  sp  :  τ  ⇝  q  ⊣  Δ").
+Reserved Notation "⊩ᶠ*[ E ] sps : τs ⇝ qs ⊣ Δ"
+  (at level 70, E at level 200, sps at level 60, τs at level 60, qs at level 60,
+   Δ at level 60, no associativity, format "⊩ᶠ*[ E ]  sps  :  τs  ⇝  qs  ⊣  Δ").
+Reserved Notation "⊩ⁿ[ E ] fps : names ; fs ⇝ given"
+  (at level 70, E at level 200, fps at level 60, names at level 60, fs at level 60,
+   given at level 60, no associativity, format "⊩ⁿ[ E ]  fps  :  names ;  fs  ⇝  given").
+
+Inductive spat_ok (E : senv) : spat -> ty -> pat -> lctx -> Prop :=
+| SP_Wild p τ :
+    ⊩ᵖ[E] SPWild p : τ ⇝ PWild ⊣ []
+| SP_Var p x τ :
+    ⊩ᵖ[E] SPVar p x : τ ⇝ PVar ⊣ [(Some x, τ)]
+| SP_Lit p l l' τ :
+    elab_lit p (Some τ) l = Ok l' ->
+    TBase (lit_ty l') = τ ->
+    ⊩ᵖ[E] SPLit p l : τ ⇝ PLit l' ⊣ []
+| SP_Tuple p sps τs qs Δ :
+    ⊩ᶠ*[E] sps : τs ⇝ qs ⊣ Δ ->
+    ⊩ᵖ[E] SPTuple p sps : TTuple τs ⇝ PTuple qs ⊣ Δ
+(** [T::c(ps)]; an open pattern [c(ps, ..)] may omit trailing fields *)
+| SP_Constr p tq c sps op T ts td cd fs1 fs2 qs Δ :
+    tq_ok tq T ->
+    lookup_ty (se_hdr E) T = Some td ->
+    lookup_ctor td c = Some cd ->
+    map (tsubst (inst ts)) (cd_fields cd) = List.app fs1 fs2 ->
+    ⊩ᶠ*[E] sps : fs1 ⇝ qs ⊣ Δ ->
+    (op = false -> fs2 = []) ->
+    ⊩ᵖ[E] SPConstr p tq c sps op : TData T ts ⇝ PConstr c (List.app qs (map (fun _ => PWild) fs2)) ⊣ Δ
+(** on [Error], a constructor pattern names its error type *)
+| SP_Up p tq c sps op T td cd fs1 fs2 qs Δ :
+    err_owner E tq c T ->
+    lookup_ty (se_hdr E) T = Some td ->
+    lookup_ctor td c = Some cd ->
+    map (tsubst (inst [])) (cd_fields cd) = List.app fs1 fs2 ->
+    ⊩ᶠ*[E] sps : fs1 ⇝ qs ⊣ Δ ->
+    (op = false -> fs2 = []) ->
+    ⊩ᵖ[E] SPConstr p tq c sps op : TError
+      ⇝ PUp T (PConstr c (List.app qs (map (fun _ => PWild) fs2))) ⊣ Δ
+| SP_Record p fps op T ts names td cd given qs Δ :
+    assoc T (se_sinfo E) = Some names ->
+    lookup_ty (se_hdr E) T = Some td ->
+    td_ctors td = [cd] ->
+    ⊩ⁿ[E] fps : names ; map (tsubst (inst ts)) (cd_fields cd) ⇝ given ->
+    assemble op given 0 (map (tsubst (inst ts)) (cd_fields cd)) = Some (qs, Δ) ->
+    ⊩ᵖ[E] SPRecord p fps op : TData T ts ⇝ PConstr (cd_name cd) qs ⊣ Δ
+| SP_Annot p sp t τ q Δ :
+    ety E t = Ok τ ->
+    ⊩ᵖ[E] sp : τ ⇝ q ⊣ Δ ->
+    ⊩ᵖ[E] SPAnnot p sp t : τ ⇝ q ⊣ Δ
+
+with fpat_ok (E : senv) : spat -> ty -> pat -> lctx -> Prop :=
+| FP_Cell sp t q Δ :
+    ⊩ᵖ[E] sp : t ⇝ q ⊣ Δ ->
+    ⊩ᶠ[E] sp : TRef t ⇝ PRef q ⊣ Δ
+| FP_Plain sp τ q Δ :
+    is_cell τ = false ->
+    ⊩ᵖ[E] sp : τ ⇝ q ⊣ Δ ->
+    ⊩ᶠ[E] sp : τ ⇝ q ⊣ Δ
+
+with fpats_ok (E : senv) : list spat -> list ty -> list pat -> lctx -> Prop :=
+| FPs_nil :
+    ⊩ᶠ*[E] [] : [] ⇝ [] ⊣ []
+| FPs_cons sp sps τ τs q qs Δ1 Δ2 :
+    ⊩ᶠ[E] sp : τ ⇝ q ⊣ Δ1 ->
+    ⊩ᶠ*[E] sps : τs ⇝ qs ⊣ Δ2 ->
+    ⊩ᶠ*[E] sp :: sps : τ :: τs ⇝ q :: qs ⊣ List.app Δ1 Δ2
+
+with named_ok (E : senv) : list (ident * spat) -> list ident -> list ty -> list (nat * pat * lctx) -> Prop :=
+| FN_nil names fs :
+    ⊩ⁿ[E] [] : names ; fs ⇝ []
+| FN_cons f sp fps names fs i τ q Δ given :
+    index_of f names = Some i ->
+    nth_error fs i = Some τ ->
+    ⊩ᶠ[E] sp : τ ⇝ q ⊣ Δ ->
+    ⊩ⁿ[E] fps : names ; fs ⇝ given ->
+    ⊩ⁿ[E] (f, sp) :: fps : names ; fs ⇝ (i, q, Δ) :: given
+
+where "⊩ᵖ[ E ] sp : τ ⇝ q ⊣ Δ" := (spat_ok E sp τ q Δ)
+  and "⊩ᶠ[ E ] sp : τ ⇝ q ⊣ Δ" := (fpat_ok E sp τ q Δ)
+  and "⊩ᶠ*[ E ] sps : τs ⇝ qs ⊣ Δ" := (fpats_ok E sps τs qs Δ)
+  and "⊩ⁿ[ E ] fps : names ; fs ⇝ given" := (named_ok E fps names fs given).
+
+Scheme spat_ok_mut := Minimality for spat_ok Sort Prop
+  with fpat_ok_mut := Minimality for fpat_ok Sort Prop
+  with fpats_ok_mut := Minimality for fpats_ok Sort Prop
+  with named_ok_mut := Minimality for named_ok Sort Prop.
+Combined Scheme spat_mutind from spat_ok_mut, fpat_ok_mut, fpats_ok_mut, named_ok_mut.
+
 (** ** Expressions *)
 
 Reserved Notation "Γ ⊩[ E ; L ] s ⇒ τ ⇝ e"
@@ -201,6 +390,10 @@ Reserved Notation "Γ ⊩[ E ; L ] s ⦂ a ⇒ τ ⇝ e"
 Reserved Notation "Γ ⊩*[ E ; L ] ss ⇒ τs ⇝ es"
   (at level 70, E at level 200, L at level 200, ss at level 60, τs at level 60,
    es at level 60, no associativity, format "Γ  ⊩*[ E ; L ]  ss  ⇒  τs  ⇝  es").
+Reserved Notation "Γ ⊩ᵇ[ E ; L ] cs : τs ⇐ τ ⇝ bs"
+  (at level 70, E at level 200, L at level 200, cs at level 60, τs at level 60,
+   τ at level 60, bs at level 60, no associativity,
+   format "Γ  ⊩ᵇ[ E ; L ]  cs  :  τs  ⇐  τ  ⇝  bs").
 Reserved Notation "Γ ⊩*[ E ; L ] ss ⇐ τs ⇝ es"
   (at level 70, E at level 200, L at level 200, ss at level 60, τs at level 60,
    es at level 60, no associativity, format "Γ  ⊩*[ E ; L ]  ss  ⇐  τs  ⇝  es").
@@ -350,6 +543,41 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     builtin E Γ "abort" ->
     Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
     Γ ⊩[E;L] SApp p (SVar q "abort") [a] ⇒ TUnit ⇝ ELet a' (EAbort TUnit)
+(* data types (milestone M2) *)
+(** a constructor, at some type arguments [ts] *)
+| S_Ctor L Γ p q tq c args T td cd ts es :
+    ctor_pick E tq c T ->
+    lookup_ty (se_hdr E) T = Some td ->
+    lookup_ctor td c = Some cd ->
+    List.length ts = td_tparams td ->
+    Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) (cd_fields cd) ⇝ es ->
+    Γ ⊩[E;L] SApp p (SConstr q tq c) args ⇒ TData T ts ⇝ EConstr T c ts (ETuple es)
+| S_Ctor0 L Γ p tq c T td cd ts :
+    ctor_pick E tq c T ->
+    lookup_ty (se_hdr E) T = Some td ->
+    lookup_ctor td c = Some cd ->
+    List.length ts = td_tparams td ->
+    cd_fields cd = [] ->
+    Γ ⊩[E;L] SConstr p tq c ⇒ TData T ts ⇝ EConstr T c ts (ETuple [])
+| S_Field L Γ p s f T ts e names i e' τ :
+    Γ ⊩[E;L] s ⇒ TData T ts ⇝ e ->
+    assoc T (se_sinfo E) = Some names ->
+    index_of f names = Some i ->
+    field_proj E T ts i e = Some (e', τ) ->
+    Γ ⊩[E;L] SField p s f ⇒ τ ⇝ e'
+(** [e.0] on a tuple struct *)
+| S_ProjData L Γ p s i T ts e e' τ :
+    Γ ⊩[E;L] s ⇒ TData T ts ⇝ e ->
+    field_proj E T ts i e = Some (e', τ) ->
+    Γ ⊩[E;L] SProj p s i ⇒ τ ⇝ e'
+(** the type of a [match] is that of the arm chosen by [pick_arm] *)
+| S_Match L Γ p s cases τs τ e bs sp b q Δ b' :
+    Γ ⊩[E;L] s ⇒ τs ⇝ e ->
+    pick_arm cases = Some (sp, b) ->
+    ⊩ᵖ[E] sp : τs ⇝ q ⊣ Δ ->
+    List.app Δ Γ ⊩[E;L] b ⇒ τ ⇝ b' ->
+    Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
+    Γ ⊩[E;L] SMatch p s cases ⇒ τ ⇝ EMatch e τ bs
 
 with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
 (** subsumption: synthesize, then convert *)
@@ -405,6 +633,25 @@ with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     builtin E Γ "abort" ->
     Γ ⊩[E;L] a ⇐ TString ⇝ a' ->
     Γ ⊩[E;L] SApp p (SVar q "abort") [a] ⇐ τ ⇝ ELet a' (EAbort τ)
+(** a constructor of the expected data type takes its type arguments *)
+| C_Ctor L Γ p q tq c args T ts td cd es :
+    tq_ok tq T ->
+    lookup_ty (se_hdr E) T = Some td ->
+    lookup_ctor td c = Some cd ->
+    List.length ts = td_tparams td ->
+    Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) (cd_fields cd) ⇝ es ->
+    Γ ⊩[E;L] SApp p (SConstr q tq c) args ⇐ TData T ts ⇝ EConstr T c ts (ETuple es)
+| C_Ctor0 L Γ p tq c T ts td cd :
+    tq_ok tq T ->
+    lookup_ty (se_hdr E) T = Some td ->
+    lookup_ctor td c = Some cd ->
+    List.length ts = td_tparams td ->
+    cd_fields cd = [] ->
+    Γ ⊩[E;L] SConstr p tq c ⇐ TData T ts ⇝ EConstr T c ts (ETuple [])
+| C_Match L Γ p s cases τs τ e bs :
+    Γ ⊩[E;L] s ⇒ τs ⇝ e ->
+    Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
+    Γ ⊩[E;L] SMatch p s cases ⇐ τ ⇝ EMatch e τ bs
 
 with sbind (E : senv) : cenv -> lctx -> sexpr -> option sty -> ty -> expr -> Prop :=
 | B_Syn L Γ s τ e :
@@ -414,6 +661,15 @@ with sbind (E : senv) : cenv -> lctx -> sexpr -> option sty -> ty -> expr -> Pro
     ety E t = Ok τ ->
     Γ ⊩[E;L] s ⇐ τ ⇝ e ->
     Γ ⊩[E;L] s ⦂ Some t ⇒ τ ⇝ e
+
+with arms (E : senv) : cenv -> lctx -> list (spat * sexpr) -> ty -> ty -> list (pat * expr) -> Prop :=
+| Ar_nil L Γ τs τ :
+    Γ ⊩ᵇ[E;L] [] : τs ⇐ τ ⇝ []
+| Ar_cons L Γ sp b cases τs τ q Δ b' bs :
+    ⊩ᵖ[E] sp : τs ⇝ q ⊣ Δ ->
+    List.app Δ Γ ⊩[E;L] b ⇐ τ ⇝ b' ->
+    Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
+    Γ ⊩ᵇ[E;L] (sp, b) :: cases : τs ⇐ τ ⇝ (q, b') :: bs
 
 with syns (E : senv) : cenv -> lctx -> list sexpr -> list ty -> list expr -> Prop :=
 | Ss_nil L Γ :
@@ -434,12 +690,14 @@ with chks (E : senv) : cenv -> lctx -> list sexpr -> list ty -> list expr -> Pro
 where "Γ ⊩[ E ; L ] s ⇒ τ ⇝ e" := (syn E L Γ s τ e)
   and "Γ ⊩[ E ; L ] s ⇐ τ ⇝ e" := (chk E L Γ s τ e)
   and "Γ ⊩[ E ; L ] s ⦂ a ⇒ τ ⇝ e" := (sbind E L Γ s a τ e)
+  and "Γ ⊩ᵇ[ E ; L ] cs : τs ⇐ τ ⇝ bs" := (arms E L Γ cs τs τ bs)
   and "Γ ⊩*[ E ; L ] ss ⇒ τs ⇝ es" := (syns E L Γ ss τs es)
   and "Γ ⊩*[ E ; L ] ss ⇐ τs ⇝ es" := (chks E L Γ ss τs es).
 
 Scheme syn_mut := Minimality for syn Sort Prop
   with chk_mut := Minimality for chk Sort Prop
   with sbind_mut := Minimality for sbind Sort Prop
+  with arms_mut := Minimality for arms Sort Prop
   with syns_mut := Minimality for syns Sort Prop
   with chks_mut := Minimality for chks Sort Prop.
-Combined Scheme elab_mutind from syn_mut, chk_mut, sbind_mut, syns_mut, chks_mut.
+Combined Scheme elab_mutind from syn_mut, chk_mut, sbind_mut, arms_mut, syns_mut, chks_mut.

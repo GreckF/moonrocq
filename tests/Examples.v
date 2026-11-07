@@ -327,3 +327,66 @@ Example ex_elab_reject :
    syn_ex (SApp P0 (var_s "panic") [])) =
   (None, None, Some (TUnit, EAbort TUnit)).
 Proof. vm_compute. reflexivity. Qed.
+
+(* enum Shape { Circle(Int); Rect(Int, Int) }  struct P { x : Int; mut y : Int }  Option[T] *)
+Definition hdr2 : genv :=
+  mk_genv [ mk_tdef "Shape" 0 [mk_cdef "Circle" [TInt I32]; mk_cdef "Rect" [TInt I32; TInt I32]] false;
+            mk_tdef "P" 0 [mk_cdef "P" [TInt I32; TRef (TInt I32)]] false;
+            option_tdef ] [].
+
+Definition E2 : senv :=
+  mk_senv [("Shape", 0); ("P", 0); ("Option", 1)] hdr2 [("P", ["x"; "y"])] []
+          (mk_xenv [] [] [] [] [] []).
+
+Definition syn2 (s : sexpr) : option (ty * expr) :=
+  match elab E2 s (mk_cenv [] TNever) [] Syn with
+  | Ok (existT _ τ (exist _ e _)) => Some (τ, e)
+  | Err _ => None
+  end.
+
+Definition ty2 (s : sexpr) : option ty := option_map fst (syn2 s).
+
+Definition ctor_s (c : ident) (args : list sexpr) : sexpr := SApp P0 (SConstr P0 None c) args.
+Definition pv (x : ident) : spat := SPVar P0 x.
+
+(* match Rect(2, 3) { Circle(r) => r; Rect(w, h) => w * h } *)
+Example ex_elab_match :
+  syn2 (SMatch P0 (ctor_s "Rect" [int_s 2; int_s 3])
+          [(SPConstr P0 None "Circle" [pv "r"] false, var_s "r");
+           (SPConstr P0 None "Rect" [pv "w"; pv "h"] false, SInfix P0 "*" (var_s "w") (var_s "h"))]) =
+  Some (TInt I32,
+        EMatch (EConstr "Shape" "Rect" [] (ETuple [ELit (LInt I32 2); ELit (LInt I32 3)])) (TInt I32)
+          [(PConstr "Circle" [PVar], EVar 0);
+           (PConstr "Rect" [PVar; PVar], EPrim (PIntArith AMul I32) [EVar 0; EVar 1])]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* Some(1) : Option[Int]; None alone cannot be typed; (None : Option[Bool]) *)
+Example ex_elab_option :
+  (ty2 (ctor_s "Some" [int_s 1]),
+   ty2 (SConstr P0 None "None"),
+   ty2 (SAnnot P0 (SConstr P0 None "None") (SName P0 "Option" [SName P0 "Bool" []]))) =
+  (Some (TData "Option" [TInt I32]), None, Some (TData "Option" [TBool])).
+Proof. vm_compute. reflexivity. Qed.
+
+(* fn(p : P) { p.y } reads the cell of the mut field; { x, .. } => x;
+   tuple patterns with literals; an arm that panics takes the other's type *)
+Example ex_elab_fields :
+  (option_map snd (syn2 (SLam P0 [("p", Some (SName P0 "P" []))] None None (SField P0 (var_s "p") "y"))),
+   ty2 (SLam P0 [("p", Some (SName P0 "P" []))] None None
+          (SMatch P0 (var_s "p") [(SPRecord P0 [("x", pv "x")] true, var_s "x")])),
+   ty2 (SMatch P0 (STup P0 [int_s 1; SLit P0 (SLBool true)])
+          [(SPTuple P0 [SPLit P0 (SLInt None 0); SPWild P0], SApp P0 (var_s "panic") []);
+           (SPTuple P0 [pv "n"; pv "b"], var_s "b")])) =
+  (Some (ELam [TData "P" []] (TInt I32) TNever
+           (EMatch (EVar 0) (TInt I32) [(PConstr "P" [PWild; PRef PVar], EVar 0)])),
+   Some (TArrow [TData "P" []] (TInt I32) TNever),
+   Some TBool).
+Proof. vm_compute. reflexivity. Qed.
+
+(* rejected: a closed record pattern missing a field; a wrong constructor *)
+Example ex_elab_reject2 :
+  (ty2 (SLam P0 [("p", Some (SName P0 "P" []))] None None
+          (SMatch P0 (var_s "p") [(SPRecord P0 [("x", pv "x")] false, var_s "x")])),
+   ty2 (SAnnot P0 (ctor_s "Circle" [int_s 1]) (SName P0 "P" []))) =
+  (None, None).
+Proof. vm_compute. reflexivity. Qed.

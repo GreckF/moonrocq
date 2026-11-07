@@ -55,6 +55,14 @@ Lemma cons_proj {A : Type} {P : A -> Type} (x : sigT P) rs s ss :
   map (@projT1 _ _) (x :: rs) = s :: ss -> projT1 x = s /\ map (@projT1 _ _) rs = ss.
 Proof. simpl; intros H; injection H; auto. Qed.
 
+Lemma pick_live cs sp b :
+  find (fun c => negb (diverges (snd c))) cs = Some (sp, b) -> pick_arm cs = Some (sp, b).
+Proof. unfold pick_arm; intros ->; reflexivity. Qed.
+
+Lemma pick_first sp b cs :
+  find (fun c => negb (diverges (snd c))) ((sp, b) :: cs) = None -> pick_arm ((sp, b) :: cs) = Some (sp, b).
+Proof. unfold pick_arm; intros ->; reflexivity. Qed.
+
 Section Elaborate.
   Variable E : senv.
   Abbreviation hdr := (se_hdr E).
@@ -131,16 +139,20 @@ Section Elaborate.
     | Err err => fun _ => Err err
     end eq_refl.
 
-  Definition fn_targs (p : pos) (g : ident) (fd : fdef) (st : list (option ty)) :
-      result {ts | List.length ts = fd_tparams fd} elab_error :=
+  Definition targs (p : pos) (g : ident) (n : nat) (st : list (option ty)) :
+      result {ts | List.length ts = n} elab_error :=
     match all_some st with
     | Some ts =>
-        match Nat.eq_dec (List.length ts) (fd_tparams fd) with
+        match Nat.eq_dec (List.length ts) n with
         | left H => Ok (exist _ ts H)
         | right _ => Err (EE_CannotInfer p g)
         end
     | None => Err (EE_CannotInfer p g)
     end.
+
+  Definition fn_targs (p : pos) (g : ident) (fd : fdef) (st : list (option ty)) :
+      result {ts | List.length ts = fd_tparams fd} elab_error :=
+    targs p g (fd_tparams fd) st.
 
   Definition no_bounds (p : pos) (g : ident) : result (sbounds E g = []) elab_error :=
     match sbounds E g as b return result (b = []) elab_error with
@@ -583,11 +595,311 @@ Section Elaborate.
         Ok (existT _ _ (exist _ _ (S_Global E L Γ p x fd ts Hl Hf Hb Hts)))
     end eq_refl.
 
+  (** ** Data types *)
+
+  Definition tq_dec (p : pos) (tq : option ident) (T : ident) (err : elab_error) :
+      result (tq_ok tq T) elab_error :=
+    match tq as o return result (tq_ok o T) elab_error with
+    | Some T' => match eq_dec T' T with left H => Ok H | right _ => Err err end
+    | None => Ok I
+    end.
+
+  Definition ctor_pick_dec (p : pos) (tq : option ident) (c : ident) :
+      result {T | ctor_pick E tq c T} elab_error :=
+    match tq as o return result {T | ctor_pick E o c T} elab_error with
+    | Some T => Ok (exist _ T eq_refl)
+    | None =>
+        match map td_name (filter (fun td => negb (is_rec E (td_name td)) && ctor_in c td)
+                                  (ge_types hdr)) as l
+              return map td_name (filter (fun td => negb (is_rec E (td_name td)) && ctor_in c td)
+                                         (ge_types hdr)) = l ->
+                     result {T | ctor_pick E None c T} elab_error with
+        | [T] => fun H => Ok (exist _ T H)
+        | [] => fun _ => Err (EE_UnknownCtor p c)
+        | _ => fun _ => Err (EE_AmbiguousCtor p c)
+        end eq_refl
+    end.
+
+  Definition err_owner_dec (p : pos) (tq : option ident) (c : ident) :
+      result {T | err_owner E tq c T} elab_error :=
+    match tq as o return result {T | err_owner E o c T} elab_error with
+    | Some T => Ok (exist _ T eq_refl)
+    | None =>
+        match map td_name (filter (fun td => td_err td && ctor_in c td) (ge_types hdr)) as l
+              return map td_name (filter (fun td => td_err td && ctor_in c td) (ge_types hdr)) = l ->
+                     result {T | err_owner E None c T} elab_error with
+        | [T] => fun H => Ok (exist _ T H)
+        | [] => fun _ => Err (EE_UnknownCtor p c)
+        | _ => fun _ => Err (EE_AmbiguousCtor p c)
+        end eq_refl
+    end.
+
+  Definition single_ctor (p : pos) (td : tdef) (t : ty) : result {cd | td_ctors td = [cd]} elab_error :=
+    match td_ctors td as l return result {cd | l = [cd]} elab_error with
+    | [cd] => Ok (exist _ cd eq_refl)
+    | _ => Err (EE_NotRecord p t)
+    end.
+
+  Definition field_proj_dec (p : pos) (T : ident) (ts : list ty) (i : nat) (e : expr) :
+      result {r | field_proj E T ts i e = Some r} elab_error :=
+    match field_proj E T ts i e as o return field_proj E T ts i e = o -> result _ elab_error with
+    | Some r => fun H => Ok (exist _ r H)
+    | None => fun _ => Err (EE_Type p (E_TupleIndex i (TData T ts)))
+    end eq_refl.
+
+  (** ** Patterns *)
+
+  Abbreviation pout sp τ := {q : pat & {Δ : lctx | ⊩ᵖ[E] sp : τ ⇝ q ⊣ Δ}}.
+
+  Definition fpat (rec : forall sp τ, result (pout sp τ) elab_error) (sp : spat) (τ : ty) :
+      result {q : pat & {Δ : lctx | ⊩ᶠ[E] sp : τ ⇝ q ⊣ Δ}} elab_error :=
+    match τ as t return result {q : pat & {Δ : lctx | ⊩ᶠ[E] sp : t ⇝ q ⊣ Δ}} elab_error with
+    | TRef u =>
+        '(existT _ q (exist _ Δ H)) <- rec sp u ;;
+        Ok (existT _ (PRef q) (exist _ Δ (FP_Cell E sp u q Δ H)))
+    | t =>
+        '(existT _ q (exist _ Δ H)) <- rec sp t ;;
+        Ok (existT _ q (exist _ Δ (FP_Plain E sp t q Δ eq_refl H)))
+    end.
+
+  (** Sub-patterns against a prefix [fs1] of the field types [fs]. *)
+  Definition fpats_prefix (rec : forall sp τ, result (pout sp τ) elab_error) (err : elab_error) :
+      forall sps fs, result {qs : list pat & {Δ : lctx & {fs1 : list ty & {fs2 : list ty |
+                       fs = List.app fs1 fs2 /\ ⊩ᶠ*[E] sps : fs1 ⇝ qs ⊣ Δ}}}} elab_error :=
+    fix go sps fs :=
+      match sps as sps0 return result {qs : list pat & {Δ : lctx & {fs1 : list ty & {fs2 : list ty |
+                                  fs = List.app fs1 fs2 /\ ⊩ᶠ*[E] sps0 : fs1 ⇝ qs ⊣ Δ}}}} elab_error with
+      | [] => Ok (existT _ [] (existT _ [] (existT _ [] (exist _ fs (conj eq_refl (FPs_nil E))))))
+      | sp :: sps' =>
+          match fs as fs0 return result {qs : list pat & {Δ : lctx & {fs1 : list ty & {fs2 : list ty |
+                                   fs0 = List.app fs1 fs2 /\ ⊩ᶠ*[E] sp :: sps' : fs1 ⇝ qs ⊣ Δ}}}} elab_error with
+          | [] => Err err
+          | τ :: fs' =>
+              '(existT _ q (exist _ Δ1 H1)) <- fpat rec sp τ ;;
+              '(existT _ qs (existT _ Δ2 (existT _ fs1 (exist _ fs2 (conj Hfs H2))))) <- go sps' fs' ;;
+              Ok (existT _ (q :: qs) (existT _ (List.app Δ1 Δ2) (existT _ (τ :: fs1) (exist _ fs2
+                    (conj (f_equal (cons τ) Hfs) (FPs_cons E sp sps' τ fs1 q qs Δ1 Δ2 H1 H2))))))
+          end
+      end.
+
+  Definition named_pats (rec : forall sp τ, result (pout sp τ) elab_error) (p : pos)
+      (names : list ident) (fs : list ty) :
+      forall fps, result {given | ⊩ⁿ[E] fps : names ; fs ⇝ given} elab_error :=
+    fix go fps :=
+      match fps as fps0 return result {given | ⊩ⁿ[E] fps0 : names ; fs ⇝ given} elab_error with
+      | [] => Ok (exist _ [] (FN_nil E names fs))
+      | (f, sp) :: fps' =>
+          '(exist _ i Hi) <- of_option (index_of f names) (EE_UnknownField p f) ;;
+          '(exist _ τ Hτ) <- of_option (nth_error fs i) (EE_UnknownField p f) ;;
+          '(existT _ q (exist _ Δ H)) <- fpat rec sp τ ;;
+          '(exist _ given Hg) <- go fps' ;;
+          Ok (exist _ ((i, q, Δ) :: given) (FN_cons E f sp fps' names fs i τ q Δ given Hi Hτ H Hg))
+      end.
+
+  Definition open_ok (p : pos) (τ : ty) (op : bool) (fs2 : list ty) :
+      result (op = false -> fs2 = []) elab_error :=
+    match op as o return result (o = false -> fs2 = []) elab_error with
+    | true => Ok (fun H => match Bool.diff_true_false H with end)
+    | false =>
+        match fs2 as f return result (false = false -> f = []) elab_error with
+        | [] => Ok (fun _ => eq_refl)
+        | _ => Err (EE_PatType p τ)
+        end
+    end.
+
+  (** The first field that a closed record pattern does not mention. *)
+  Definition missing_field (names : list ident) (given : list (nat * pat * lctx)) : ident :=
+    match find (fun f => match index_of f names with
+                         | Some j => negb (existsb (fun x => Nat.eqb (fst (fst x)) j) given)
+                         | None => false
+                         end) names with
+    | Some f => f
+    | None => ""
+    end.
+
+  Fixpoint epat (sp : spat) (τ : ty) {struct sp} : result (pout sp τ) elab_error :=
+    match sp as sp0 return result (pout sp0 τ) elab_error with
+    | SPWild p => Ok (existT _ PWild (exist _ [] (SP_Wild E p τ)))
+    | SPVar p x => Ok (existT _ PVar (exist _ [(Some x, τ)] (SP_Var E p x τ)))
+    | SPLit p l =>
+        match elab_lit p (Some τ) l as r return elab_lit p (Some τ) l = r -> result (pout (SPLit p l) τ) elab_error with
+        | Ok l' => fun H =>
+            match ty_eq_dec (TBase (lit_ty l')) τ with
+            | left Ht => Ok (existT _ (PLit l') (exist _ [] (SP_Lit E p l l' τ H Ht)))
+            | right _ => Err (EE_PatType p τ)
+            end
+        | Err err => fun _ => Err err
+        end eq_refl
+    | SPTuple p sps =>
+        match τ as t return result (pout (SPTuple p sps) t) elab_error with
+        | TTuple τs =>
+            '(existT _ qs (existT _ Δ (existT _ fs1 (exist _ fs2 (conj Hfs H))))) <-
+              fpats_prefix epat (EE_PatType p (TTuple τs)) sps τs ;;
+            match fs2 as f return τs = List.app fs1 f -> result (pout (SPTuple p sps) (TTuple τs)) elab_error with
+            | [] => fun Hfs =>
+                Ok (existT _ (PTuple qs) (exist _ Δ
+                      (eq_ind_r (fun u => ⊩ᵖ[E] SPTuple p sps : TTuple u ⇝ PTuple qs ⊣ Δ)
+                                (SP_Tuple E p sps fs1 qs Δ H) (eq_trans Hfs (app_nil_r fs1)))))
+            | _ => fun _ => Err (EE_PatType p (TTuple τs))
+            end Hfs
+        | t => Err (EE_PatType p t)
+        end
+    | SPConstr p tq c sps op =>
+        match τ as t return result (pout (SPConstr p tq c sps op) t) elab_error with
+        | TData T ts =>
+            Htq <- tq_dec p tq T (EE_PatType p (TData T ts)) ;;
+            '(exist _ td Htd) <- of_option (lookup_ty hdr T) (EE_UnknownType p T) ;;
+            '(exist _ cd Hcd) <- of_option (lookup_ctor td c) (EE_UnknownCtor p c) ;;
+            '(existT _ qs (existT _ Δ (existT _ fs1 (exist _ fs2 (conj Hfs H))))) <-
+              fpats_prefix epat (EE_PatType p (TData T ts)) sps (map (tsubst (inst ts)) (cd_fields cd)) ;;
+            Hop <- open_ok p (TData T ts) op fs2 ;;
+            Ok (existT _ _ (exist _ Δ
+                  (SP_Constr E p tq c sps op T ts td cd fs1 fs2 qs Δ Htq Htd Hcd Hfs H Hop)))
+        | TError =>
+            '(exist _ T Ho) <- err_owner_dec p tq c ;;
+            '(exist _ td Htd) <- of_option (lookup_ty hdr T) (EE_UnknownType p T) ;;
+            '(exist _ cd Hcd) <- of_option (lookup_ctor td c) (EE_UnknownCtor p c) ;;
+            '(existT _ qs (existT _ Δ (existT _ fs1 (exist _ fs2 (conj Hfs H))))) <-
+              fpats_prefix epat (EE_PatType p TError) sps (map (tsubst (inst [])) (cd_fields cd)) ;;
+            Hop <- open_ok p TError op fs2 ;;
+            Ok (existT _ _ (exist _ Δ
+                  (SP_Up E p tq c sps op T td cd fs1 fs2 qs Δ Ho Htd Hcd Hfs H Hop)))
+        | t => Err (EE_PatType p t)
+        end
+    | SPRecord p fps op =>
+        match τ as t return result (pout (SPRecord p fps op) t) elab_error with
+        | TData T ts =>
+            '(exist _ names Hn) <- of_option (assoc T (se_sinfo E)) (EE_NotRecord p (TData T ts)) ;;
+            '(exist _ td Htd) <- of_option (lookup_ty hdr T) (EE_UnknownType p T) ;;
+            '(exist _ cd Hc) <- single_ctor p td (TData T ts) ;;
+            '(exist _ given Hg) <- named_pats epat p names (map (tsubst (inst ts)) (cd_fields cd)) fps ;;
+            match assemble op given 0 (map (tsubst (inst ts)) (cd_fields cd)) as o
+                  return assemble op given 0 (map (tsubst (inst ts)) (cd_fields cd)) = o ->
+                         result (pout (SPRecord p fps op) (TData T ts)) elab_error with
+            | Some (qs, Δ) => fun Ha =>
+                Ok (existT _ _ (exist _ Δ (SP_Record E p fps op T ts names td cd given qs Δ Hn Htd Hc Hg Ha)))
+            | None => fun _ => Err (EE_MissingField p (missing_field names given))
+            end eq_refl
+        | t => Err (EE_NotRecord p t)
+        end
+    | SPAnnot p sp0 t =>
+        '(exist _ τ' Ht) <- ety_dec t ;;
+        match ty_eq_dec τ' τ with
+        | left Heq =>
+            '(existT _ q (exist _ Δ H)) <- epat sp0 τ ;;
+            Ok (existT _ q (exist _ Δ
+                  (SP_Annot E p sp0 t τ q Δ (eq_ind τ' (fun u => ety E t = Ok u) Ht τ Heq) H)))
+        | right _ => Err (EE_Annot p τ' τ)
+        end
+    end.
+
+  (** *** [match] *)
+
+  Definition arm_live (c : spat * sexpr) : bool := negb (diverges (snd c)).
+
+  (** The arm that gives the type of a [match], synthesized. *)
+  Definition arm_syn L Γ τs (sp : spat) (b : sexpr) (τ : ty) : Prop :=
+    exists q Δ b', ⊩ᵖ[E] sp : τs ⇝ q ⊣ Δ /\ List.app Δ Γ ⊩[E;L] b ⇒ τ ⇝ b'.
+
+  Lemma find_skip {A} (f : A -> bool) x l : f x = false -> find f (x :: l) = find f l.
+  Proof. simpl; intros ->; reflexivity. Qed.
+
+  Lemma find_hit {A} (f : A -> bool) x l : f x = true -> find f (x :: l) = Some x.
+  Proof. simpl; intros ->; reflexivity. Qed.
+
+  Definition live_arm (rec : elab_ty_t) (L : cenv) (Γ : lctx) (τs : ty) :
+      forall cs, result ({τ | exists sp b, find arm_live cs = Some (sp, b) /\ arm_syn L Γ τs sp b τ}
+                         + {find arm_live cs = None}) elab_error :=
+    fix go cs :=
+      match cs as cs0 return result ({τ | exists sp b, find arm_live cs0 = Some (sp, b) /\ arm_syn L Γ τs sp b τ}
+                                     + {find arm_live cs0 = None}) elab_error with
+      | [] => Ok (inright eq_refl)
+      | (sp, b) :: cs' =>
+          match arm_live (sp, b) as d return arm_live (sp, b) = d -> result _ elab_error with
+          | true => fun Hd =>
+              '(existT _ q (exist _ Δ Hp)) <- epat sp τs ;;
+              '(existT _ τ (exist _ b' Hb)) <- rec b L (List.app Δ Γ) Syn ;;
+              Ok (inleft (exist _ τ (ex_intro _ sp (ex_intro _ b
+                    (conj (find_hit arm_live (sp, b) cs' Hd)
+                          (ex_intro _ q (ex_intro _ Δ (ex_intro _ b' (conj Hp Hb)))))))))
+          | false => fun Hd =>
+              r <- go cs' ;;
+              match r with
+              | inleft (exist _ τ H) =>
+                  Ok (inleft (exist _ τ (eq_ind_r (fun o => exists sp0 b0, o = Some (sp0, b0) /\ arm_syn L Γ τs sp0 b0 τ)
+                                                 H (find_skip arm_live (sp, b) cs' Hd))))
+              | inright H => Ok (inright (eq_trans (find_skip arm_live (sp, b) cs' Hd) H))
+              end
+          end eq_refl
+      end.
+
+  Definition pick_syn (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (τs : ty) (cs : list (spat * sexpr)) :
+      result {τ | exists sp b, pick_arm cs = Some (sp, b) /\ arm_syn L Γ τs sp b τ} elab_error :=
+    r <- live_arm rec L Γ τs cs ;;
+    match r with
+    | inleft (exist _ τ H) =>
+        Ok (exist _ τ (match H with ex_intro _ sp (ex_intro _ b (conj Hf Ha)) =>
+                         ex_intro _ sp (ex_intro _ b (conj (pick_live cs sp b Hf) Ha)) end))
+    | inright Hn =>
+        match cs as cs0 return find arm_live cs0 = None ->
+                               result {τ | exists sp b, pick_arm cs0 = Some (sp, b) /\ arm_syn L Γ τs sp b τ} elab_error with
+        | [] => fun _ => Err (EE_EmptyMatch p)
+        | (sp, b) :: cs' => fun Hn =>
+            '(existT _ q (exist _ Δ Hp)) <- epat sp τs ;;
+            '(existT _ τ (exist _ b' Hb)) <- rec b L (List.app Δ Γ) Syn ;;
+            Ok (exist _ τ (ex_intro _ sp (ex_intro _ b
+                  (conj (pick_first sp b cs' Hn)
+                        (ex_intro _ q (ex_intro _ Δ (ex_intro _ b' (conj Hp Hb))))))))
+        end Hn
+    end.
+
+  Definition arms_list (rec : elab_ty_t) (L : cenv) (Γ : lctx) (τs τ : ty) :
+      forall cs, result {bs | Γ ⊩ᵇ[E;L] cs : τs ⇐ τ ⇝ bs} elab_error :=
+    fix go cs :=
+      match cs as cs0 return result {bs | Γ ⊩ᵇ[E;L] cs0 : τs ⇐ τ ⇝ bs} elab_error with
+      | [] => Ok (exist _ [] (Ar_nil E L Γ τs τ))
+      | (sp, b) :: cs' =>
+          '(existT _ q (exist _ Δ Hp)) <- epat sp τs ;;
+          '(exist _ b' Hb) <- rec b L (List.app Δ Γ) (Chk τ) ;;
+          '(exist _ bs Hbs) <- go cs' ;;
+          Ok (exist _ ((q, b') :: bs) (Ar_cons E L Γ sp b cs' τs τ q Δ b' bs Hp Hb Hbs))
+      end.
+
+  Lemma match_syn L Γ p s cases τs τ e bs :
+    Γ ⊩[E;L] s ⇒ τs ⇝ e ->
+    (exists sp b, pick_arm cases = Some (sp, b) /\ arm_syn L Γ τs sp b τ) ->
+    Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
+    Γ ⊩[E;L] SMatch p s cases ⇒ τ ⇝ EMatch e τ bs.
+  Proof.
+    intros Hs (sp & b & Hp & q & Δ & b' & Hq & Hb) Hbs; eapply S_Match; eauto.
+  Qed.
+
+  Definition nil_fields (p : pos) (c : ident) (cd : cdef) : result (cd_fields cd = []) elab_error :=
+    match cd_fields cd as l return result (l = []) elab_error with
+    | [] => Ok eq_refl
+    | l => Err (EE_CtorArity p c (List.length l) 0)
+    end.
+
+  Lemma ctor_syn L Γ p f q tq c args T td cd ts es :
+    f = SConstr q tq c -> ctor_pick E tq c T -> lookup_ty hdr T = Some td -> lookup_ctor td c = Some cd ->
+    List.length ts = td_tparams td ->
+    Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) (cd_fields cd) ⇝ es ->
+    Γ ⊩[E;L] SApp p f args ⇒ TData T ts ⇝ EConstr T c ts (ETuple es).
+  Proof. intros ->; apply S_Ctor. Qed.
+
+  Lemma ctor_chk L Γ p f q tq c args T ts td cd es :
+    f = SConstr q tq c -> tq_ok tq T -> lookup_ty hdr T = Some td -> lookup_ctor td c = Some cd ->
+    List.length ts = td_tparams td ->
+    Γ ⊩*[E;L] args ⇐ map (tsubst (inst ts)) (cd_fields cd) ⇝ es ->
+    Γ ⊩[E;L] SApp p f args ⇐ TData T ts ⇝ EConstr T c ts (ETuple es).
+  Proof. intros ->; apply C_Ctor. Qed.
+
   (** ** Heads of calls *)
 
   Inductive head (Γ : lctx) (f : sexpr) : Type :=
   | HName (q : pos) (g : ident) (Hf : f = SVar q g) (Hl : lookup_local g Γ = None)
   | HExpr (H : callee Γ f)
+  | HCtor (q : pos) (tq : option ident) (c : ident) (Hf : f = SConstr q tq c)
   | HOther.
 
   Definition head_of (Γ : lctx) (f : sexpr) : head Γ f :=
@@ -597,7 +909,7 @@ Section Elaborate.
         | None => fun H => HName Γ (SVar q g) q g eq_refl H
         | Some i => fun H => HExpr Γ (SVar q g) (some_not_none _ i H)
         end eq_refl
-    | SConstr _ _ _ => HOther Γ _
+    | SConstr q tq c => HCtor Γ (SConstr q tq c) q tq c eq_refl
     | SQual _ _ _ => HOther Γ _
     | f0 => HExpr Γ f0 I
     end.
@@ -759,6 +1071,9 @@ Section Elaborate.
            | TTuple τs => fun H =>
                '(exist _ τ Hi) <- of_option (nth_error τs i) (EE_Type p (E_TupleIndex i (TTuple τs))) ;;
                Ok (existT _ τ (exist _ _ (S_Proj E L Γ p s0 i τs τ e H Hi)))
+           | TData T ts => fun H =>
+               '(exist _ (e', τ) Hf) <- field_proj_dec p T ts i e ;;
+               Ok (existT _ τ (exist _ e' (S_ProjData E L Γ p s0 i T ts e e' τ H Hf)))
            | t => fun _ => Err (EE_Type p (E_NotTuple t))
            end H)
     | SLam p ps ret a body =>
@@ -866,7 +1181,99 @@ Section Elaborate.
                    Ok (existT _ r (exist _ _ (S_CallExpr E L Γ p f args ps r ε f' es Hc Hf Hes Hok)))
                | t => fun _ => Err (EE_Type p (E_NotFunction t))
                end Hf)
-        | HOther _ _ => Err (EE_Unsupported p "constructor or method call")
+        | HCtor _ _ q tq c Hf =>
+            let syn_c :=
+              '(exist _ T Hpick) <- ctor_pick_dec q tq c ;;
+              '(exist _ td Htd) <- of_option (lookup_ty hdr T) (EE_UnknownType q T) ;;
+              '(exist _ cd Hcd) <- of_option (lookup_ctor td c) (EE_UnknownCtor q c) ;;
+              let ps := cd_fields cd in
+              _ <- bcheck (Nat.eqb (List.length args) (List.length ps))
+                          (EE_CtorArity q c (List.length ps) (List.length args)) ;;
+              '(exist _ rs1 H1, st1) <- pass1 elab L Γ args ps (repeat None (td_tparams td)) ;;
+              '(exist _ rs2 H2, st2) <- pass2 elab L Γ args rs1 H1 ps st1 ;;
+              '(exist _ ts Hts) <- targs q c (td_tparams td) st2 ;;
+              '(exist _ es Hes) <- finish p L Γ args rs2 H2 (map (tsubst (inst ts)) ps) ;;
+              Ok (existT _ _ (exist _ _ (ctor_syn L Γ p f q tq c args T td cd ts es Hf Hpick Htd Hcd Hts Hes))) in
+            match m as m0 return result (out L Γ (SApp p f args) m0) elab_error with
+            | Syn => syn_c
+            | Chk τ =>
+                match τ as t0 return result (out L Γ (SApp p f args) (Chk t0)) elab_error with
+                | TData T ts =>
+                    match lookup_ty hdr T as o return lookup_ty hdr T = o -> result (out L Γ (SApp p f args) (Chk (TData T ts))) elab_error with
+                    | Some td => fun Htd =>
+                        match lookup_ctor td c as o return lookup_ctor td c = o -> result (out L Γ (SApp p f args) (Chk (TData T ts))) elab_error with
+                        | Some cd => fun Hcd =>
+                            Htq <- tq_dec q tq T (EE_UnknownCtor q c) ;;
+                            Hts <- (match Nat.eq_dec (List.length ts) (td_tparams td) with
+                                    | left H => Ok H
+                                    | right _ => Err (EE_TypeArgs q T (td_tparams td) (List.length ts))
+                                    end) ;;
+                            _ <- bcheck (Nat.eqb (List.length args) (List.length (cd_fields cd)))
+                                        (EE_CtorArity q c (List.length (cd_fields cd)) (List.length args)) ;;
+                            '(exist _ es Hes) <- chk_list p L Γ (fun s' τ' => elab s' L Γ (Chk τ')) args
+                                                   (map (tsubst (inst ts)) (cd_fields cd)) ;;
+                            Ok (exist _ _ (ctor_chk L Γ p f q tq c args T ts td cd es Hf Htq Htd Hcd Hts Hes))
+                        | None => fun _ => fin p L Γ (SApp p f args) (Chk (TData T ts)) syn_c
+                        end eq_refl
+                    | None => fun _ => fin p L Γ (SApp p f args) (Chk (TData T ts)) syn_c
+                    end eq_refl
+                | t0 => fin p L Γ (SApp p f args) (Chk t0) syn_c
+                end
+            end
+        | HOther _ _ => Err (EE_Unsupported p "method call")
+        end
+    | SConstr p tq c =>
+        let syn_c :=
+          '(exist _ T Hpick) <- ctor_pick_dec p tq c ;;
+          '(exist _ td Htd) <- of_option (lookup_ty hdr T) (EE_UnknownType p T) ;;
+          '(exist _ cd Hcd) <- of_option (lookup_ctor td c) (EE_UnknownCtor p c) ;;
+          Hnil <- nil_fields p c cd ;;
+          '(exist _ ts Hts) <- targs p c (td_tparams td) (repeat None (td_tparams td)) ;;
+          Ok (existT _ _ (exist _ _ (S_Ctor0 E L Γ p tq c T td cd ts Hpick Htd Hcd Hts Hnil))) in
+        match m as m0 return result (out L Γ (SConstr p tq c) m0) elab_error with
+        | Syn => syn_c
+        | Chk τ =>
+            match τ as t0 return result (out L Γ (SConstr p tq c) (Chk t0)) elab_error with
+            | TData T ts =>
+                match lookup_ty hdr T as o return lookup_ty hdr T = o -> result (out L Γ (SConstr p tq c) (Chk (TData T ts))) elab_error with
+                | Some td => fun Htd =>
+                    match lookup_ctor td c as o return lookup_ctor td c = o -> result (out L Γ (SConstr p tq c) (Chk (TData T ts))) elab_error with
+                    | Some cd => fun Hcd =>
+                        Htq <- tq_dec p tq T (EE_UnknownCtor p c) ;;
+                        Hts <- (match Nat.eq_dec (List.length ts) (td_tparams td) with
+                                | left H => Ok H
+                                | right _ => Err (EE_TypeArgs p T (td_tparams td) (List.length ts))
+                                end) ;;
+                        Hnil <- nil_fields p c cd ;;
+                        Ok (exist _ _ (C_Ctor0 E L Γ p tq c T ts td cd Htq Htd Hcd Hts Hnil))
+                    | None => fun _ => fin p L Γ (SConstr p tq c) (Chk (TData T ts)) syn_c
+                    end eq_refl
+                | None => fun _ => fin p L Γ (SConstr p tq c) (Chk (TData T ts)) syn_c
+                end eq_refl
+            | t0 => fin p L Γ (SConstr p tq c) (Chk t0) syn_c
+            end
+        end
+    | SField p s0 f =>
+        fin p L Γ (SField p s0 f) m
+          ('(existT _ τ0 (exist _ e H)) <- elab s0 L Γ Syn ;;
+           match τ0 as t return Γ ⊩[E;L] s0 ⇒ t ⇝ e -> result (sout L Γ (SField p s0 f)) elab_error with
+           | TData T ts => fun H =>
+               '(exist _ names Hn) <- of_option (assoc T (se_sinfo E)) (EE_NotRecord p (TData T ts)) ;;
+               '(exist _ i Hi) <- of_option (index_of f names) (EE_UnknownField p f) ;;
+               '(exist _ (e', τ) Hf) <- field_proj_dec p T ts i e ;;
+               Ok (existT _ τ (exist _ e' (S_Field E L Γ p s0 f T ts e names i e' τ H Hn Hi Hf)))
+           | t => fun _ => Err (EE_NotRecord p t)
+           end H)
+    | SMatch p s0 cases =>
+        '(existT _ τs (exist _ e H0)) <- elab s0 L Γ Syn ;;
+        match m as m0 return result (out L Γ (SMatch p s0 cases) m0) elab_error with
+        | Syn =>
+            '(exist _ τ Hpick) <- pick_syn elab p L Γ τs cases ;;
+            '(exist _ bs Hbs) <- arms_list elab L Γ τs τ cases ;;
+            Ok (existT _ τ (exist _ _ (match_syn L Γ p s0 cases τs τ e bs H0 Hpick Hbs)))
+        | Chk τ =>
+            '(exist _ bs Hbs) <- arms_list elab L Γ τs τ cases ;;
+            Ok (exist _ _ (C_Match E L Γ p s0 cases τs τ e bs H0 Hbs))
         end
     | _ => Err (EE_Unsupported (sexpr_pos s) "not yet in the certified elaborator")
     end.
