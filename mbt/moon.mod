@@ -1,6 +1,6 @@
 name = "GreckF/moonrocq"
 
-version = "0.2.0"
+version = "0.2.1"
 
 import {
   "GreckF/rocqrt@0.1.0",
@@ -12,6 +12,8 @@ import {
 description = "A formally verified third-party type checker for MoonBit, extracted from Rocq"
 
 license = "MIT"
+
+readme = "README.md"
 
 keywords = ["type-checker", "verified", "rocq", "coq", "moonbit"]
 
