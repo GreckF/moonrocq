@@ -17,3 +17,5 @@ Print Assumptions Resolve.entails_unique.
 Print Assumptions Resolve.entails_typed.
 From MoonRocq.Surface Require Import ElabTyped.
 Print Assumptions ElabTyped.elab_typed.
+From MoonRocq.Surface Require Import ElabProg.
+Print Assumptions ElabProg.body_typed.

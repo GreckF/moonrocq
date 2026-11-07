@@ -7,7 +7,11 @@
 set -uo pipefail
 source "$(dirname "$0")/env.sh"
 ROOT=$MOONROCQ_ROOT
-(cd "$ROOT/mbt" && moon build --target native --release 2>&1 | grep -e "^Error" -A20) && exit 1
+if ! build_out=$(cd "$ROOT/mbt" && moon build --target native --release 2>&1); then
+  printf '%s\n' "$build_out" | grep -e "^Error" -A20
+  echo "BUILD_FAILED"
+  exit 1
+fi
 BIN="$ROOT/mbt/_build/native/release/build/cmd/main/main.exe"
 
 REF=$(mktemp -d)

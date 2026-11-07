@@ -29,7 +29,7 @@ From Stdlib Require Import List.
 From Corelib Require Import PrimInt63.
 From MoonRocq.Prelude Require Import Result.
 From MoonRocq.Core Require Import Syntax Typing Check Semantics Soundness Theorems.
-From MoonRocq.Surface Require Import Syntax Base Elab.
+From MoonRocq.Surface Require Import Syntax Base ElabProg.
 Import ListNotations.
 
 (** ** The glue (implemented in MoonBit) *)

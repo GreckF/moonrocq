@@ -11,7 +11,7 @@
       [SLet None None e1 e2]);
     - [if c { t }] without [else] keeps [None] (it has type [Unit]);
     - names are plain identifiers; resolution to de Bruijn indices,
-      globals and builtin types happens in [Elab.v].
+      globals and builtin types happens in elaboration ([ElabSpec.v]).
 
     Every node carries a source position for error reporting. *)
 

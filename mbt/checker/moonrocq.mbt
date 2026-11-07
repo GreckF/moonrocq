@@ -83,19 +83,22 @@ pub fn mul(n : Nat, m : Nat) -> Nat {
   }
 }
 
-pub fn sub(n : Nat, m : Nat) -> Nat {
-  match n {
-    Nat::O => n
-    Nat::S(k) => match m {
-      Nat::O => n
-      Nat::S(l) => sub(k, l)
-    }
-  }
-}
-
 pub type Array0[A] = Array[A]
 
 pub type List_List[T0] = @list.List[T0]
+
+pub fn bool_dec(b1 : Bool, b2 : Bool) -> Bool {
+  match b1 {
+    true => match b2 {
+      true => true
+      false => false
+    }
+    false => match b2 {
+      true => false
+      false => true
+    }
+  }
+}
 
 pub fn eqb(b1 : Bool, b2 : Bool) -> Bool {
   match b1 {
@@ -181,6 +184,16 @@ pub fn[A] nth(n : Nat, l : List[A], default : A) -> A {
   }
 }
 
+pub fn[A] firstn(n : Nat, l : List[A]) -> List[A] {
+  match n {
+    Nat::O => List::Nil
+    Nat::S(n0) => match l {
+      List::Nil => List::Nil
+      List::Cons(a, l0) => List::Cons(a, firstn(n0, l0))
+    }
+  }
+}
+
 pub fn[A] skipn(n : Nat, l : List[A]) -> List[A] {
   match n {
     Nat::O => l
@@ -188,6 +201,13 @@ pub fn[A] skipn(n : Nat, l : List[A]) -> List[A] {
       List::Nil => List::Nil
       List::Cons(_, l0) => skipn(n0, l0)
     }
+  }
+}
+
+pub fn[A] hd_error(l : List[A]) -> Option[A] {
+  match l {
+    List::Nil => None
+    List::Cons(x, _) => Some(x)
   }
 }
 
@@ -228,6 +248,22 @@ pub fn[A] concat(l : List[List[A]]) -> List[A] {
   match l {
     List::Nil => List::Nil
     List::Cons(x, l0) => app(x, concat(l0))
+  }
+}
+
+pub fn[A] list_eq_dec(eq_dec1 : (A) -> (A) -> Bool, l : List[A], l_ : List[A]) -> Bool {
+  match l {
+    List::Nil => match l_ {
+      List::Nil => true
+      List::Cons(_, _) => false
+    }
+    List::Cons(a, l0) => match l_ {
+      List::Nil => false
+      List::Cons(a0, l1) => match eq_dec1(a)(a0) {
+        true => list_eq_dec(eq_dec1, l0, l1)
+        false => false
+      }
+    }
   }
 }
 
@@ -324,13 +360,6 @@ pub(all) enum Result0[A, B] {
 pub fn[A, B, C] bind(m : Result0[A, C], k : (A) -> Result0[B, C]) -> Result0[B, C] {
   match m {
     Result0::Ok(a) => k(a)
-    Result0::Err(e) => Result0::Err(e)
-  }
-}
-
-pub fn[A, B, C] map_result(f : (A) -> B, m : Result0[A, C]) -> Result0[B, C] {
-  match m {
-    Result0::Ok(a) => Result0::Ok(f(a))
     Result0::Err(e) => Result0::Err(e)
   }
 }
@@ -544,7 +573,7 @@ pub fn opp(x : Z) -> Z {
   }
 }
 
-pub fn sub0(m : Z, n : Z) -> Z {
+pub fn sub(m : Z, n : Z) -> Z {
   add1(m, opp(n))
 }
 
@@ -635,7 +664,7 @@ pub fn pos_div_eucl(a : Positive, b : Z) -> (Z, Z) {
         let r_ = add1(mul1(Z::Zpos(Positive::XO(Positive::XH)), r), Z::Zpos(Positive::XH))
         match ltb0(r_, b) {
           true => (mul1(Z::Zpos(Positive::XO(Positive::XH)), q), r_)
-          false => (add1(mul1(Z::Zpos(Positive::XO(Positive::XH)), q), Z::Zpos(Positive::XH)), sub0(r_, b))
+          false => (add1(mul1(Z::Zpos(Positive::XO(Positive::XH)), q), Z::Zpos(Positive::XH)), sub(r_, b))
         }
       }
     }
@@ -644,7 +673,7 @@ pub fn pos_div_eucl(a : Positive, b : Z) -> (Z, Z) {
         let r_ = mul1(Z::Zpos(Positive::XO(Positive::XH)), r)
         match ltb0(r_, b) {
           true => (mul1(Z::Zpos(Positive::XO(Positive::XH)), q), r_)
-          false => (add1(mul1(Z::Zpos(Positive::XO(Positive::XH)), q), Z::Zpos(Positive::XH)), sub0(r_, b))
+          false => (add1(mul1(Z::Zpos(Positive::XO(Positive::XH)), q), Z::Zpos(Positive::XH)), sub(r_, b))
         }
       }
     }
@@ -673,7 +702,7 @@ pub fn div_eucl(a : Z, b : Z) -> (Z, Z) {
       Z::Zpos(_) => match pos_div_eucl(a_, b) {
         (q, r) => match r {
           Z::Z0 => (opp(q), Z::Z0)
-          _ => (opp(add1(q, Z::Zpos(Positive::XH))), sub0(b, r))
+          _ => (opp(add1(q, Z::Zpos(Positive::XH))), sub(b, r))
         }
       }
       Z::Zneg(b_) => match pos_div_eucl(a_, Z::Zpos(b_)) {
@@ -698,6 +727,35 @@ pub fn geb(x : Z, y : Z) -> Bool {
 
 pub(all) enum Ascii {
   Ascii0(Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool)
+}
+
+pub fn ascii_dec(a : Ascii, b : Ascii) -> Bool {
+  match a {
+    Ascii::Ascii0(b0, b1, b2, b3, b4, b5, b6, b7) => match b {
+      Ascii::Ascii0(b8, b9, b10, b11, b12, b13, b14, b15) => match bool_dec(b0, b8) {
+        true => match bool_dec(b1, b9) {
+          true => match bool_dec(b2, b10) {
+            true => match bool_dec(b3, b11) {
+              true => match bool_dec(b4, b12) {
+                true => match bool_dec(b5, b13) {
+                  true => match bool_dec(b6, b14) {
+                    true => bool_dec(b7, b15)
+                    false => false
+                  }
+                  false => false
+                }
+                false => false
+              }
+              false => false
+            }
+            false => false
+          }
+          false => false
+        }
+        false => false
+      }
+    }
+  }
 }
 
 pub fn eqb3(a : Ascii, b : Ascii) -> Bool {
@@ -732,6 +790,22 @@ pub fn eqb3(a : Ascii, b : Ascii) -> Bool {
 pub(all) enum String0 {
   EmptyString
   String1(Ascii, String0)
+}
+
+pub fn string_dec(s : String0, x : String0) -> Bool {
+  match s {
+    String0::EmptyString => match x {
+      String0::EmptyString => true
+      String0::String1(_, _) => false
+    }
+    String0::String1(a, s0) => match x {
+      String0::EmptyString => false
+      String0::String1(a0, s1) => match ascii_dec(a, a0) {
+        true => string_dec(s0, s1)
+        false => false
+      }
+    }
+  }
 }
 
 pub fn eqb4(s1 : String0, s2 : String0) -> Bool {
@@ -1239,8 +1313,8 @@ pub fn wrap_unsigned(n : Z, z : Z) -> Z {
 
 pub fn wrap_signed(n : Z, z : Z) -> Z {
   let r = modulo(z, pow(Z::Zpos(Positive::XO(Positive::XH)), n))
-  match geb(r, pow(Z::Zpos(Positive::XO(Positive::XH)), sub0(n, Z::Zpos(Positive::XH)))) {
-    true => sub0(r, pow(Z::Zpos(Positive::XO(Positive::XH)), n))
+  match geb(r, pow(Z::Zpos(Positive::XO(Positive::XH)), sub(n, Z::Zpos(Positive::XH)))) {
+    true => sub(r, pow(Z::Zpos(Positive::XO(Positive::XH)), n))
     false => r
   }
 }
@@ -2187,10 +2261,6 @@ pub fn[A] of_opt(o : Option[A], e : Elab_error) -> Result0[A, Elab_error] {
   }
 }
 
-pub fn tvars(n : Nat) -> List[Ty] {
-  map(fn(x) { Ty::TVar(x) }, seq(Nat::O, n))
-}
-
 pub fn array_kind_of(n : Ident) -> Option[Array_kind] {
   match eqDec_ident(n)(String0::String1(Ascii::Ascii0(true, false, false, false, false, false, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, true, true, true, false), String0::EmptyString)))))) {
     true => Some(Array_kind::AGrow)
@@ -2751,51 +2821,10 @@ pub fn set_exn(_UU03b5_ : Ty, l : Cenv) -> Cenv {
   }, _UU03b5_)
 }
 
-pub fn up_err(_UU03c4_ : Ty, e : Expr) -> Expr {
-  match _UU03c4_ {
-    Ty::TData(e0, ts) => match ts {
-      List::Nil => Expr::EUp(e0, e)
-      List::Cons(_, _) => e
-    }
-    _ => e
-  }
-}
-
-pub fn raise_val(l : Cenv, _UU03c4_ : Ty, v : Expr, _UU03c4_r : Ty) -> Expr {
-  match (match l {
-    Cenv::Mk_cenv(_, ce_exn) => ce_exn
-  }) {
-    Ty::TError => Expr::ERaise(up_err(_UU03c4_, v), _UU03c4_r)
-    _ => Expr::ERaise(v, _UU03c4_r)
-  }
-}
-
-pub fn promote(l : Cenv, _UU03b5_ : Ty, r : Ty, call : Expr) -> Expr {
-  match _UU03b5_ {
-    Ty::TData(e, ts) => match ts {
-      List::Nil => match (match l {
-        Cenv::Mk_cenv(_, ce_exn) => ce_exn
-      }) {
-        Ty::TError => Expr::ETry(call, _UU03b5_, Expr::ERaise(Expr::EUp(e, Expr::EVar(Nat::O)), r), Expr::EVar(Nat::O))
-        _ => call
-      }
-      List::Cons(_, _) => call
-    }
-    _ => call
-  }
-}
-
 pub(all) enum Catch_info {
   CINone
   CIOne(Ident)
   CIMany
-}
-
-pub fn jty(exp : Option[Ty]) -> Ty {
-  match exp {
-    Some(t) => t
-    None => Ty::TBase(Base_ty::BUnit)
-  }
 }
 
 pub fn eblock(_UU03c4_ : Ty, b : Expr) -> Expr {
@@ -2853,20 +2882,12 @@ pub(all) enum Xenv {
   Mk_xenv(List[Trinfo], List[Idef], List[(Ident, List[(Ident, Nat)])], List[(Ident, Ident)], List[Ident], List[((Ident, Ty), Ident)])
 }
 
-pub fn find_trait(trs : List[Trinfo], tr : Ident) -> Option[Trinfo] {
+pub fn find_trait(trs0 : List[Trinfo], tr : Ident) -> Option[Trinfo] {
   find(fn(ti) {
     eqDec_ident(match ti {
       Trinfo::Mk_trinfo(ti_name, _, _, _) => ti_name
     })(tr)
-  }, trs)
-}
-
-pub fn nfields(ti : Trinfo) -> Nat {
-  add(length(match ti {
-    Trinfo::Mk_trinfo(_, ti_supers, _, _) => ti_supers
-  }), length(match ti {
-    Trinfo::Mk_trinfo(_, _, ti_methods, _) => ti_methods
-  }))
+  }, trs0)
 }
 
 pub fn dict_fields(ti : Trinfo) -> List[Ty] {
@@ -2925,11 +2946,11 @@ pub fn field_of(t : Ident, n : Nat, i : Nat, d : Expr, _UU03c4_ : Ty) -> Expr {
   }, seq(Nat::O, n))), Expr::EVar(Nat::O)), List::Nil))
 }
 
-pub fn trait_closure(trs : List[Trinfo], fuel : Nat, tr : Ident) -> List[Ident] {
+pub fn trait_closure(trs0 : List[Trinfo], fuel : Nat, tr : Ident) -> List[Ident] {
   match fuel {
     Nat::O => List::Cons(tr, List::Nil)
-    Nat::S(f) => List::Cons(tr, match find_trait(trs, tr) {
-      Some(ti) => concat(map(fn(x1) { trait_closure(trs, f, x1) }, match ti {
+    Nat::S(f) => List::Cons(tr, match find_trait(trs0, tr) {
+      Some(ti) => concat(map(fn(x1) { trait_closure(trs0, f, x1) }, match ti {
         Trinfo::Mk_trinfo(_, ti_supers, _, _) => ti_supers
       }))
       None => List::Nil
@@ -2937,8 +2958,8 @@ pub fn trait_closure(trs : List[Trinfo], fuel : Nat, tr : Ident) -> List[Ident] 
   }
 }
 
-pub fn closure(trs : List[Trinfo], tr : Ident) -> List[Ident] {
-  nodup(fn(x1) { fn(x2) { eq_dec0(eqDec_ident, x1, x2) } }, trait_closure(trs, length(trs), tr))
+pub fn closure(trs0 : List[Trinfo], tr : Ident) -> List[Ident] {
+  nodup(fn(x1) { fn(x2) { eq_dec0(eqDec_ident, x1, x2) } }, trait_closure(trs0, length(trs0), tr))
 }
 
 pub fn occurs0(t : Ty) -> Bool {
@@ -2984,30 +3005,30 @@ pub fn obj_safe_m(m : Msig) -> Bool {
   }
 }
 
-pub fn obj_safe(trs : List[Trinfo], tr : Ident) -> Bool {
+pub fn obj_safe(trs0 : List[Trinfo], tr : Ident) -> Bool {
   forallb(fn(sn) {
-    match find_trait(trs, sn) {
+    match find_trait(trs0, sn) {
       Some(ti) => forallb(fn(x1) { obj_safe_m(x1) }, match ti {
         Trinfo::Mk_trinfo(_, _, ti_methods, _) => ti_methods
       })
       None => false
     }
-  }, closure(trs, tr))
+  }, closure(trs0, tr))
 }
 
 pub fn obj_name(tr : Ident) -> Ident {
   append(String0::String1(Ascii::Ascii0(false, true, true, false, false, true, false, false), String0::EmptyString), tr)
 }
 
-pub fn obj_fields(trs : List[Trinfo], tr : Ident) -> List[(Ident, Msig)] {
+pub fn obj_fields(trs0 : List[Trinfo], tr : Ident) -> List[(Ident, Msig)] {
   concat(map(fn(sn) {
-    match find_trait(trs, sn) {
+    match find_trait(trs0, sn) {
       Some(ti) => map(fn(m) { (sn, m) }, match ti {
         Trinfo::Mk_trinfo(_, _, ti_methods, _) => ti_methods
       })
       None => List::Nil
     }
-  }, closure(trs, tr)))
+  }, closure(trs0, tr)))
 }
 
 pub fn obj_field_ty(m : Msig) -> Ty {
@@ -3020,8 +3041,8 @@ pub fn obj_field_ty(m : Msig) -> Ty {
   })
 }
 
-pub fn obj_tdef(trs : List[Trinfo], tr : Ident) -> Tdef {
-  Tdef::Mk_tdef(obj_name(tr), Nat::O, List::Cons(Cdef::Mk_cdef(obj_name(tr), map(fn(sm) { obj_field_ty(snd(sm)) }, obj_fields(trs, tr))), List::Nil), false)
+pub fn obj_tdef(trs0 : List[Trinfo], tr : Ident) -> Tdef {
+  Tdef::Mk_tdef(obj_name(tr), Nat::O, List::Cons(Cdef::Mk_cdef(obj_name(tr), map(fn(sm) { obj_field_ty(snd(sm)) }, obj_fields(trs0, tr))), List::Nil), false)
 }
 
 pub fn head_name(t : Ty) -> Option[Ident] {
@@ -3041,7 +3062,7 @@ pub fn dict_var(tr : Ident, x : Ident) -> Ident {
   append(String0::String1(Ascii::Ascii0(false, false, true, false, false, true, false, false), String0::EmptyString), append(tr, append(String0::String1(Ascii::Ascii0(false, false, true, false, false, true, false, false), String0::EmptyString), x)))
 }
 
-pub fn super_lets(trs : List[Trinfo], fuel : Nat, have : List[(Ident, Ident)], queue : List[((Ident, Ident), Nat)]) -> List[((((Ident, Ident), Nat), Ident), Nat)] {
+pub fn super_lets(trs0 : List[Trinfo], fuel : Nat, have : List[(Ident, Ident)], queue : List[((Ident, Ident), Nat)]) -> List[((((Ident, Ident), Nat), Ident), Nat)] {
   match fuel {
     Nat::O => List::Nil
     Nat::S(f) => match queue {
@@ -3049,7 +3070,7 @@ pub fn super_lets(trs : List[Trinfo], fuel : Nat, have : List[(Ident, Ident)], q
       List::Cons(p, q) => match p {
         (p0, i) => match p0 {
           (t, x) => {
-            let sups = match find_trait(trs, t) {
+            let sups = match find_trait(trs0, t) {
               Some(ti) => match ti {
                 Trinfo::Mk_trinfo(_, ti_supers, _, _) => ti_supers
               }
@@ -3079,7 +3100,7 @@ pub fn super_lets(trs : List[Trinfo], fuel : Nat, have : List[(Ident, Ident)], q
               add2
             }
             match add2(sups)(Nat::O)(have) {
-              (new, have_) => app(new, super_lets(trs, f, have_, app(q, map(fn(l) {
+              (new, have_) => app(new, super_lets(trs0, f, have_, app(q, map(fn(l) {
                 match l {
                   (y, _) => match y {
                     (y1, _) => y1
@@ -3094,49 +3115,22 @@ pub fn super_lets(trs : List[Trinfo], fuel : Nat, have : List[(Ident, Ident)], q
   }
 }
 
-pub fn type_of(hdr : Genv, p : Pos, l : Cenv, _UU0393_ : Lctx, e : Expr) -> Result0[Ty, Elab_error] {
-  match infer(hdr, List::Nil, Cctx::Mk_cctx(core_labels(match l {
-    Cenv::Mk_cenv(ce_labs, _) => ce_labs
-  }), match l {
-    Cenv::Mk_cenv(_, ce_exn) => ce_exn
-  }), map(fn(x1) { snd(x1) }, _UU0393_), e) {
-    Result0::Ok(s) => Result0::Ok(s)
-    Result0::Err(err) => Result0::Err(Elab_error::EE_Type(p, err))
-  }
+pub(all) enum Senv {
+  Mk_senv(List[(Ident, Nat)], Genv, List[(Ident, List[Ident])], List[Ident], Xenv)
 }
 
-pub fn dict_of(gx : Xenv, p : Pos, _UU0393_ : Lctx, tr : Ident, _UU03c4_ : Ty) -> Result0[Expr, Elab_error] {
-  let _UU0398_ = flat_map(fn(a) {
-    match a {
-      (y, x) => match lookup_local(x, _UU0393_) {
-        Some(i) => List::Cons((y, Expr::EVar(i)), List::Nil)
-        None => List::Nil
-      }
-    }
-  }, match gx {
-    Xenv::Mk_xenv(_, _, _, _, _, x_asm) => x_asm
-  })
-  match entails_dec(match gx {
-    Xenv::Mk_xenv(_, x_insts, _, _, _, _) => x_insts
-  }, _UU0398_, tr, _UU03c4_) {
-    Sumor::Inleft(s) => Result0::Ok(s)
-    Sumor::Inright => Result0::Err(Elab_error::EE_NoInstance(p, tr, _UU03c4_))
-  }
+pub fn ety(e : Senv, t : Sty) -> Result0[Ty, Elab_error] {
+  elab_ty(match e {
+    Senv::Mk_senv(se_tys, _, _, _, _) => se_tys
+  }, match e {
+    Senv::Mk_senv(_, _, _, se_tps, _) => se_tps
+  }, t)
 }
 
-pub fn has_meth(gx : Xenv, t : Ident, m : Ident) -> Bool {
-  existsb(fn(tm) {
-    match eqDec_ident(fst(tm))(t) {
-      true => eqDec_ident(snd(tm))(m)
-      false => false
-    }
-  }, match gx {
-    Xenv::Mk_xenv(_, _, _, x_meths, _, _) => x_meths
-  })
-}
-
-pub fn bounds_of(gx : Xenv, g : Ident) -> List[(Ident, Nat)] {
-  match assoc(g, match gx {
+pub fn sbounds(e : Senv, g : Ident) -> List[(Ident, Nat)] {
+  match assoc(g, match (match e {
+    Senv::Mk_senv(_, _, _, _, se_x) => se_x
+  }) {
     Xenv::Mk_xenv(_, _, x_bounds, _, _, _) => x_bounds
   }) {
     Some(b) => b
@@ -3144,10 +3138,318 @@ pub fn bounds_of(gx : Xenv, g : Ident) -> List[(Ident, Nat)] {
   }
 }
 
-pub fn is_obj(gx : Xenv, t : Ty) -> Option[Ident] {
-  match t {
+pub fn ctx_of(_UU0393_ : Lctx) -> Ctx {
+  map(fn(x1) { snd(x1) }, _UU0393_)
+}
+
+pub fn fun_env(r : Ty, _UU03b5_ : Ty) -> Cenv {
+  Cenv::Mk_cenv(List::Cons(Lab::Mk_lab(None, Lab_kind::LKFun, List::Nil, r), List::Nil), _UU03b5_)
+}
+
+pub fn lam_ctx(ps : List[(Ident, Option[Sty])], _UU03c4_s : List[Ty]) -> Lctx {
+  combine(map(fn(xa) { Some(fst(xa)) }, ps), _UU03c4_s)
+}
+
+pub fn fn_inst(fd : Fdef, ts : List[Ty]) -> Ty {
+  Ty::TArrow(map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match fd {
+    Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
+  }), tsubst(fn(x1) { inst(ts, x1) }, match fd {
+    Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+  }), tsubst(fn(x1) { inst(ts, x1) }, match fd {
+    Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
+  }))
+}
+
+pub fn lit_of(l : Slit) -> Option[Lit] {
+  match l {
+    Slit::SLUnit => Some(Lit::LUnit)
+    Slit::SLBool(b) => Some(Lit::LBool(b))
+    Slit::SLInt(ko, z) => {
+      let k = match ko {
+        Some(k) => k
+        None => Int_kind::I32
+      }
+      match int_in_range(k, z) {
+        true => Some(Lit::LInt(k, z))
+        false => None
+      }
+    }
+    Slit::SLChar(c) => Some(Lit::LChar(c))
+    Slit::SLDouble(b) => Some(Lit::LDouble(b))
+    Slit::SLFloat(b) => Some(Lit::LFloat(b))
+    Slit::SLString(s) => Some(Lit::LString(s))
+  }
+}
+
+pub fn binop_res(op : Ident, _UU03c4_ : Ty) -> Ty {
+  match assoc(op, arith_ops) {
+    Some(a) => match a {
+      Arith_op::AAdd => match _UU03c4_ {
+        Ty::TBase(b) => match b {
+          Base_ty::BInt(_) => _UU03c4_
+          Base_ty::BString => _UU03c4_
+          _ => Ty::TBase(Base_ty::BBool)
+        }
+        _ => Ty::TBase(Base_ty::BBool)
+      }
+      _ => match _UU03c4_ {
+        Ty::TBase(b) => match b {
+          Base_ty::BInt(_) => _UU03c4_
+          _ => Ty::TBase(Base_ty::BBool)
+        }
+        _ => Ty::TBase(Base_ty::BBool)
+      }
+    }
+    None => Ty::TBase(Base_ty::BBool)
+  }
+}
+
+pub fn promote_call(t : Ident, _UU03b5_ : Ty, r : Ty, f : Expr, es : List[Expr]) -> Expr {
+  Expr::ELet(Expr::ETuple(List::Cons(f, es)), Expr::ETry(Expr::EApp(Expr::EProj(Expr::EVar(Nat::O), Nat::O), map(fn(i) { Expr::EProj(Expr::EVar(Nat::O), i) }, seq(Nat::S(Nat::O), length(es)))), _UU03b5_, Expr::ERaise(Expr::EUp(t, Expr::EVar(Nat::O)), r), Expr::EVar(Nat::O)))
+}
+
+pub fn wrap_call(l : Cenv, _UU03b5_ : Ty, r : Ty, f : Expr, es : List[Expr]) -> Expr {
+  match _UU03b5_ {
+    Ty::TData(t, ts) => match ts {
+      List::Nil => match (match l {
+        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+      }) {
+        Ty::TError => promote_call(t, _UU03b5_, r, f, es)
+        _ => Expr::EApp(f, es)
+      }
+      List::Cons(_, _) => Expr::EApp(f, es)
+    }
+    _ => Expr::EApp(f, es)
+  }
+}
+
+pub fn ctor_in(c : Ident, td : Tdef) -> Bool {
+  match lookup_ctor(td, c) {
+    Some(_) => true
+    None => false
+  }
+}
+
+pub fn is_rec(e : Senv, t : Ident) -> Bool {
+  match assoc(t, match e {
+    Senv::Mk_senv(_, _, se_sinfo, _, _) => se_sinfo
+  }) {
+    Some(_) => true
+    None => false
+  }
+}
+
+pub fn proj_pats(i : Nat, q : Pat, k : Nat, n : Nat) -> List[Pat] {
+  map(fn(j) {
+    match eqb0(j, i) {
+      true => q
+      false => Pat::PWild
+    }
+  }, seq(k, n))
+}
+
+pub fn field_proj(e : Senv, t : Ident, ts : List[Ty], i : Nat, e0 : Expr) -> Option[(Expr, Ty)] {
+  match lookup_ty(match e {
+    Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+  }, t) {
+    Some(td) => match (match td {
+      Tdef::Mk_tdef(_, _, td_ctors, _) => td_ctors
+    }) {
+      List::Nil => None
+      List::Cons(cd, l) => match l {
+        List::Nil => {
+          let fs = map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match cd {
+            Cdef::Mk_cdef(_, cd_fields) => cd_fields
+          })
+          match nth_error(fs, i) {
+            Some(_UU03c4_) => match _UU03c4_ {
+              Ty::TRef(t0) => {
+                let q = Pat::PRef(Pat::PVar)
+                Some((Expr::EMatch(e0, t0, List::Cons((Pat::PConstr(match cd {
+                  Cdef::Mk_cdef(cd_name, _) => cd_name
+                }, proj_pats(i, q, Nat::O, length(fs))), Expr::EVar(Nat::O)), List::Nil)), t0))
+              }
+              _ => {
+                let q = Pat::PVar
+                Some((Expr::EMatch(e0, _UU03c4_, List::Cons((Pat::PConstr(match cd {
+                  Cdef::Mk_cdef(cd_name, _) => cd_name
+                }, proj_pats(i, q, Nat::O, length(fs))), Expr::EVar(Nat::O)), List::Nil)), _UU03c4_))
+              }
+            }
+            None => None
+          }
+        }
+        List::Cons(_, _) => None
+      }
+    }
+    None => None
+  }
+}
+
+pub fn trs(e : Senv) -> List[Trinfo] {
+  match (match e {
+    Senv::Mk_senv(_, _, _, _, se_x) => se_x
+  }) {
+    Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
+  }
+}
+
+pub fn asm_of(e : Senv, _UU0393_ : Lctx) -> List[Assumption] {
+  flat_map(fn(a) {
+    match a {
+      (y, x) => match y {
+        (tr, _UU03c4_) => match lookup_local(x, _UU0393_) {
+          Some(i) => match nth_error(ctx_of(_UU0393_), i) {
+            Some(t) => match eq_dec0(eqDec_ty, t, Ty::TData(tr, List::Cons(_UU03c4_, List::Nil))) {
+              true => List::Cons(((tr, _UU03c4_), Expr::EVar(i)), List::Nil)
+              false => List::Nil
+            }
+            None => List::Nil
+          }
+          None => List::Nil
+        }
+      }
+    }
+  }, match (match e {
+    Senv::Mk_senv(_, _, _, _, se_x) => se_x
+  }) {
+    Xenv::Mk_xenv(_, _, _, _, _, x_asm) => x_asm
+  })
+}
+
+pub fn has_dict(e : Senv, _UU0393_ : Lctx, tr : Ident, _UU03c4_ : Ty) -> Bool {
+  match entails_dec(match (match e {
+    Senv::Mk_senv(_, _, _, _, se_x) => se_x
+  }) {
+    Xenv::Mk_xenv(_, x_insts, _, _, _, _) => x_insts
+  }, asm_of(e, _UU0393_), tr, _UU03c4_) {
+    Sumor::Inleft(_) => true
+    Sumor::Inright => false
+  }
+}
+
+pub fn nbounds(e : Senv, g : Ident) -> Nat {
+  length(sbounds(e, g))
+}
+
+pub fn meth_name(t : Ident, m : Ident) -> Ident {
+  append(t, append(String0::String1(Ascii::Ascii0(false, true, false, true, true, true, false, false), String0::String1(Ascii::Ascii0(false, true, false, true, true, true, false, false), String0::EmptyString)), m))
+}
+
+pub fn has_meth(e : Senv, t : Ident, m : Ident) -> Bool {
+  existsb(fn(tm) {
+    match eqb4(fst(tm), t) {
+      true => eqb4(snd(tm), m)
+      false => false
+    }
+  }, match (match e {
+    Senv::Mk_senv(_, _, _, _, se_x) => se_x
+  }) {
+    Xenv::Mk_xenv(_, _, _, x_meths, _, _) => x_meths
+  })
+}
+
+pub fn meth_fn(e : Senv, _UU03c4_ : Ty, m : Ident) -> Bool {
+  match head_name(_UU03c4_) {
+    Some(h) => has_meth(e, h, m)
+    None => false
+  }
+}
+
+pub fn qual_builtin(t : Ident, m : Ident, n : Nat) -> Bool {
+  match array_kind_of(t) {
+    Some(_) => match n {
+      Nat::O => eqb4(m, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString))))
+      Nat::S(n0) => match n0 {
+        Nat::O => false
+        Nat::S(n1) => match n1 {
+          Nat::O => eqb4(m, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))))
+          Nat::S(_) => false
+        }
+      }
+    }
+    None => match n {
+      Nat::O => false
+      Nat::S(n0) => match n0 {
+        Nat::O => match eqb4(t, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))) {
+          true => eqb4(m, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString))))
+          false => false
+        }
+        Nat::S(_) => false
+      }
+    }
+  }
+}
+
+pub fn arr_builtin(_UU03c4_ : Ty, m : Ident, n : Nat) -> Bool {
+  match _UU03c4_ {
+    Ty::TArray(k, _) => match k {
+      Array_kind::AFixed => match n {
+        Nat::O => eqb4(m, String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString)))))))
+        Nat::S(_) => false
+      }
+      Array_kind::AGrow => match n {
+        Nat::O => eqb4(m, String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString)))))))
+        Nat::S(n0) => match n0 {
+          Nat::O => eqb4(m, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString)))))
+          Nat::S(_) => false
+        }
+      }
+    }
+    _ => false
+  }
+}
+
+pub fn declares(e : Senv, m : Ident, tr : Ident) -> Bool {
+  match find_trait(trs(e), tr) {
+    Some(ti) => match method_of(ti, m) {
+      Some(_) => true
+      None => false
+    }
+    None => false
+  }
+}
+
+pub fn asm_traits(e : Senv, _UU03c4_ : Ty) -> List[Ident] {
+  map(fn(a) { fst(fst(a)) }, filter(fn(a) {
+    match eq_dec0(eqDec_ty, snd(fst(a)), _UU03c4_) {
+      true => true
+      false => false
+    }
+  }, match (match e {
+    Senv::Mk_senv(_, _, _, _, se_x) => se_x
+  }) {
+    Xenv::Mk_xenv(_, _, _, _, _, x_asm) => x_asm
+  }))
+}
+
+pub fn dot_traits(_UU03c4_ : Ty) -> Bool {
+  match _UU03c4_ {
+    Ty::TVar(_) => true
+    Ty::TData(t, _) => negb(existsb(fn(x1) { eqb4(t, x1) }, List::Cons(String0::String1(Ascii::Ascii0(true, true, true, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::EmptyString)))))), List::Cons(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))), List::Cons(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil))))))
+    _ => false
+  }
+}
+
+pub fn dot_trait(e : Senv, _UU0393_ : Lctx, m : Ident, _UU03c4_ : Ty) -> List[Ident] {
+  filter(fn(tr) {
+    match declares(e, m, tr) {
+      true => has_dict(e, _UU0393_, tr, _UU03c4_)
+      false => false
+    }
+  }, map(fn(t) {
+    match t {
+      Trinfo::Mk_trinfo(ti_name, _, _, _) => ti_name
+    }
+  }, trs(e)))
+}
+
+pub fn obj_of(e : Senv, _UU03c4_ : Ty) -> Option[Ident] {
+  match _UU03c4_ {
     Ty::TData(on, ts) => match ts {
-      List::Nil => find(fn(tr) { eqDec_ident(obj_name(tr))(on) }, match gx {
+      List::Nil => find(fn(tr) { eqb4(obj_name(tr), on) }, match (match e {
+        Senv::Mk_senv(_, _, _, _, se_x) => se_x
+      }) {
         Xenv::Mk_xenv(_, _, _, _, x_objs, _) => x_objs
       })
       List::Cons(_, _) => None
@@ -3156,556 +3458,344 @@ pub fn is_obj(gx : Xenv, t : Ty) -> Option[Ident] {
   }
 }
 
-pub fn trait_method(gx : Xenv, p : Pos, _UU0393_ : Lctx, ti : Trinfo, m : Ident, _UU03c4_s : Ty) -> Result0[(((Expr, List[Ty]), Ty), Ty), Elab_error] {
-  bind(of_opt(method_of(ti, m), Elab_error::EE_NoMethod(p, m, _UU03c4_s)), fn(x) {
-    match x {
-      (i, s) => bind(dict_of(gx, p, _UU0393_, match ti {
-        Trinfo::Mk_trinfo(ti_name, _, _, _) => ti_name
-      }, _UU03c4_s), fn(d) {
-        let _UU03c3_ = {
-          let a1 = fn(x1) { inst(List::Cons(_UU03c4_s, List::Nil), x1) }
-          fn(x1) { tsubst(a1, x1) }
-        }
-        let ps = map(_UU03c3_, match s {
-          Msig::Mk_msig(_, ms_params, _, _) => ms_params
-        })
-        Result0::Ok((((field_of(match ti {
-          Trinfo::Mk_trinfo(ti_name, _, _, _) => ti_name
-        }, nfields(ti), i, d, Ty::TArrow(ps, _UU03c3_(match s {
-          Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
-        }), _UU03c3_(match s {
-          Msig::Mk_msig(_, _, _, ms_eff) => ms_eff
-        }))), ps), _UU03c3_(match s {
-          Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
-        })), _UU03c3_(match s {
-          Msig::Mk_msig(_, _, _, ms_eff) => ms_eff
-        })))
-      })
+pub fn obj_index(fs : List[(Ident, Msig)], m : Ident) -> Option[Nat] {
+  match fs {
+    List::Nil => None
+    List::Cons(p, fs_) => match p {
+      (_, sg) => match eqb4(match sg {
+        Msig::Mk_msig(ms_name, _, _, _) => ms_name
+      }, m) {
+        true => Some(Nat::O)
+        false => option_map(fn(x) { Nat::S(x) }, obj_index(fs_, m))
+      }
     }
-  })
+  }
 }
 
-pub fn make_obj(gx : Xenv, p : Pos, _UU0393_ : Lctx, tr : Ident, _UU03c4_ : Ty, e : Expr) -> Result0[Expr, Elab_error] {
-  let _UU0393_x = List::Cons((None, _UU03c4_), _UU0393_)
-  bind(mapM(fn(sm) {
-    match sm {
-      (sn, s) => {
-        let ps = map({
-          let a1 = fn(x1) { inst(List::Cons(_UU03c4_, List::Nil), x1) }
-          fn(x1) { tsubst(a1, x1) }
-        }, tl(match s {
-          Msig::Mk_msig(_, ms_params, _, _) => ms_params
-        }))
-        let _UU0393_l = app(map(fn(t) { (None, t) }, ps), _UU0393_x)
-        bind(of_opt(find_trait(match gx {
-          Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-        }, sn), Elab_error::EE_NotObjectSafe(p, tr)), fn(ti) {
-          bind(trait_method(gx, p, _UU0393_l, ti, match s {
-            Msig::Mk_msig(ms_name, _, _, _) => ms_name
-          }, _UU03c4_), fn(x) {
-            match x {
-              (p0, _UU03b5_) => match p0 {
-                (p1, r) => match p1 {
-                  (mv, _) => {
-                    let n = length(ps)
-                    Result0::Ok(Expr::ELam(ps, r, _UU03b5_, Expr::EApp(mv, List::Cons(Expr::EVar(n), map(fn(x0) { Expr::EVar(x0) }, seq(Nat::O, n))))))
-                  }
+pub fn assemble(op : Bool, given : List[((Nat, Pat), Lctx)], j : Nat, fs : List[Ty]) -> Option[(List[Pat], Lctx)] {
+  match fs {
+    List::Nil => Some((List::Nil, List::Nil))
+    List::Cons(_, fs_) => match find(fn(x) { eqb0(fst(fst(x)), j) }, given) {
+      Some(p) => match p {
+        (p0, _UU0394_) => match p0 {
+          (_, q) => {
+            let p1 = (q, _UU0394_)
+            match p1 {
+              (q0, _UU0394_0) => match assemble(op, given, Nat::S(j), fs_) {
+                Some(p2) => match p2 {
+                  (qs, _UU0394_s) => Some((List::Cons(q0, qs), app(_UU0394_0, _UU0394_s)))
                 }
+                None => None
               }
             }
-          })
-        })
-      }
-    }
-  }, obj_fields(match gx {
-    Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-  }, tr)), fn(fs) {
-    Result0::Ok(Expr::ELet(e, Expr::EConstr(obj_name(tr), obj_name(tr), List::Nil, Expr::ETuple(fs))))
-  })
-}
-
-pub fn coerce_to(gx : Xenv, p : Pos, _UU0393_ : Lctx, exp : Option[Ty], _UU03c4_ : Ty, e : Expr) -> Result0[Expr, Elab_error] {
-  match exp {
-    Some(t) => match t {
-      Ty::TError => Result0::Ok(up_err(_UU03c4_, e))
-      _ => match is_obj(gx, t) {
-        Some(tr) => match eqDec_ty(t)(_UU03c4_) {
-          true => Result0::Ok(e)
-          false => make_obj(gx, p, _UU0393_, tr, _UU03c4_, e)
-        }
-        None => Result0::Ok(e)
-      }
-    }
-    None => Result0::Ok(e)
-  }
-}
-
-pub fn asm_traits(gx : Xenv, _UU03c4_ : Ty) -> List[Ident] {
-  map(fn(a) { fst(fst(a)) }, filter(fn(a) { eqDec_ty(snd(fst(a)))(_UU03c4_) }, match gx {
-    Xenv::Mk_xenv(_, _, _, _, _, x_asm) => x_asm
-  }))
-}
-
-pub fn traits_for(gx : Xenv, p : Pos, _UU0393_ : Lctx, m : Ident, _UU03c4_ : Ty) -> List[Trinfo] {
-  filter(fn(ti) {
-    match method_of(ti, m) {
-      Some(_) => match dict_of(gx, p, _UU0393_, match ti {
-        Trinfo::Mk_trinfo(ti_name, _, _, _) => ti_name
-      }, _UU03c4_) {
-        Result0::Ok(_) => true
-        Result0::Err(_) => false
-      }
-      None => false
-    }
-  }, match gx {
-    Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-  })
-}
-
-pub fn dot_traits(_UU03c4_ : Ty) -> Bool {
-  match _UU03c4_ {
-    Ty::TVar(_) => true
-    Ty::TData(t, _) => negb(existsb(eqDec_ident(t), List::Cons(String0::String1(Ascii::Ascii0(true, true, true, true, false, false, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::EmptyString)))))), List::Cons(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))), List::Cons(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil))))))
-    _ => false
-  }
-}
-
-pub fn arrow_params(t : Ty, n : Nat) -> List[Option[Ty]] {
-  match t {
-    Ty::TArrow(ps, _, _) => match eqb0(length(ps), n) {
-      true => map(fn(x) { Some(x) }, ps)
-      false => repeat(None, n)
-    }
-    _ => repeat(None, n)
-  }
-}
-
-pub fn elab_global(gx : Xenv, p : Pos, f : Ident, fd : Fdef, exp : Option[Ty]) -> Result0[Expr, Elab_error] {
-  match bounds_of(gx, f) {
-    List::Nil => match (match fd {
-      Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
-    }) {
-      Nat::O => Result0::Ok(Expr::EGlobal(f, List::Nil))
-      Nat::S(n0) => {
-        let n = Nat::S(n0)
-        let s = match exp {
-          Some(t) => tmatch(Ty::TArrow(match fd {
-            Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
-          }, match fd {
-            Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
-          }, match fd {
-            Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
-          }), t, repeat(None, n))
-          None => repeat(None, n)
-        }
-        match all_some(s) {
-          Some(ts) => Result0::Ok(Expr::EGlobal(f, ts))
-          None => Result0::Err(Elab_error::EE_CannotInfer(p, f))
-        }
-      }
-    }
-    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))))))))))))))))))))))))))))))))))))))))))
-  }
-}
-
-pub fn is_record(sinfo : List[(Ident, List[Ident])], t : Ident) -> Bool {
-  match assoc(t, sinfo) {
-    Some(_) => true
-    None => false
-  }
-}
-
-pub fn has_ctor(c : Ident, td : Tdef) -> Bool {
-  match lookup_ctor(td, c) {
-    Some(_) => true
-    None => false
-  }
-}
-
-pub fn resolve_ctor(hdr : Genv, sinfo : List[(Ident, List[Ident])], p : Pos, tq : Option[Ident], c : Ident, exp : Option[Ty]) -> Result0[(Tdef, Cdef), Elab_error] {
-  let in_type = fn(td) {
-    match lookup_ctor(td, c) {
-      Some(cd) => Result0::Ok((td, cd))
-      None => Result0::Err(Elab_error::EE_UnknownCtor(p, c))
-    }
-  }
-  match tq {
-    Some(t) => bind(of_opt(lookup_ty(hdr, t), Elab_error::EE_UnknownType(p, t)), in_type)
-    None => {
-      let from_exp = match exp {
-        Some(t) => match t {
-          Ty::TBase(_) => None
-          Ty::TVar(_) => None
-          Ty::TTuple(_) => None
-          Ty::TArrow(_, _, _) => None
-          Ty::TData(t0, _) => match lookup_ty(hdr, t0) {
-            Some(td) => match has_ctor(c, td) {
-              true => Some(td)
-              false => None
-            }
-            None => None
-          }
-          _ => None
-        }
-        None => None
-      }
-      match from_exp {
-        Some(td) => in_type(td)
-        None => match filter(fn(td) {
-          match negb(is_record(sinfo, match td {
-            Tdef::Mk_tdef(td_name, _, _, _) => td_name
-          })) {
-            true => has_ctor(c, td)
-            false => false
-          }
-        }, match hdr {
-          Genv::Mk_genv(ge_types, _) => ge_types
-        }) {
-          List::Nil => Result0::Err(Elab_error::EE_UnknownCtor(p, c))
-          List::Cons(td, l) => match l {
-            List::Nil => in_type(td)
-            List::Cons(_, _) => Result0::Err(Elab_error::EE_AmbiguousCtor(p, c))
           }
         }
       }
-    }
-  }
-}
-
-pub fn resolve_record(sinfo : List[(Ident, List[Ident])], p : Pos, tq : Option[Ident], names : List[Ident], exp : Option[Ty]) -> Result0[Ident, Elab_error] {
-  let same = fn(fs) {
-    match eqb0(length(fs), length(names)) {
-      true => forallb(fn(f) {
-        match index_of(f, fs) {
-          Some(_) => true
-          None => false
-        }
-      }, names)
-      false => false
-    }
-  }
-  match tq {
-    Some(t) => Result0::Ok(t)
-    None => match exp {
-      Some(t) => match t {
-        Ty::TData(t0, _) => match is_record(sinfo, t0) {
-          true => Result0::Ok(t0)
-          false => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TData(t0, List::Nil)))
-        }
-        _ => match filter(fn(tf) { same(snd(tf)) }, sinfo) {
-          List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TBase(Base_ty::BUnit)))
-          List::Cons(p0, l) => match p0 {
-            (t0, _) => match l {
-              List::Nil => Result0::Ok(t0)
-              List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TBase(Base_ty::BUnit)))
+      None => match op {
+        true => {
+          let p = (Pat::PWild, List::Nil)
+          match p {
+            (q, _UU0394_) => match assemble(op, given, Nat::S(j), fs_) {
+              Some(p0) => match p0 {
+                (qs, _UU0394_s) => Some((List::Cons(q, qs), app(_UU0394_, _UU0394_s)))
+              }
+              None => None
             }
           }
         }
-      }
-      None => match filter(fn(tf) { same(snd(tf)) }, sinfo) {
-        List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TBase(Base_ty::BUnit)))
-        List::Cons(p0, l) => match p0 {
-          (t, _) => match l {
-            List::Nil => Result0::Ok(t)
-            List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TBase(Base_ty::BUnit)))
-          }
-        }
+        false => None
       }
     }
   }
 }
 
-pub fn proj_field(hdr : Genv, p : Pos, t : Ident, ts : List[Ty], i : Nat, e : Expr) -> Result0[Expr, Elab_error] {
-  bind(of_opt(lookup_ty(hdr, t), Elab_error::EE_UnknownType(p, t)), fn(td) {
-    match (match td {
+pub fn same_fields(declared : List[Ident], written : List[Ident]) -> Bool {
+  match eqb0(length(declared), length(written)) {
+    true => forallb(fn(f) {
+      match index_of(f, declared) {
+        Some(_) => true
+        None => false
+      }
+    }, written)
+    false => false
+  }
+}
+
+pub fn pos_of(j : Nat, ixs : List[Nat]) -> Option[Nat] {
+  match ixs {
+    List::Nil => None
+    List::Cons(i, ixs_) => match eqb0(i, j) {
+      true => Some(Nat::O)
+      false => option_map(fn(x) { Nat::S(x) }, pos_of(j, ixs_))
+    }
+  }
+}
+
+pub fn rec_vars(ixs : List[Nat], n : Nat) -> Option[List[Expr]] {
+  match eqb0(length(ixs), n) {
+    true => all_some(map(fn(j) {
+      option_map(fn(k) { Expr::EProj(Expr::EVar(Nat::O), k) }, pos_of(j, ixs))
+    }, seq(Nat::O, n)))
+    false => None
+  }
+}
+
+pub fn field_cell(e : Senv, t : Ident, ts : List[Ty], i : Nat) -> Option[((Ident, Nat), Ty)] {
+  match lookup_ty(match e {
+    Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+  }, t) {
+    Some(td) => match (match td {
       Tdef::Mk_tdef(_, _, td_ctors, _) => td_ctors
     }) {
-      List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TData(t, ts)))
+      List::Nil => None
       List::Cons(cd, l) => match l {
         List::Nil => {
           let fs = map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match cd {
             Cdef::Mk_cdef(_, cd_fields) => cd_fields
           })
-          bind(of_opt(nth_error(fs, i), Elab_error::EE_Type(p, Type_error::E_TupleIndex(i, Ty::TData(t, ts)))), fn(_UU03c4_) {
-            match _UU03c4_ {
-              Ty::TRef(t0) => {
-                let q = Pat::PRef(Pat::PVar)
-                let ps = map(fn(j) {
-                  match eqb0(j, i) {
-                    true => q
-                    false => Pat::PWild
-                  }
-                }, seq(Nat::O, length(fs)))
-                Result0::Ok(Expr::EMatch(e, t0, List::Cons((Pat::PConstr(match cd {
-                  Cdef::Mk_cdef(cd_name, _) => cd_name
-                }, ps), Expr::EVar(Nat::O)), List::Nil)))
-              }
-              _ => {
-                let q = Pat::PVar
-                let ps = map(fn(j) {
-                  match eqb0(j, i) {
-                    true => q
-                    false => Pat::PWild
-                  }
-                }, seq(Nat::O, length(fs)))
-                Result0::Ok(Expr::EMatch(e, _UU03c4_, List::Cons((Pat::PConstr(match cd {
-                  Cdef::Mk_cdef(cd_name, _) => cd_name
-                }, ps), Expr::EVar(Nat::O)), List::Nil)))
-              }
+          match nth_error(fs, i) {
+            Some(t0) => match t0 {
+              Ty::TRef(t1) => Some(((match cd {
+                Cdef::Mk_cdef(cd_name, _) => cd_name
+              }, length(fs)), t1))
+              _ => None
             }
-          })
+            None => None
+          }
         }
-        List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TData(t, ts)))
+        List::Cons(_, _) => None
       }
     }
+    None => None
+  }
+}
+
+pub fn names_ctx(xs : List[Ident], _UU03c4_s : List[Ty]) -> Lctx {
+  combine(map(fn(x) { Some(x) }, xs), _UU03c4_s)
+}
+
+pub fn hd_env(ps : List[Ty], _UU03c4_ : Ty, l : Cenv) -> Cenv {
+  push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, ps, _UU03c4_), l)
+}
+
+pub fn while_loop(_UU03c4_ : Ty, c : Expr, b : Expr, nb : Expr) -> Expr {
+  Expr::ELoop(Expr::ETuple(List::Nil), List::Nil, _UU03c4_, Expr::EIf(c, Expr::ELet(b, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(List::Nil), _UU03c4_)), nb))
+}
+
+pub fn upd_next(off : Nat, names : List[Ident], us : List[(Ident, Expr)]) -> List[Expr] {
+  map(fn(i) {
+    match find(fn(yu) {
+      match index_of(fst(yu), names) {
+        Some(j) => eqb0(j, i)
+        None => false
+      }
+    }, us) {
+      Some(p) => match p {
+        (_, u) => u
+      }
+      None => Expr::EVar(add(off, i))
+    }
+  }, seq(Nat::O, length(names)))
+}
+
+pub fn for_next(names : List[Ident], us : List[(Ident, Expr)]) -> List[Expr] {
+  upd_next(Nat::S(Nat::O), names, us)
+}
+
+pub fn for_loop(es : List[Expr], _UU03c4_s : List[Ty], _UU03c4_ : Ty, c : Option[Expr], b : Expr, names : List[Ident], us : List[(Ident, Expr)], nb : Expr) -> Expr {
+  let step = Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), b), Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(for_next(names, us)), _UU03c4_))
+  Expr::ELoop(Expr::ETuple(es), _UU03c4_s, _UU03c4_, match c {
+    Some(c0) => Expr::EIf(c0, step, nb)
+    None => step
   })
 }
 
-pub fn elab_pat(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], tps : List[Ident], _UU03c4_ : Ty, sp : Spat) -> Result0[(Pat, Lctx), Elab_error] {
-  let go = {
-    letrec go = fn(p) {
-      fn(open) {
-        fn(sps) {
-          fn(_UU03c4_s) {
-            match sps {
-              List::Nil => match _UU03c4_s {
-                List::Nil => Result0::Ok((List::Nil, List::Nil))
-                List::Cons(_, _) => match open {
-                  true => Result0::Ok((map(fn(_) { Pat::PWild }, _UU03c4_s), List::Nil))
-                  false => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
-                }
-              }
-              List::Cons(sp0, sps_) => match _UU03c4_s {
-                List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
-                List::Cons(_UU03c4_0, _UU03c4_s_) => bind(match _UU03c4_0 {
-                  Ty::TRef(t) => bind(elab_pat(tys, hdr, sinfo, tps, t, sp0), fn(x) {
-                    match x {
-                      (q0, _UU0394_0) => Result0::Ok((Pat::PRef(q0), _UU0394_0))
-                    }
-                  })
-                  _ => elab_pat(tys, hdr, sinfo, tps, _UU03c4_0, sp0)
-                }, fn(x) {
-                  match x {
-                    (q, _UU0394_1) => bind(go(p)(open)(sps_)(_UU03c4_s_), fn(x0) {
-                      match x0 {
-                        (qs, _UU0394_2) => Result0::Ok((List::Cons(q, qs), app(_UU0394_1, _UU0394_2)))
-                      }
-                    })
-                  }
-                })
-              }
-            }
-          }
-        }
-      }
-    }
-    go
+pub fn fi_t1(it : Iter_src) -> Ty {
+  match it {
+    Iter_src::IRange(_, kk) => Ty::TBase(Base_ty::BInt(kk))
+    Iter_src::IArray(k, t) => Ty::TArray(k, t)
   }
-  let named0 = {
-    letrec named0 = fn(p) {
-      fn(names) {
-        fn(fs) {
-          fn(fps) {
-            match fps {
-              List::Nil => Result0::Ok(List::Nil)
-              List::Cons(p0, fps_) => match p0 {
-                (f, sp0) => bind(of_opt(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(i) {
-                  bind(of_opt(nth_error(fs, i), Elab_error::EE_UnknownField(p, f)), fn(_UU03c4_i) {
-                    bind(match _UU03c4_i {
-                      Ty::TRef(t) => bind(elab_pat(tys, hdr, sinfo, tps, t, sp0), fn(x) {
-                        match x {
-                          (q0, _UU0394_0) => Result0::Ok((Pat::PRef(q0), _UU0394_0))
-                        }
-                      })
-                      _ => elab_pat(tys, hdr, sinfo, tps, _UU03c4_i, sp0)
-                    }, fn(x) {
-                      match x {
-                        (q, _UU0394_) => bind(named0(p)(names)(fs)(fps_), fn(rest) { Result0::Ok(List::Cons(((i, q), _UU0394_), rest)) })
-                      }
-                    })
-                  })
-                })
-              }
-            }
-          }
-        }
-      }
-    }
-    named0
+}
+
+pub fn fi_t2(it : Iter_src) -> Ty {
+  match it {
+    Iter_src::IRange(_, kk) => Ty::TBase(Base_ty::BInt(kk))
+    Iter_src::IArray(_, _) => Ty::TBase(Base_ty::BInt(Int_kind::I32))
   }
+}
+
+pub fn fi_ivs(it : Iter_src) -> List[Ty] {
+  match it {
+    Iter_src::IRange(rk, kk) => match rk {
+      Range_kind::RUpExcl => List::Cons(Ty::TBase(Base_ty::BInt(kk)), List::Nil)
+      Range_kind::RDownExcl => List::Cons(Ty::TBase(Base_ty::BInt(kk)), List::Nil)
+      _ => List::Cons(Ty::TBase(Base_ty::BInt(kk)), List::Cons(Ty::TBase(Base_ty::BBool), List::Nil))
+    }
+    Iter_src::IArray(_, _) => List::Cons(Ty::TBase(Base_ty::BInt(Int_kind::I32)), List::Nil)
+  }
+}
+
+pub fn fi_init(it : Iter_src) -> List[Expr] {
+  match it {
+    Iter_src::IRange(rk, _) => match rk {
+      Range_kind::RUpExcl => List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Nil)
+      Range_kind::RDownExcl => List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Nil)
+      _ => List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Cons(e_false, List::Nil))
+    }
+    Iter_src::IArray(_, _) => List::Cons(Expr::ELit(Lit::LInt(Int_kind::I32, Z::Z0)), List::Nil)
+  }
+}
+
+pub fn fi_n(it : Iter_src, _UU03c4_s : List[Ty]) -> Nat {
+  add(length(fi_ivs(it)), length(_UU03c4_s))
+}
+
+pub fn fi_cond(it : Iter_src, n : Nat) -> Expr {
+  let v = Expr::EVar(Nat::O)
+  let bound = Expr::EVar(n)
+  match it {
+    Iter_src::IRange(rk, kk) => match rk {
+      Range_kind::RUpExcl => icmp(Cmp_op::CLt, kk, v, bound)
+      Range_kind::RUpIncl => Expr::EIf(Expr::EVar(Nat::S(Nat::O)), e_false, icmp(Cmp_op::CLe, kk, v, bound))
+      Range_kind::RDownExcl => icmp(Cmp_op::CGt, kk, v, bound)
+      Range_kind::RDownIncl => Expr::EIf(Expr::EVar(Nat::S(Nat::O)), e_false, icmp(Cmp_op::CGe, kk, v, bound))
+    }
+    Iter_src::IArray(_, _) => icmp(Cmp_op::CLt, Int_kind::I32, v, bound)
+  }
+}
+
+pub fn fi_elem(it : Iter_src, n : Nat) -> Expr {
+  match it {
+    Iter_src::IRange(rk, kk) => match rk {
+      Range_kind::RDownExcl => iarith(Arith_op::ASub, kk, Expr::EVar(Nat::O), int1(kk))
+      _ => Expr::EVar(Nat::O)
+    }
+    Iter_src::IArray(k, t) => Expr::EMem(Mem_op::MIndex(k, t), List::Cons(Expr::EVar(Nat::S(n)), List::Cons(Expr::EVar(Nat::O), List::Nil)))
+  }
+}
+
+pub fn fi_elem_ty(it : Iter_src) -> Ty {
+  match it {
+    Iter_src::IRange(_, kk) => Ty::TBase(Base_ty::BInt(kk))
+    Iter_src::IArray(_, t) => t
+  }
+}
+
+pub fn fi_next(it : Iter_src, d : Nat, n : Nat) -> List[Expr] {
+  let vv = Expr::EVar(add(Nat::S(Nat::O), d))
+  let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
+  match it {
+    Iter_src::IRange(rk, kk) => match rk {
+      Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk, vv, int1(kk)), List::Nil)
+      Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk, vv, bb), vv, iarith(Arith_op::AAdd, kk, vv, int1(kk))), List::Cons(icmp(Cmp_op::CEq, kk, vv, bb), List::Nil))
+      Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk, vv, int1(kk)), List::Nil)
+      Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk, vv, bb), vv, iarith(Arith_op::ASub, kk, vv, int1(kk))), List::Cons(icmp(Cmp_op::CEq, kk, vv, bb), List::Nil))
+    }
+    Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
+  }
+}
+
+pub fn fo_ctx(it : Iter_src, _UU0393_ : Lctx) -> Lctx {
+  List::Cons((None, fi_t2(it)), List::Cons((None, fi_t1(it)), _UU0393_))
+}
+
+pub fn fl_ctx(it : Iter_src, names : List[Ident], _UU03c4_s : List[Ty], _UU0393_ : Lctx) -> Lctx {
+  app(map(fn(t) { (None, t) }, fi_ivs(it)), app(names_ctx(names, _UU03c4_s), fo_ctx(it, _UU0393_)))
+}
+
+pub fn fi_loop_env(it : Iter_src, _UU03c4_s : List[Ty], _UU03c4_ : Ty, l : Cenv) -> Cenv {
+  hd_env(app(fi_ivs(it), _UU03c4_s), _UU03c4_, l)
+}
+
+pub fn fi_state_env(it : Iter_src, _UU03c4_s : List[Ty], _UU03c4_ : Ty, l : Cenv) -> Cenv {
+  push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), fi_loop_env(it, _UU03c4_s, _UU03c4_, l))
+}
+
+pub fn fi_body_env(x : Option[Ident], it : Iter_src, _UU03c4_s : List[Ty], _UU03c4_ : Ty, l : Cenv) -> Cenv {
+  push_lab(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), fi_state_env(it, _UU03c4_s, _UU03c4_, l))
+}
+
+pub fn forin_loop(it : Iter_src, e1 : Expr, e2 : Expr, es : List[Expr], _UU03c4_s : List[Ty], _UU03c4_ : Ty, q : Pat, scrut : Expr, d : Nat, b : Expr, names : List[Ident], us : List[(Ident, Expr)], nb : Expr) -> Expr {
+  let n = fi_n(it, _UU03c4_s)
+  let state = upd_next(add(add(Nat::S(Nat::O), d), length(fi_ivs(it))), names, us)
+  let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), b), Expr::ETuple(state)))
+  let next = app(fi_next(it, d, n), map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
+  let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
+  Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(app(fi_init(it), es)), app(fi_ivs(it), _UU03c4_s), _UU03c4_, Expr::EIf(fi_cond(it, n), Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb))))
+}
+
+pub fn catch_owner(e : Senv, sp : Spat) -> Option[Ident] {
   match sp {
-    Spat::SPWild(_) => Result0::Ok((Pat::PWild, List::Nil))
-    Spat::SPVar(_, x) => Result0::Ok((Pat::PVar, List::Cons((Some(x), _UU03c4_), List::Nil)))
-    Spat::SPLit(p, l) => bind(elab_lit(p, Some(_UU03c4_), l), fn(l_) { Result0::Ok((Pat::PLit(l_), List::Nil)) })
-    Spat::SPTuple(p, sps) => match _UU03c4_ {
-      Ty::TTuple(_UU03c4_s) => bind(go(p)(false)(sps)(_UU03c4_s), fn(x) {
-        match x {
-          (qs, _UU0394_) => Result0::Ok((Pat::PTuple(qs), _UU0394_))
-        }
-      })
-      _ => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
-    }
-    Spat::SPConstr(p, tq, c, sps, open) => bind(match _UU03c4_ {
-      Ty::TData(t, ts) => bind(match tq {
-        Some(t_) => match eqDec_ident(t)(t_) {
-          true => Result0::Ok(())
-          false => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
-        }
-        None => Result0::Ok(())
-      }, fn(_) { Result0::Ok(((t, ts), false)) })
-      Ty::TError => match tq {
-        Some(t) => Result0::Ok(((t, List::Nil), true))
-        None => match filter(fn(td) {
-          match (match td {
-            Tdef::Mk_tdef(_, _, _, td_err) => td_err
-          }) {
-            true => has_ctor(c, td)
-            false => false
-          }
-        }, match hdr {
-          Genv::Mk_genv(ge_types, _) => ge_types
+    Spat::SPConstr(_, t0, c, _, _) => match t0 {
+      Some(t) => Some(t)
+      None => match filter(fn(td) {
+        match (match td {
+          Tdef::Mk_tdef(_, _, _, td_err) => td_err
         }) {
-          List::Nil => Result0::Err(Elab_error::EE_UnknownCtor(p, c))
-          List::Cons(td, l) => match l {
-            List::Nil => Result0::Ok(((match td {
-              Tdef::Mk_tdef(td_name, _, _, _) => td_name
-            }, List::Nil), true))
-            List::Cons(_, _) => Result0::Err(Elab_error::EE_AmbiguousCtor(p, c))
-          }
+          true => ctor_in(c, td)
+          false => false
         }
-      }
-      _ => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
-    }, fn(x) {
-      match x {
-        (p0, up) => match p0 {
-          (t, ts) => bind(of_opt(lookup_ty(hdr, t), Elab_error::EE_UnknownType(p, t)), fn(td) {
-            bind(of_opt(lookup_ctor(td, c), Elab_error::EE_UnknownCtor(p, c)), fn(cd) {
-              bind(go(p)(open)(sps)(map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match cd {
-                Cdef::Mk_cdef(_, cd_fields) => cd_fields
-              })), fn(x0) {
-                match x0 {
-                  (qs, _UU0394_) => Result0::Ok((match up {
-                    true => Pat::PUp(t, Pat::PConstr(c, qs))
-                    false => Pat::PConstr(c, qs)
-                  }, _UU0394_))
-                }
-              })
-            })
+      }, match (match e {
+        Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+      }) {
+        Genv::Mk_genv(ge_types, _) => ge_types
+      }) {
+        List::Nil => None
+        List::Cons(td, l) => match l {
+          List::Nil => Some(match td {
+            Tdef::Mk_tdef(td_name, _, _, _) => td_name
           })
+          List::Cons(_, _) => None
         }
       }
-    })
-    Spat::SPRecord(p, fps, open) => match _UU03c4_ {
-      Ty::TData(t, ts) => bind(of_opt(assoc(t, sinfo), Elab_error::EE_NotRecord(p, _UU03c4_)), fn(names) {
-        bind(of_opt(lookup_ty(hdr, t), Elab_error::EE_UnknownType(p, t)), fn(td) {
-          match (match td {
-            Tdef::Mk_tdef(_, _, td_ctors, _) => td_ctors
-          }) {
-            List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
-            List::Cons(cd, l) => match l {
-              List::Nil => {
-                let fs = map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match cd {
-                  Cdef::Mk_cdef(_, cd_fields) => cd_fields
-                })
-                bind(named0(p)(names)(fs)(fps), fn(given) {
-                  let pick = fn(j) {
-                    match find(fn(x) { eqb0(fst(fst(x)), j) }, given) {
-                      Some(p0) => match p0 {
-                        (p1, _UU0394_) => match p1 {
-                          (_, q) => Result0::Ok((q, _UU0394_))
-                        }
-                      }
-                      None => match open {
-                        true => Result0::Ok((Pat::PWild, List::Nil))
-                        false => Result0::Err(Elab_error::EE_MissingField(p, nth(j, names, String0::EmptyString)))
-                      }
-                    }
-                  }
-                  bind(mapM(pick, seq(Nat::O, length(fs))), fn(q_UU0394_s) {
-                    Result0::Ok((Pat::PConstr(match cd {
-                      Cdef::Mk_cdef(cd_name, _) => cd_name
-                    }, map(fn(x1) { fst(x1) }, q_UU0394_s)), concat(map(fn(x1) { snd(x1) }, q_UU0394_s))))
-                  })
-                })
-              }
-              List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
-            }
-          }
-        })
-      })
-      _ => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
     }
-    Spat::SPAnnot(p, q, t) => bind(elab_ty(tys, tps, t), fn(_UU03c4__) {
-      match eqDec_ty(_UU03c4__)(_UU03c4_) {
-        true => elab_pat(tys, hdr, sinfo, tps, _UU03c4_, q)
-        false => Result0::Err(Elab_error::EE_Annot(p, _UU03c4__, _UU03c4_))
-      }
-    })
+    _ => None
   }
 }
 
-pub fn param_tys(tys : List[(Ident, Nat)], tps : List[Ident], p : Pos, ps : List[(Ident, Option[Sty])], exps : List[Option[Ty]]) -> Result0[List[Ty], Elab_error] {
-  match ps {
-    List::Nil => Result0::Ok(List::Nil)
-    List::Cons(p0, ps_) => match p0 {
-      (x, ann) => match exps {
-        List::Nil => {
-          let ex = None
-          let exps_ = List::Nil
-          bind(match ann {
-            Some(t) => elab_ty(tys, tps, t)
-            None => match ex {
-              Some(_UU03c4_) => Result0::Ok(_UU03c4_)
-              None => Result0::Err(Elab_error::EE_LambdaParam(p, x))
-            }
-          }, fn(_UU03c4_) {
-            bind(param_tys(tys, tps, p, ps_, exps_), fn(_UU03c4_s) { Result0::Ok(List::Cons(_UU03c4_, _UU03c4_s)) })
-          })
-        }
-        List::Cons(y, ys) => bind(match ann {
-          Some(t) => elab_ty(tys, tps, t)
-          None => match y {
-            Some(_UU03c4_) => Result0::Ok(_UU03c4_)
-            None => Result0::Err(Elab_error::EE_LambdaParam(p, x))
-          }
-        }, fn(_UU03c4_) {
-          bind(param_tys(tys, tps, p, ps_, ys), fn(_UU03c4_s) { Result0::Ok(List::Cons(_UU03c4_, _UU03c4_s)) })
-        })
+pub fn catch_step(e : Senv, acc : Catch_info, c : (Spat, Sexpr)) -> Catch_info {
+  match catch_owner(e, fst(c)) {
+    Some(t) => match acc {
+      Catch_info::CINone => Catch_info::CIOne(t)
+      Catch_info::CIOne(t_) => match eqb4(t, t_) {
+        true => acc
+        false => Catch_info::CIMany
       }
+      Catch_info::CIMany => Catch_info::CIMany
     }
+    None => acc
   }
 }
 
-pub fn elab_lam(tys : List[(Ident, Nat)], hdr : Genv, tps : List[Ident], _UU0393_ : Lctx, p : Pos, ps : List[(Ident, Option[Sty])], ret : Option[Sty], eff : Option[Option[Sty]], pexps : List[Option[Ty]], rexp : Option[Ty], _UU03b5_exp : Option[Ty], elab_body0 : (Cenv) -> (Lctx) -> (Option[Ty]) -> Result0[Expr, Elab_error]) -> Result0[Expr, Elab_error] {
-  bind(param_tys(tys, tps, p, ps, pexps), fn(_UU03c4_s) {
-    let _UU0393__ = app(combine(map(fn(x) { Some(fst(x)) }, ps), _UU03c4_s), _UU0393_)
-    bind(match ret {
-      Some(t) => map_result(fn(x) { Some(x) }, elab_ty(tys, tps, t))
-      None => Result0::Ok(rexp)
-    }, fn(_UU03c4_r) {
-      bind(match eff {
-        Some(o) => match o {
-          Some(t) => elab_ty(tys, tps, t)
-          None => Result0::Ok(Ty::TBase(Base_ty::BNever))
-        }
-        None => match _UU03b5_exp {
-          Some(_UU03b5_) => Result0::Ok(_UU03b5_)
-          None => Result0::Ok(Ty::TBase(Base_ty::BNever))
-        }
-      }, fn(_UU03b5_) {
-        match _UU03c4_r {
-          Some(r) => bind(elab_body0(Cenv::Mk_cenv(List::Cons(Lab::Mk_lab(None, Lab_kind::LKFun, List::Nil, r), List::Nil), _UU03b5_))(_UU0393__)(_UU03c4_r), fn(body_) { Result0::Ok(Expr::ELam(_UU03c4_s, r, _UU03b5_, eblock(r, body_))) })
-          None => bind(elab_body0(Cenv::Mk_cenv(List::Nil, _UU03b5_))(_UU0393__)(None), fn(body_) {
-            bind(type_of(hdr, p, Cenv::Mk_cenv(List::Nil, _UU03b5_), _UU0393__, body_), fn(r) { Result0::Ok(Expr::ELam(_UU03c4_s, r, _UU03b5_, body_)) })
-          })
-        }
-      })
-    })
-  })
+pub fn catch_of(e : Senv, cases : List[(Spat, Sexpr)]) -> Catch_info {
+  fold_left(fn(x1) { fn(x2) { catch_step(e, x1, x2) } }, cases, Catch_info::CINone)
 }
 
-pub fn needs_context(e : Sexpr) -> Bool {
-  match e {
+pub fn fail_val(a : Expr) -> Expr {
+  Expr::EConstr(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil, Expr::ETuple(List::Cons(a, List::Nil)))
+}
+
+pub(all) enum Mode {
+  Syn
+  Chk(Ty)
+}
+
+pub fn hint(m : Mode) -> Option[Ty] {
+  match m {
+    Mode::Syn => None
+    Mode::Chk(_UU03c4_) => Some(_UU03c4_)
+  }
+}
+
+pub fn bcheck(b : Bool, err : Elab_error) -> Result0[Unit, Elab_error] {
+  match b {
+    true => Result0::Ok(())
+    false => Result0::Err(err)
+  }
+}
+
+pub fn postpone(s : Sexpr) -> Bool {
+  match s {
     Sexpr::SLam(_, ps, _, _, _) => existsb(fn(xa) {
       match snd(xa) {
         Some(_) => false
@@ -3716,2596 +3806,5289 @@ pub fn needs_context(e : Sexpr) -> Bool {
   }
 }
 
-pub fn data_inst(t : Ident, n : Nat, exp : Option[Ty]) -> List[Option[Ty]] {
-  match exp {
-    Some(t0) => tmatch(Ty::TData(t, tvars(n)), t0, repeat(None, n))
-    None => repeat(None, n)
+pub fn int_lit_dec(a : Sexpr) -> Sumor[SigT[Pos, SigT[Option[Int_kind], Z]]] {
+  match a {
+    Sexpr::SLit(q, l) => match l {
+      Slit::SLInt(k, z) => Sumor::Inleft(SigT::ExistT(q, SigT::ExistT(k, z)))
+      _ => Sumor::Inright
+    }
+    _ => Sumor::Inright
   }
 }
 
-pub fn elab(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], tps : List[Ident], gx : Xenv, l : Cenv, _UU0393_ : Lctx, exp : Option[Ty], e : Sexpr) -> Result0[Expr, Elab_error] {
-  let elab_args = {
-    letrec elab_args = fn(es) {
-      fn(exps) {
-        match es {
-          List::Nil => Result0::Ok(List::Nil)
-          List::Cons(e0, es_) => match exps {
-            List::Nil => {
-              let x = None
-              let exps_ = List::Nil
-              bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, x, e0), fn(e_) {
-                bind(match x {
-                  Some(t) => match t {
-                    Ty::TError => bind(type_of(hdr, sexpr_pos(e0), l, _UU0393_, e_), fn(_UU03c4_) { coerce_to(gx, sexpr_pos(e0), _UU0393_, x, _UU03c4_, e_) })
-                    _ => match is_obj(gx, t) {
-                      Some(_) => bind(type_of(hdr, sexpr_pos(e0), l, _UU0393_, e_), fn(_UU03c4_) { coerce_to(gx, sexpr_pos(e0), _UU0393_, x, _UU03c4_, e_) })
-                      None => Result0::Ok(e_)
-                    }
-                  }
-                  None => Result0::Ok(e_)
-                }, fn(e__) {
-                  bind(elab_args(es_)(exps_), fn(es2) { Result0::Ok(List::Cons(e__, es2)) })
-                })
-              })
-            }
-            List::Cons(x, xs) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, x, e0), fn(e_) {
-              bind(match x {
-                Some(t) => match t {
-                  Ty::TError => bind(type_of(hdr, sexpr_pos(e0), l, _UU0393_, e_), fn(_UU03c4_) { coerce_to(gx, sexpr_pos(e0), _UU0393_, x, _UU03c4_, e_) })
-                  _ => match is_obj(gx, t) {
-                    Some(_) => bind(type_of(hdr, sexpr_pos(e0), l, _UU0393_, e_), fn(_UU03c4_) { coerce_to(gx, sexpr_pos(e0), _UU0393_, x, _UU03c4_, e_) })
-                    None => Result0::Ok(e_)
-                  }
-                }
-                None => Result0::Ok(e_)
-              }, fn(e__) {
-                bind(elab_args(es_)(xs), fn(es2) { Result0::Ok(List::Cons(e__, es2)) })
-              })
-            })
-          }
-        }
-      }
-    }
-    elab_args
+pub type Sout = SigT[Ty, Expr]
+
+pub type Cout = Expr
+
+pub type Out = SigT[Ty, Expr]
+
+pub fn cO(_ : Senv, _ : Cenv, _ : Lctx, _ : Sexpr, _UU03c4_ : Ty, x : Cout) -> Out {
+  SigT::ExistT(_UU03c4_, x)
+}
+
+pub fn oc(_ : Senv, _ : Cenv, _ : Lctx, _ : Sexpr, _ : Ty, x : Out) -> Cout {
+  match x {
+    SigT::ExistT(_, s0) => s0
   }
-  let gargs1 = {
-    letrec gargs1 = fn(p) {
-      fn(es) {
-        fn(ps) {
-          fn(s) {
-            match es {
-              List::Nil => Result0::Ok((List::Nil, s))
-              List::Cons(e0, es_) => match ps {
-                List::Nil => {
-                  let pt = None
-                  let ps_ = List::Nil
-                  let ex = match pt {
-                    Some(t) => resolve(s, t)
-                    None => None
-                  }
-                  match needs_context(e0) {
-                    true => match ex {
-                      Some(_) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, ex, e0), fn(e_) {
-                        bind(match pt {
-                          Some(t) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
-                          None => Result0::Ok(s)
-                        }, fn(s_) {
-                          bind(gargs1(p)(es_)(ps_)(s_), fn(x) {
-                            match x {
-                              (r, s2) => Result0::Ok((List::Cons(Some(e_), r), s2))
-                            }
-                          })
-                        })
-                      })
-                      None => bind(gargs1(p)(es_)(ps_)(s), fn(x) {
-                        match x {
-                          (r, s2) => Result0::Ok((List::Cons(None, r), s2))
-                        }
-                      })
-                    }
-                    false => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, ex, e0), fn(e_) {
-                      bind(match pt {
-                        Some(t) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
-                        None => Result0::Ok(s)
-                      }, fn(s_) {
-                        bind(gargs1(p)(es_)(ps_)(s_), fn(x) {
-                          match x {
-                            (r, s2) => Result0::Ok((List::Cons(Some(e_), r), s2))
-                          }
-                        })
-                      })
-                    })
-                  }
-                }
-                List::Cons(t, ts) => {
-                  let pt = Some(t)
-                  let ex = match pt {
-                    Some(t0) => resolve(s, t0)
-                    None => None
-                  }
-                  match needs_context(e0) {
-                    true => match ex {
-                      Some(_) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, ex, e0), fn(e_) {
-                        bind(match pt {
-                          Some(t0) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
-                          None => Result0::Ok(s)
-                        }, fn(s_) {
-                          bind(gargs1(p)(es_)(ts)(s_), fn(x) {
-                            match x {
-                              (r, s2) => Result0::Ok((List::Cons(Some(e_), r), s2))
-                            }
-                          })
-                        })
-                      })
-                      None => bind(gargs1(p)(es_)(ts)(s), fn(x) {
-                        match x {
-                          (r, s2) => Result0::Ok((List::Cons(None, r), s2))
-                        }
-                      })
-                    }
-                    false => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, ex, e0), fn(e_) {
-                      bind(match pt {
-                        Some(t0) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
-                        None => Result0::Ok(s)
-                      }, fn(s_) {
-                        bind(gargs1(p)(es_)(ts)(s_), fn(x) {
-                          match x {
-                            (r, s2) => Result0::Ok((List::Cons(Some(e_), r), s2))
-                          }
-                        })
-                      })
-                    })
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    gargs1
+}
+
+pub fn okc(e : Senv, l : Cenv, _UU0393_ : Lctx, s : Sexpr, _UU03c4_ : Ty, x : Cout) -> Result0[Out, Elab_error] {
+  Result0::Ok(cO(e, l, _UU0393_, s, _UU03c4_, x))
+}
+
+pub fn cres(e : Senv, l : Cenv, _UU0393_ : Lctx, s : Sexpr, _UU03c4_ : Ty, r : Result0[Out, Elab_error]) -> Result0[Cout, Elab_error] {
+  match r {
+    Result0::Ok(x) => Result0::Ok(oc(e, l, _UU0393_, s, _UU03c4_, x))
+    Result0::Err(err) => Result0::Err(err)
   }
-  let gargs2 = {
-    letrec gargs2 = fn(p) {
-      fn(es) {
-        fn(pre) {
-          fn(ps) {
-            fn(s) {
-              match es {
-                List::Nil => Result0::Ok((List::Nil, s))
-                List::Cons(e0, es_) => match pre {
-                  List::Nil => {
-                    let d = None
-                    let pre_ = List::Nil
-                    match ps {
-                      List::Nil => {
-                        let pt = None
-                        let ps_ = List::Nil
-                        bind(match d {
-                          Some(e_) => Result0::Ok(e_)
-                          None => match e0 {
-                            Sexpr::SLam(q, lps, ret, leff, body) => match pt {
-                              Some(t) => match t {
-                                Ty::TArrow(pps, pr, p_UU03b5_) => {
-                                  let pexps = match eqb0(length(pps), length(lps)) {
-                                    true => map(fn(x1) { resolve(s, x1) }, pps)
-                                    false => repeat(None, length(lps))
-                                  }
-                                  elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, leff, pexps, resolve(s, pr), resolve(s, p_UU03b5_), fn(l_) {
-                                    fn(_UU0393__) { fn(t0) { elab(tys, hdr, sinfo, tps, gx, l_, _UU0393__, t0, body) } }
-                                  })
-                                }
-                                _ => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                                  Some(t0) => resolve(s, t0)
-                                  None => None
-                                }, e0)
-                              }
-                              None => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                                Some(t) => resolve(s, t)
-                                None => None
-                              }, e0)
-                            }
-                            _ => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                              Some(t) => resolve(s, t)
-                              None => None
-                            }, e0)
-                          }
-                        }, fn(e_) {
-                          bind(match d {
-                            Some(_) => Result0::Ok(s)
-                            None => match pt {
-                              Some(t) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
-                              None => Result0::Ok(s)
-                            }
-                          }, fn(s_) {
-                            bind(gargs2(p)(es_)(pre_)(ps_)(s_), fn(x) {
-                              match x {
-                                (r, s2) => Result0::Ok((List::Cons(e_, r), s2))
-                              }
-                            })
-                          })
-                        })
-                      }
-                      List::Cons(t, ts) => {
-                        let pt = Some(t)
-                        bind(match d {
-                          Some(e_) => Result0::Ok(e_)
-                          None => match e0 {
-                            Sexpr::SLam(q, lps, ret, leff, body) => match pt {
-                              Some(t0) => match t0 {
-                                Ty::TArrow(pps, pr, p_UU03b5_) => {
-                                  let pexps = match eqb0(length(pps), length(lps)) {
-                                    true => map(fn(x1) { resolve(s, x1) }, pps)
-                                    false => repeat(None, length(lps))
-                                  }
-                                  elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, leff, pexps, resolve(s, pr), resolve(s, p_UU03b5_), fn(l_) {
-                                    fn(_UU0393__) { fn(t1) { elab(tys, hdr, sinfo, tps, gx, l_, _UU0393__, t1, body) } }
-                                  })
-                                }
-                                _ => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                                  Some(t1) => resolve(s, t1)
-                                  None => None
-                                }, e0)
-                              }
-                              None => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                                Some(t0) => resolve(s, t0)
-                                None => None
-                              }, e0)
-                            }
-                            _ => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                              Some(t0) => resolve(s, t0)
-                              None => None
-                            }, e0)
-                          }
-                        }, fn(e_) {
-                          bind(match d {
-                            Some(_) => Result0::Ok(s)
-                            None => match pt {
-                              Some(t0) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
-                              None => Result0::Ok(s)
-                            }
-                          }, fn(s_) {
-                            bind(gargs2(p)(es_)(pre_)(ts)(s_), fn(x) {
-                              match x {
-                                (r, s2) => Result0::Ok((List::Cons(e_, r), s2))
-                              }
-                            })
-                          })
-                        })
-                      }
-                    }
-                  }
-                  List::Cons(d, ds) => match ps {
-                    List::Nil => {
-                      let pt = None
-                      let ps_ = List::Nil
-                      bind(match d {
-                        Some(e_) => Result0::Ok(e_)
-                        None => match e0 {
-                          Sexpr::SLam(q, lps, ret, leff, body) => match pt {
-                            Some(t) => match t {
-                              Ty::TArrow(pps, pr, p_UU03b5_) => {
-                                let pexps = match eqb0(length(pps), length(lps)) {
-                                  true => map(fn(x1) { resolve(s, x1) }, pps)
-                                  false => repeat(None, length(lps))
-                                }
-                                elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, leff, pexps, resolve(s, pr), resolve(s, p_UU03b5_), fn(l_) {
-                                  fn(_UU0393__) { fn(t0) { elab(tys, hdr, sinfo, tps, gx, l_, _UU0393__, t0, body) } }
-                                })
-                              }
-                              _ => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                                Some(t0) => resolve(s, t0)
-                                None => None
-                              }, e0)
-                            }
-                            None => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                              Some(t) => resolve(s, t)
-                              None => None
-                            }, e0)
-                          }
-                          _ => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                            Some(t) => resolve(s, t)
-                            None => None
-                          }, e0)
-                        }
-                      }, fn(e_) {
-                        bind(match d {
-                          Some(_) => Result0::Ok(s)
-                          None => match pt {
-                            Some(t) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t, _UU03c4_, s)) })
-                            None => Result0::Ok(s)
-                          }
-                        }, fn(s_) {
-                          bind(gargs2(p)(es_)(ds)(ps_)(s_), fn(x) {
-                            match x {
-                              (r, s2) => Result0::Ok((List::Cons(e_, r), s2))
-                            }
-                          })
-                        })
-                      })
-                    }
-                    List::Cons(t, ts) => {
-                      let pt = Some(t)
-                      bind(match d {
-                        Some(e_) => Result0::Ok(e_)
-                        None => match e0 {
-                          Sexpr::SLam(q, lps, ret, leff, body) => match pt {
-                            Some(t0) => match t0 {
-                              Ty::TArrow(pps, pr, p_UU03b5_) => {
-                                let pexps = match eqb0(length(pps), length(lps)) {
-                                  true => map(fn(x1) { resolve(s, x1) }, pps)
-                                  false => repeat(None, length(lps))
-                                }
-                                elab_lam(tys, hdr, tps, _UU0393_, q, lps, ret, leff, pexps, resolve(s, pr), resolve(s, p_UU03b5_), fn(l_) {
-                                  fn(_UU0393__) { fn(t1) { elab(tys, hdr, sinfo, tps, gx, l_, _UU0393__, t1, body) } }
-                                })
-                              }
-                              _ => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                                Some(t1) => resolve(s, t1)
-                                None => None
-                              }, e0)
-                            }
-                            None => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                              Some(t0) => resolve(s, t0)
-                              None => None
-                            }, e0)
-                          }
-                          _ => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match pt {
-                            Some(t0) => resolve(s, t0)
-                            None => None
-                          }, e0)
-                        }
-                      }, fn(e_) {
-                        bind(match d {
-                          Some(_) => Result0::Ok(s)
-                          None => match pt {
-                            Some(t0) => bind(type_of(hdr, p, l, _UU0393_, e_), fn(_UU03c4_) { Result0::Ok(tmatch(t0, _UU03c4_, s)) })
-                            None => Result0::Ok(s)
-                          }
-                        }, fn(s_) {
-                          bind(gargs2(p)(es_)(ds)(ts)(s_), fn(x) {
-                            match x {
-                              (r, s2) => Result0::Ok((List::Cons(e_, r), s2))
-                            }
-                          })
-                        })
-                      })
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    gargs2
+}
+
+pub fn ety_dec(e : Senv, t : Sty) -> Result0[Ty, Elab_error] {
+  match ety(e, t) {
+    Result0::Ok(_UU03c4_) => Result0::Ok(_UU03c4_)
+    Result0::Err(err) => Result0::Err(err)
   }
-  let gcall = fn(args) {
-    fn(p) {
-      fn(q) {
-        fn(g) {
-          fn(fd) {
-            fn(rcv) {
-              let nb = bounds_of(gx, g)
-              let ups = skipn(length(nb), match fd {
-                Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
-              })
-              let ps = match rcv {
-                Some(_) => tl(ups)
-                None => ups
-              }
-              let n = match fd {
-                Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
-              }
-              let s0 = match exp {
-                Some(t) => tmatch(match fd {
-                  Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
-                }, t, repeat(None, n))
-                None => repeat(None, n)
-              }
-              let s0_ = match rcv {
-                Some(p1) => match p1 {
-                  (_, _UU03c4_r) => match ups {
-                    List::Nil => s0
-                    List::Cons(p0, _) => tmatch(p0, _UU03c4_r, s0)
-                  }
-                }
-                None => s0
-              }
-              bind(gargs1(p)(args)(ps)(s0_), fn(x) {
-                match x {
-                  (pre, s1) => bind(gargs2(p)(args)(pre)(ps)(s1), fn(x0) {
-                    match x0 {
-                      (args_, s) => bind(of_opt(all_some(s), Elab_error::EE_CannotInfer(q, g)), fn(ts) {
-                        bind(mapM(fn(c) {
-                          dict_of(gx, q, _UU0393_, fst(c), nth(snd(c), ts, Ty::TBase(Base_ty::BUnit)))
-                        }, nb), fn(ds) {
-                          let rargs = match rcv {
-                            Some(p0) => match p0 {
-                              (r, _) => List::Cons(r, args_)
-                            }
-                            None => args_
-                          }
-                          Result0::Ok(promote(l, tsubst(fn(x1) { inst(ts, x1) }, match fd {
-                            Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
-                          }), tsubst(fn(x1) { inst(ts, x1) }, match fd {
-                            Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
-                          }), Expr::EApp(Expr::EGlobal(g, ts), app(ds, rargs))))
-                        })
-                      })
-                    }
-                  })
-                }
-              })
-            }
-          }
-        }
-      }
+}
+
+pub fn err_dec(e : Senv, p : Pos, t : Ident) -> Result0[Unit, Elab_error] {
+  bind(of_option(lookup_ty(match e {
+    Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+  }, t), Elab_error::EE_NotError(p, Ty::TData(t, List::Nil))), fn(x) {
+    bind(bcheck(match x {
+      Tdef::Mk_tdef(_, _, _, td_err) => td_err
+    }, Elab_error::EE_NotError(p, Ty::TData(t, List::Nil))), fn(_) { Result0::Ok(()) })
+  })
+}
+
+pub fn eff_dec(p : Pos, _UU03b5_ : Ty, _UU03c1_ : Ty) -> Result0[Unit, Elab_error] {
+  match ty_eq_dec(_UU03b5_)(Ty::TBase(Base_ty::BNever)) {
+    true => Result0::Ok(())
+    false => match ty_eq_dec(_UU03b5_)(_UU03c1_) {
+      true => Result0::Ok(())
+      false => Result0::Err(Elab_error::EE_Type(p, Type_error::E_Effect(_UU03b5_, _UU03c1_)))
     }
   }
-  let tcall = fn(args) {
-    fn(q) {
-      fn(ti) {
-        fn(m) {
-          fn(self0) {
-            fn(rcv) {
-              bind(of_opt(method_of(ti, m), Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit))), fn(x) {
-                match x {
-                  (_, sg) => {
-                    let call = fn(_UU03c4_s) {
-                      fn(all) {
-                        bind(trait_method(gx, q, _UU0393_, ti, m, _UU03c4_s), fn(x0) {
-                          match x0 {
-                            (p, _UU03b5_) => match p {
-                              (p0, r) => match p0 {
-                                (mv, _) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(mv, all)))
-                              }
-                            }
-                          }
-                        })
-                      }
-                    }
-                    let exps = fn(_UU03c4_s) {
-                      fn(ps) {
-                        map(fn(t) {
-                          Some(tsubst(fn(x1) { inst(List::Cons(_UU03c4_s, List::Nil), x1) }, t))
-                        }, ps)
-                      }
-                    }
-                    match rcv {
-                      Some(p) => match p {
-                        (r0, _UU03c4_r) => match (match sg {
-                          Msig::Mk_msig(_, ms_params, _, _) => ms_params
-                        }) {
-                          List::Nil => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
-                          List::Cons(_, ps_) => bind(elab_args(args)(exps(_UU03c4_r)(ps_)), fn(args_) { call(_UU03c4_r)(List::Cons(r0, args_)) })
-                        }
-                      }
-                      None => match (match sg {
-                        Msig::Mk_msig(_, ms_params, _, _) => ms_params
-                      }) {
-                        List::Nil => bind(match self0 {
-                          Some(t) => Result0::Ok(t)
-                          None => match (match sg {
-                            Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
-                          }) {
-                            Ty::TVar(i) => match i {
-                              Nat::O => match exp {
-                                Some(t) => Result0::Ok(t)
-                                None => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                              }
-                              Nat::S(_) => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                            }
-                            _ => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                          }
-                        }, fn(_UU03c4_s) {
-                          bind(elab_args(args)(exps(_UU03c4_s)(List::Nil)), fn(args_) { call(_UU03c4_s)(args_) })
-                        })
-                        List::Cons(t, ps_) => match t {
-                          Ty::TVar(i) => match i {
-                            Nat::O => match args {
-                              List::Nil => bind(match self0 {
-                                Some(t0) => Result0::Ok(t0)
-                                None => match (match sg {
-                                  Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
-                                }) {
-                                  Ty::TVar(i0) => match i0 {
-                                    Nat::O => match exp {
-                                      Some(t0) => Result0::Ok(t0)
-                                      None => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                                    }
-                                    Nat::S(_) => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                                  }
-                                  _ => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                                }
-                              }, fn(_UU03c4_s) {
-                                bind(elab_args(args)(exps(_UU03c4_s)(List::Cons(Ty::TVar(Nat::O), ps_))), fn(args_) { call(_UU03c4_s)(args_) })
-                              })
-                              List::Cons(a0, rest) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, self0, a0), fn(a0_) {
-                                bind(match self0 {
-                                  Some(t0) => Result0::Ok(t0)
-                                  None => type_of(hdr, q, l, _UU0393_, a0_)
-                                }, fn(_UU03c4_s) {
-                                  bind(elab_args(rest)(exps(_UU03c4_s)(ps_)), fn(rest_) { call(_UU03c4_s)(List::Cons(a0_, rest_)) })
-                                })
-                              })
-                            }
-                            Nat::S(n) => bind(match self0 {
-                              Some(t0) => Result0::Ok(t0)
-                              None => match (match sg {
-                                Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
-                              }) {
-                                Ty::TVar(i0) => match i0 {
-                                  Nat::O => match exp {
-                                    Some(t0) => Result0::Ok(t0)
-                                    None => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                                  }
-                                  Nat::S(_) => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                                }
-                                _ => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                              }
-                            }, fn(_UU03c4_s) {
-                              bind(elab_args(args)(exps(_UU03c4_s)(List::Cons(Ty::TVar(Nat::S(n)), ps_))), fn(args_) { call(_UU03c4_s)(args_) })
-                            })
-                          }
-                          x0 => bind(match self0 {
-                            Some(t0) => Result0::Ok(t0)
-                            None => match (match sg {
-                              Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
-                            }) {
-                              Ty::TVar(i) => match i {
-                                Nat::O => match exp {
-                                  Some(t0) => Result0::Ok(t0)
-                                  None => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                                }
-                                Nat::S(_) => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                              }
-                              _ => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                            }
-                          }, fn(_UU03c4_s) {
-                            bind(elab_args(args)(exps(_UU03c4_s)(List::Cons(x0, ps_))), fn(args_) { call(_UU03c4_s)(args_) })
-                          })
-                        }
-                      }
-                    }
-                  }
+}
+
+pub fn allowed_dec(e : Senv, p : Pos, _UU03b5_ : Ty, _UU03c1_ : Ty) -> Result0[Unit, Elab_error] {
+  match _UU03b5_ {
+    Ty::TData(t, ts) => match ts {
+      List::Nil => {
+        let _UU03b5_0 = Ty::TData(t, List::Nil)
+        match _UU03c1_ {
+          Ty::TError => err_dec(e, p, t)
+          x => eff_dec(p, _UU03b5_0, x)
+        }
+      }
+      List::Cons(t0, l) => eff_dec(p, Ty::TData(t, List::Cons(t0, l)), _UU03c1_)
+    }
+    x => eff_dec(p, x, _UU03c1_)
+  }
+}
+
+pub fn field_proj_dec(e : Senv, p : Pos, t : Ident, ts : List[Ty], i : Nat, e0 : Expr) -> Result0[(Expr, Ty), Elab_error] {
+  match field_proj(e, t, ts, i, e0) {
+    Some(r) => Result0::Ok(r)
+    None => Result0::Err(Elab_error::EE_Type(p, Type_error::E_TupleIndex(i, Ty::TData(t, ts))))
+  }
+}
+
+pub fn dict_dec(e : Senv, p : Pos, _UU0393_ : Lctx, tr : Ident, _UU03c4_ : Ty) -> Result0[Expr, Elab_error] {
+  match entails_dec(match (match e {
+    Senv::Mk_senv(_, _, _, _, se_x) => se_x
+  }) {
+    Xenv::Mk_xenv(_, x_insts, _, _, _, _) => x_insts
+  }, asm_of(e, _UU0393_), tr, _UU03c4_) {
+    Sumor::Inleft(s) => Result0::Ok(s)
+    Sumor::Inright => Result0::Err(Elab_error::EE_NoInstance(p, tr, _UU03c4_))
+  }
+}
+
+pub fn dicts_dec(e : Senv, p : Pos, _UU0393_ : Lctx, _UU03c4_s : List[Ty]) -> Result0[List[Expr], Elab_error] {
+  match _UU03c4_s {
+    List::Nil => Result0::Ok(List::Nil)
+    List::Cons(t, _UU03c4_s_) => bind(match t {
+      Ty::TData(tr, ts) => match ts {
+        List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString))))))))))))))))))))))
+        List::Cons(_UU03c4_, l) => match l {
+          List::Nil => bind(dict_dec(e, p, _UU0393_, tr, _UU03c4_), fn(x) { Result0::Ok(x) })
+          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString))))))))))))))))))))))
+        }
+      }
+      _ => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString))))))))))))))))))))))
+    }, fn(x) {
+      bind(dicts_dec(e, p, _UU0393_, _UU03c4_s_), fn(x0) { Result0::Ok(List::Cons(x, x0)) })
+    })
+  }
+}
+
+pub fn obj_meth_dec(e : Senv, p : Pos, _UU0393_o : Lctx, _UU03c4_ : Ty, sm : (Ident, Msig), fty : Ty) -> Result0[Expr, Elab_error] {
+  bind(of_option(find_trait(trs(e), fst(sm)), Elab_error::EE_NotObjectSafe(p, fst(sm))), fn(x) {
+    bind(of_option(method_of(x, match snd(sm) {
+      Msig::Mk_msig(ms_name, _, _, _) => ms_name
+    }), Elab_error::EE_NoMethod(p, match snd(sm) {
+      Msig::Mk_msig(ms_name, _, _, _) => ms_name
+    }, _UU03c4_)), fn(x0) {
+      match x0 {
+        (i, _) => match fty {
+          Ty::TArrow(ps, r, _UU03b5_) => bind(dict_dec(e, p, app(map(fn(t) { (None, t) }, ps), _UU0393_o), fst(sm), _UU03c4_), fn(x1) {
+            bind(field_proj_dec(e, p, fst(sm), List::Cons(_UU03c4_, List::Nil), i, x1), fn(x2) {
+              match x2 {
+                (mv, t) => match ty_eq_dec(t)(Ty::TArrow(List::Cons(_UU03c4_, ps), r, _UU03b5_)) {
+                  true => Result0::Ok(Expr::ELam(ps, r, _UU03b5_, Expr::EApp(mv, List::Cons(Expr::EVar(length(ps)), map(fn(x3) { Expr::EVar(x3) }, seq(Nat::O, length(ps)))))))
+                  false => Result0::Err(Elab_error::EE_Annot(p, Ty::TArrow(List::Cons(_UU03c4_, ps), r, _UU03b5_), t))
                 }
-              })
-            }
-          }
-        }
-      }
-    }
-  }
-  let ctor_app = fn(p) {
-    fn(q) {
-      fn(td) {
-        fn(cd) {
-          fn(args) {
-            let n = match td {
-              Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
-            }
-            let fs = match cd {
-              Cdef::Mk_cdef(_, cd_fields) => cd_fields
-            }
-            match negb(eqb0(length(fs), length(args))) {
-              true => Result0::Err(Elab_error::EE_CtorArity(q, match cd {
-                Cdef::Mk_cdef(cd_name, _) => cd_name
-              }, length(fs), length(args)))
-              false => bind(gargs1(p)(args)(fs)(data_inst(match td {
-                Tdef::Mk_tdef(td_name, _, _, _) => td_name
-              }, n, exp)), fn(x) {
-                match x {
-                  (pre, s1) => bind(gargs2(p)(args)(pre)(fs)(s1), fn(x0) {
-                    match x0 {
-                      (args_, s) => match all_some(s) {
-                        Some(ts) => Result0::Ok(Expr::EConstr(match td {
-                          Tdef::Mk_tdef(td_name, _, _, _) => td_name
-                        }, match cd {
-                          Cdef::Mk_cdef(cd_name, _) => cd_name
-                        }, ts, Expr::ETuple(args_)))
-                        None => Result0::Err(Elab_error::EE_CannotInfer(q, match cd {
-                          Cdef::Mk_cdef(cd_name, _) => cd_name
-                        }))
-                      }
-                    }
-                  })
-                }
-              })
-            }
-          }
-        }
-      }
-    }
-  }
-  let rfields = {
-    letrec rfields = fn(p) {
-      fn(_UU0393_0) {
-        fn(names) {
-          fn(fs) {
-            fn(fes) {
-              fn(s) {
-                match fes {
-                  List::Nil => Result0::Ok(((List::Nil, _UU0393_0), s))
-                  List::Cons(p0, fes_) => match p0 {
-                    (f, fe) => bind(of_opt(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(i) {
-                      bind(of_opt(nth_error(fs, i), Elab_error::EE_UnknownField(p, f)), fn(_UU03c4_f) {
-                        match _UU03c4_f {
-                          Ty::TRef(t) => {
-                            let mut0 = true
-                            bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_0, resolve(s, t), fe), fn(e_) {
-                              bind(type_of(hdr, p, l, _UU0393_0, e_), fn(_UU03c4_) {
-                                let e__ = match mut0 {
-                                  true => Expr::EMem(Mem_op::MRef(_UU03c4_), List::Cons(e_, List::Nil))
-                                  false => e_
-                                }
-                                let _UU03c4__ = match mut0 {
-                                  true => Ty::TRef(_UU03c4_)
-                                  false => _UU03c4_
-                                }
-                                bind(rfields(p)(List::Cons((None, _UU03c4__), _UU0393_0))(names)(fs)(fes_)(tmatch(_UU03c4_f, _UU03c4__, s)), fn(x) {
-                                  match x {
-                                    (p1, s1) => match p1 {
-                                      (rest, _UU0393_1) => Result0::Ok(((List::Cons((e__, i), rest), _UU0393_1), s1))
-                                    }
-                                  }
-                                })
-                              })
-                            })
-                          }
-                          _ => {
-                            let mut0 = false
-                            bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_0, resolve(s, _UU03c4_f), fe), fn(e_) {
-                              bind(type_of(hdr, p, l, _UU0393_0, e_), fn(_UU03c4_) {
-                                let e__ = match mut0 {
-                                  true => Expr::EMem(Mem_op::MRef(_UU03c4_), List::Cons(e_, List::Nil))
-                                  false => e_
-                                }
-                                let _UU03c4__ = match mut0 {
-                                  true => Ty::TRef(_UU03c4_)
-                                  false => _UU03c4_
-                                }
-                                bind(rfields(p)(List::Cons((None, _UU03c4__), _UU0393_0))(names)(fs)(fes_)(tmatch(_UU03c4_f, _UU03c4__, s)), fn(x) {
-                                  match x {
-                                    (p1, s1) => match p1 {
-                                      (rest, _UU0393_1) => Result0::Ok(((List::Cons((e__, i), rest), _UU0393_1), s1))
-                                    }
-                                  }
-                                })
-                              })
-                            })
-                          }
-                        }
-                      })
-                    })
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    rfields
-  }
-  let elab_named = {
-    letrec elab_named = fn(l0) {
-      fn(_UU0393_0) {
-        fn(tyof) {
-          fn(bs) {
-            match bs {
-              List::Nil => Result0::Ok(List::Nil)
-              List::Cons(p, bs_) => match p {
-                (y, b) => bind(elab(tys, hdr, sinfo, tps, gx, l0, _UU0393_0, tyof(y), b), fn(b_) {
-                  bind(elab_named(l0)(_UU0393_0)(tyof)(bs_), fn(rest) { Result0::Ok(List::Cons((y, b_), rest)) })
-                })
-              }
-            }
-          }
-        }
-      }
-    }
-    elab_named
-  }
-  let first_arm = {
-    letrec first_arm = fn(l0) {
-      fn(_UU0393_0) {
-        fn(_UU03c4_s) {
-          fn(cs) {
-            match cs {
-              List::Nil => Result0::Ok(None)
-              List::Cons(p, cs_) => match p {
-                (sp, b) => match diverges(b) {
-                  true => first_arm(l0)(_UU0393_0)(_UU03c4_s)(cs_)
-                  false => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_s, sp), fn(x) {
-                    match x {
-                      (_, _UU0394_) => bind(elab(tys, hdr, sinfo, tps, gx, l0, app(_UU0394_, _UU0393_0), None, b), fn(b_) {
-                        map_result(fn(x0) { Some(x0) }, type_of(hdr, sexpr_pos(b), l0, app(_UU0394_, _UU0393_0), b_))
-                      })
-                    }
-                  })
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    first_arm
-  }
-  let arms = {
-    letrec arms = fn(l0) {
-      fn(_UU0393_0) {
-        fn(_UU03c4_s) {
-          fn(cs) {
-            fn(exp0) {
-              match cs {
-                List::Nil => Result0::Ok((List::Nil, exp0))
-                List::Cons(p, cs_) => match p {
-                  (sp, b) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_s, sp), fn(x) {
-                    match x {
-                      (q, _UU0394_) => {
-                        let _UU0393__ = app(_UU0394_, _UU0393_0)
-                        bind(elab(tys, hdr, sinfo, tps, gx, l0, _UU0393__, exp0, b), fn(b_) {
-                          bind(match exp0 {
-                            Some(t) => Result0::Ok(t)
-                            None => type_of(hdr, sexpr_pos(b), l0, _UU0393__, b_)
-                          }, fn(_UU03c4_b) {
-                            bind(arms(l0)(_UU0393_0)(_UU03c4_s)(cs_)(Some(_UU03c4_b)), fn(x0) {
-                              match x0 {
-                                (rest, r) => Result0::Ok((List::Cons((q, b_), rest), r))
-                              }
-                            })
-                          })
-                        })
-                      }
-                    }
-                  })
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    arms
-  }
-  match e {
-    Sexpr::SVar(p, x) => match lookup_local(x, _UU0393_) {
-      Some(i) => match nth_error(_UU0393_, i) {
-        Some(p0) => match p0 {
-          (_, t) => match t {
-            Ty::TRef(_UU03c4_) => Result0::Ok(Expr::EMem(Mem_op::MGet(_UU03c4_), List::Cons(Expr::EVar(i), List::Nil)))
-            _ => Result0::Ok(Expr::EVar(i))
-          }
-        }
-        None => Result0::Ok(Expr::EVar(i))
-      }
-      None => match lookup_fn(hdr, x) {
-        Some(fd) => elab_global(gx, p, x, fd, exp)
-        None => Result0::Err(Elab_error::EE_Unbound(p, x))
-      }
-    }
-    Sexpr::SLit(p, l0) => bind(elab_lit(p, exp, l0), fn(l_) { Result0::Ok(Expr::ELit(l_)) })
-    Sexpr::SApp(p, f, args) => match f {
-      Sexpr::SVar(q, g) => match lookup_local(g, _UU0393_) {
-        Some(_) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-          bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-            bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-              match _UU03c4_f {
-                Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-                _ => Result0::Ok(Expr::EApp(f_, args_))
               }
             })
           })
-        })
-        None => match lookup_fn(hdr, g) {
-          Some(fd) => match (match fd {
-            Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
-          }) {
-            Nat::O => match bounds_of(gx, g) {
-              List::Nil => bind(elab_args(args)(map(fn(x) { Some(x) }, match fd {
-                Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
-              })), fn(args_) {
-                Result0::Ok(promote(l, match fd {
-                  Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
-                }, match fd {
-                  Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
-                }, Expr::EApp(Expr::EGlobal(g, List::Nil), args_)))
-              })
-              List::Cons(_, _) => gcall(args)(p)(q)(g)(fd)(None)
-            }
-            Nat::S(_) => gcall(args)(p)(q)(g)(fd)(None)
-          }
-          None => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))) {
-            true => bind(elab_args(args)(List::Cons(Some(Ty::TBase(Base_ty::BBool)), List::Nil)), fn(args_) { Result0::Ok(Expr::EPrim(Prim_op::PBoolNot, args_)) })
-            false => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
-              true => match args {
-                List::Nil => Result0::Ok(Expr::EAbort(jty(exp)))
-                List::Cons(_, _) => Result0::Err(Elab_error::EE_Type(q, Type_error::E_ArgArity(Nat::O, length(args))))
-              }
-              false => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
-                true => match args {
-                  List::Nil => Result0::Err(Elab_error::EE_Type(q, Type_error::E_ArgArity(Nat::S(Nat::O), length(args))))
-                  List::Cons(a, l0) => match l0 {
-                    List::Nil => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BString)), a), fn(a_) {
-                      bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) {
-                        match eqDec_ty(_UU03c4_a)(Ty::TBase(Base_ty::BString)) {
-                          true => Result0::Ok(Expr::ELet(a_, Expr::EAbort(jty(exp))))
-                          false => Result0::Err(Elab_error::EE_Annot(sexpr_pos(a), Ty::TBase(Base_ty::BString), _UU03c4_a))
-                        }
-                      })
-                    })
-                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Type(q, Type_error::E_ArgArity(Nat::S(Nat::O), length(args))))
-                  }
-                }
-                false => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
-                  true => match args {
-                    List::Nil => Result0::Err(Elab_error::EE_Type(q, Type_error::E_ArgArity(Nat::S(Nat::O), length(args))))
-                    List::Cons(a, l0) => match l0 {
-                      List::Nil => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BString)), a), fn(a_) {
-                        Result0::Ok(raise_val(l, Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), Expr::EConstr(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil, Expr::ETuple(List::Cons(a_, List::Nil))), jty(exp)))
-                      })
-                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Type(q, Type_error::E_ArgArity(Nat::S(Nat::O), length(args))))
-                    }
-                  }
-                  false => match eqDec_ident(g)(String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))) {
-                    true => match args {
-                      List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
-                      List::Cons(a, l0) => match l0 {
-                        List::Nil => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, a), fn(a_) { Result0::Ok(Expr::ELet(a_, Expr::ELit(Lit::LUnit))) })
-                        List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
-                      }
-                    }
-                    false => Result0::Err(Elab_error::EE_Unbound(q, g))
-                  }
-                }
-              }
-            }
-          }
+          _ => Result0::Err(Elab_error::EE_NotObjectSafe(p, fst(sm)))
         }
       }
-      Sexpr::SLit(_, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
+    })
+  })
+}
+
+pub fn obj_meths_dec(e : Senv, p : Pos, _UU0393_o : Lctx, _UU03c4_ : Ty, sms : List[(Ident, Msig)], ftys : List[Ty]) -> Result0[List[Expr], Elab_error] {
+  match sms {
+    List::Nil => match ftys {
+      List::Nil => Result0::Ok(List::Nil)
+      List::Cons(_, _) => Result0::Err(Elab_error::EE_NotObjectSafe(p, String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+    }
+    List::Cons(sm, sms_) => match ftys {
+      List::Nil => Result0::Err(Elab_error::EE_NotObjectSafe(p, String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+      List::Cons(t, ts_) => bind(obj_meth_dec(e, p, _UU0393_o, _UU03c4_, sm, t), fn(x) {
+        bind(obj_meths_dec(e, p, _UU0393_o, _UU03c4_, sms_, ts_), fn(x0) { Result0::Ok(List::Cons(x, x0)) })
+      })
+    }
+  }
+}
+
+pub fn obj_coerce(e : Senv, p : Pos, _UU0393_ : Lctx, e0 : Expr, _UU03c4_ : Ty, _ : Ty, tr : Ident) -> Result0[Expr, Elab_error] {
+  bind(of_option(lookup_ty(match e {
+    Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+  }, obj_name(tr)), Elab_error::EE_UnknownType(p, obj_name(tr))), fn(x) {
+    match eq_dec(match x {
+      Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+    }, Nat::O) {
+      true => bind(of_option(lookup_ctor(x, obj_name(tr)), Elab_error::EE_UnknownCtor(p, obj_name(tr))), fn(x0) {
+        bind(obj_meths_dec(e, p, List::Cons((None, _UU03c4_), _UU0393_), _UU03c4_, obj_fields(trs(e), tr), map({ let a1 = fn(x1) { inst(List::Nil, x1) }; fn(x1) { tsubst(a1, x1) } }, match x0 {
+          Cdef::Mk_cdef(_, cd_fields) => cd_fields
+        })), fn(x1) {
+          Result0::Ok(Expr::ELet(e0, Expr::EConstr(obj_name(tr), obj_name(tr), List::Nil, Expr::ETuple(x1))))
         })
       })
-      Sexpr::SApp(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
+      false => Result0::Err(Elab_error::EE_UnknownType(p, obj_name(tr)))
+    }
+  })
+}
+
+pub fn coerce(e : Senv, p : Pos, _UU0393_ : Lctx, e0 : Expr, _UU03c4__ : Ty, _UU03c4_ : Ty) -> Result0[Expr, Elab_error] {
+  match ty_eq_dec(_UU03c4__)(_UU03c4_) {
+    true => Result0::Ok(e0)
+    false => match obj_of(e, _UU03c4_) {
+      Some(tr) => obj_coerce(e, p, _UU0393_, e0, _UU03c4__, _UU03c4_, tr)
+      None => match _UU03c4__ {
+        Ty::TData(t, ts) => match ts {
+          List::Nil => match _UU03c4_ {
+            Ty::TError => bind(err_dec(e, p, t), fn(_) { Result0::Ok(Expr::EUp(t, e0)) })
+            _ => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_, _UU03c4__))
+          }
+          List::Cons(_, _) => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_, _UU03c4__))
+        }
+        _ => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_, _UU03c4__))
+      }
+    }
+  }
+}
+
+pub fn fin(e : Senv, p : Pos, l : Cenv, _UU0393_ : Lctx, s : Sexpr, m : Mode, r : Result0[Sout, Elab_error]) -> Result0[Out, Elab_error] {
+  match m {
+    Mode::Syn => r
+    Mode::Chk(_UU03c4_) => bind(r, fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4__, s0) => bind(coerce(e, p, _UU0393_, s0, _UU03c4__, _UU03c4_), fn(x0) { okc(e, l, _UU0393_, s, _UU03c4_, x0) })
+      }
+    })
+  }
+}
+
+pub fn binop_dec(p : Pos, op : Ident, _UU03c4_ : Ty, a : Expr, b : Expr) -> Result0[Expr, Elab_error] {
+  match elab_binop(p, op, _UU03c4_, a, b) {
+    Result0::Ok(e) => Result0::Ok(e)
+    Result0::Err(err) => Result0::Err(err)
+  }
+}
+
+pub fn targs(p : Pos, g : Ident, n : Nat, st : List[Option[Ty]]) -> Result0[List[Ty], Elab_error] {
+  match all_some(st) {
+    Some(ts) => match eq_dec(length(ts), n) {
+      true => Result0::Ok(ts)
+      false => Result0::Err(Elab_error::EE_CannotInfer(p, g))
+    }
+    None => Result0::Err(Elab_error::EE_CannotInfer(p, g))
+  }
+}
+
+pub fn fn_targs(p : Pos, g : Ident, fd : Fdef, st : List[Option[Ty]]) -> Result0[List[Ty], Elab_error] {
+  targs(p, g, match fd {
+    Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+  }, st)
+}
+
+pub fn no_bounds(e : Senv, p : Pos, g : Ident) -> Result0[Unit, Elab_error] {
+  match sbounds(e, g) {
+    List::Nil => Result0::Ok(())
+    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::EmptyString))))))))))))))))))))))))))))))
+  }
+}
+
+pub fn params_ann_dec(e : Senv, p : Pos, ps : List[(Ident, Option[Sty])], exps : List[Option[Ty]]) -> Result0[List[Ty], Elab_error] {
+  match ps {
+    List::Nil => Result0::Ok(List::Nil)
+    List::Cons(p0, ps_) => match p0 {
+      (x, a) => bind(match a {
+        Some(t) => bind(ety_dec(e, t), fn(x0) { Result0::Ok(x0) })
+        None => match hd_error(exps) {
+          Some(o) => match o {
+            Some(_UU03c4_) => Result0::Ok(_UU03c4_)
+            None => Result0::Err(Elab_error::EE_LambdaParam(p, x))
+          }
+          None => Result0::Err(Elab_error::EE_LambdaParam(p, x))
+        }
+      }, fn(x0) {
+        bind(params_ann_dec(e, p, ps_, tl(exps)), fn(x1) { Result0::Ok(List::Cons(x0, x1)) })
+      })
+    }
+  }
+}
+
+pub fn params_syn_dec(e : Senv, p : Pos, ps : List[(Ident, Option[Sty])]) -> Result0[List[Ty], Elab_error] {
+  match ps {
+    List::Nil => Result0::Ok(List::Nil)
+    List::Cons(p0, ps_) => match p0 {
+      (x, a) => bind(match a {
+        Some(t) => bind(ety_dec(e, t), fn(x0) { Result0::Ok(x0) })
+        None => Result0::Err(Elab_error::EE_LambdaParam(p, x))
+      }, fn(x0) {
+        bind(params_syn_dec(e, p, ps_), fn(x1) { Result0::Ok(List::Cons(x0, x1)) })
+      })
+    }
+  }
+}
+
+pub fn params_fit(e : Senv, p : Pos, ps : List[(Ident, Option[Sty])], _UU03c4_s : List[Ty]) -> Result0[Unit, Elab_error] {
+  match ps {
+    List::Nil => match _UU03c4_s {
+      List::Nil => Result0::Ok(())
+      List::Cons(_, _) => Result0::Err(Elab_error::EE_Type(p, Type_error::E_ArgArity(length(_UU03c4_s), length(ps))))
+    }
+    List::Cons(p0, ps_) => match p0 {
+      (_, a) => match _UU03c4_s {
+        List::Nil => Result0::Err(Elab_error::EE_Type(p, Type_error::E_ArgArity(length(_UU03c4_s), length(ps))))
+        List::Cons(_UU03c4_, _UU03c4_s_) => bind(match a {
+          Some(t) => bind(ety_dec(e, t), fn(x) {
+            match ty_eq_dec(x)(_UU03c4_) {
+              true => Result0::Ok(())
+              false => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_, x))
             }
           })
-        })
+          None => Result0::Ok(())
+        }, fn(_) { bind(params_fit(e, p, ps_, _UU03c4_s_), fn(_) { Result0::Ok(()) }) })
+      }
+    }
+  }
+}
+
+pub fn ann_fit(e : Senv, p : Pos, a : Option[Sty], _UU03c4_ : Ty) -> Result0[Unit, Elab_error] {
+  match a {
+    Some(t) => bind(ety_dec(e, t), fn(x) {
+      match ty_eq_dec(x)(_UU03c4_) {
+        true => Result0::Ok(())
+        false => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_, x))
+      }
+    })
+    None => Result0::Ok(())
+  }
+}
+
+pub fn eff_fit(e : Senv, p : Pos, a : Option[Option[Sty]], _UU03b5_ : Ty) -> Result0[Unit, Elab_error] {
+  match a {
+    Some(o) => match o {
+      Some(t) => ann_fit(e, p, Some(t), _UU03b5_)
+      None => match ty_eq_dec(_UU03b5_)(Ty::TBase(Base_ty::BNever)) {
+        true => Result0::Ok(())
+        false => Result0::Err(Elab_error::EE_Annot(p, Ty::TBase(Base_ty::BNever), _UU03b5_))
+      }
+    }
+    None => Result0::Ok(())
+  }
+}
+
+pub fn eff_pick(e : Senv, a : Option[Option[Sty]], exp : Option[Ty]) -> Result0[Ty, Elab_error] {
+  match a {
+    Some(o) => match o {
+      Some(t) => bind(ety_dec(e, t), fn(x) { Result0::Ok(x) })
+      None => Result0::Ok(Ty::TBase(Base_ty::BNever))
+    }
+    None => Result0::Ok(match exp {
+      Some(_UU03b5_) => _UU03b5_
+      None => Ty::TBase(Base_ty::BNever)
+    })
+  }
+}
+
+pub fn eff_syn_dec(e : Senv, a : Option[Option[Sty]]) -> Result0[Ty, Elab_error] {
+  match a {
+    Some(o) => match o {
+      Some(t) => bind(ety_dec(e, t), fn(x) { Result0::Ok(x) })
+      None => Result0::Ok(Ty::TBase(Base_ty::BNever))
+    }
+    None => Result0::Ok(Ty::TBase(Base_ty::BNever))
+  }
+}
+
+pub fn chk_list(e : Senv, p : Pos, l : Cenv, _UU0393_ : Lctx, f : (Sexpr) -> (Ty) -> Result0[Cout, Elab_error], ss : List[Sexpr], _UU03c4_s : List[Ty]) -> Result0[List[Expr], Elab_error] {
+  match ss {
+    List::Nil => match _UU03c4_s {
+      List::Nil => Result0::Ok(List::Nil)
+      List::Cons(_, _) => Result0::Err(Elab_error::EE_Type(p, Type_error::E_ArgArity(length(_UU03c4_s), length(ss))))
+    }
+    List::Cons(s, ss_) => match _UU03c4_s {
+      List::Nil => Result0::Err(Elab_error::EE_Type(p, Type_error::E_ArgArity(length(_UU03c4_s), length(ss))))
+      List::Cons(_UU03c4_, _UU03c4_s_) => bind(f(s)(_UU03c4_), fn(x) {
+        bind(chk_list(e, p, l, _UU0393_, f, ss_, _UU03c4_s_), fn(x0) { Result0::Ok(List::Cons(x, x0)) })
       })
-      Sexpr::SInfix(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
+    }
+  }
+}
+
+pub fn syn_list(e : Senv, l : Cenv, _UU0393_ : Lctx, f : (Sexpr) -> Result0[Sout, Elab_error], ss : List[Sexpr]) -> Result0[SigT[List[Ty], List[Expr]], Elab_error] {
+  match ss {
+    List::Nil => Result0::Ok(SigT::ExistT(List::Nil, List::Nil))
+    List::Cons(s, ss_) => bind(f(s), fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4_, s0) => bind(syn_list(e, l, _UU0393_, f, ss_), fn(x0) {
+          match x0 {
+            SigT::ExistT(_UU03c4_s, s1) => Result0::Ok(SigT::ExistT(List::Cons(_UU03c4_, _UU03c4_s), List::Cons(s0, s1)))
+          }
         })
-      })
-      Sexpr::SUnary(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
+      }
+    })
+  }
+}
+
+pub(all) enum Ahd {
+  AH_Chk(Ty, Expr)
+  AH_Syn(Ty, Expr)
+  AH_Post
+}
+
+pub type Ares = List[SigT[Sexpr, Ahd]]
+
+pub fn[A] is_none(o : Option[A]) -> Bool {
+  match o {
+    Some(_) => false
+    None => true
+  }
+}
+
+pub fn split_hd(ps : List[Ty]) -> (Option[Ty], List[Ty]) {
+  match ps {
+    List::Nil => (None, List::Nil)
+    List::Cons(t, ts) => (Some(t), ts)
+  }
+}
+
+pub fn pass1(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], l : Cenv, _UU0393_ : Lctx, args : List[Sexpr], ps : List[Ty], st : List[Option[Ty]]) -> Result0[(Ares, List[Option[Ty]]), Elab_error] {
+  match args {
+    List::Nil => Result0::Ok((List::Nil, st))
+    List::Cons(s, args_) => match split_hd(ps) {
+      (pt, ps_) => {
+        let ex = match pt {
+          Some(t) => resolve(st, t)
+          None => None
+        }
+        bind(match (match postpone(s) {
+          true => is_none(ex)
+          false => false
+        }) {
+          true => Result0::Ok((Ahd::AH_Post, st))
+          false => match ex {
+            Some(t) => bind(cres(e, l, _UU0393_, s, t, rec(s)(l)(_UU0393_)(Mode::Chk(t))), fn(x) { Result0::Ok((Ahd::AH_Chk(t, x), st)) })
+            None => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+              match x {
+                SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), match pt {
+                  Some(q) => tmatch(q, t, st)
+                  None => st
+                }))
+              }
+            })
+          }
+        }, fn(x) {
+          match x {
+            (h, st1) => bind(pass1(e, rec, l, _UU0393_, args_, ps_, st1), fn(x0) {
+              match x0 {
+                (a, st2) => Result0::Ok((List::Cons(SigT::ExistT(s, h), a), st2))
+              }
+            })
+          }
         })
-      })
-      Sexpr::SLet(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SIf(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::STup(_, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SProj(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SLam(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SAnnot(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SConstr(q, tq, c) => bind(resolve_ctor(hdr, sinfo, q, tq, c, exp), fn(x) {
+      }
+    }
+  }
+}
+
+pub fn ahd_cast(_ : Senv, _ : Cenv, _ : Lctx, _ : Sexpr, _ : Sexpr, h : Ahd) -> Ahd {
+  h
+}
+
+pub fn late_lam(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], l : Cenv, _UU0393_ : Lctx, pt : Option[Ty], st : List[Option[Ty]], s : Sexpr) -> Result0[(Ahd, List[Option[Ty]]), Elab_error] {
+  let learn = fn(t) {
+    match pt {
+      Some(q) => tmatch(q, t, st)
+      None => st
+    }
+  }
+  match (match pt {
+    Some(q) => resolve(st, q)
+    None => None
+  }) {
+    Some(t) => bind(cres(e, l, _UU0393_, s, t, rec(s)(l)(_UU0393_)(Mode::Chk(t))), fn(x) { Result0::Ok((Ahd::AH_Chk(t, x), st)) })
+    None => match s {
+      Sexpr::SVar(_, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
         match x {
-          (td, cd) => ctor_app(p)(q)(td)(cd)(args)
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
         }
       })
-      Sexpr::SRecord(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SField(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SMatch(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SLetMut(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SAssign(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SArray(_, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SIndex(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SIndexSet(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SFieldSet(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SMethod(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SQual(q, t, m) => {
-        let qcall = fn(_) {
-          let g = append(t, append(String0::String1(Ascii::Ascii0(false, true, false, true, true, true, false, false), String0::String1(Ascii::Ascii0(false, true, false, true, true, true, false, false), String0::EmptyString)), m))
-          match has_meth(gx, t, m) {
-            true => match lookup_fn(hdr, g) {
-              Some(fd) => gcall(args)(p)(q)(g)(fd)(None)
-              None => Result0::Err(Elab_error::EE_Unbound(q, g))
-            }
-            false => {
-              let with_m = fn(x1) {
-                filter(fn(ti) {
-                  match method_of(ti, m) {
-                    Some(_) => true
-                    None => false
-                  }
-                }, x1)
-              }
-              match find_trait(match gx {
-                Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-              }, t) {
-                Some(ti) => tcall(args)(q)(ti)(m)(None)(None)
-                None => match index_of(t, tps) {
-                  Some(i) => match with_m(flat_map(fn(tr) {
-                    match find_trait(match gx {
-                      Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-                    }, tr) {
-                      Some(ti) => List::Cons(ti, List::Nil)
-                      None => List::Nil
-                    }
-                  }, asm_traits(gx, Ty::TVar(i)))) {
-                    List::Nil => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TVar(i)))
-                    List::Cons(ti, _) => tcall(args)(q)(ti)(m)(Some(Ty::TVar(i)))(None)
-                  }
-                  None => match with_m(match gx {
-                    Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-                  }) {
-                    List::Nil => Result0::Err(Elab_error::EE_NoMethod(q, m, Ty::TBase(Base_ty::BUnit)))
-                    List::Cons(ti, l0) => match l0 {
-                      List::Nil => tcall(args)(q)(ti)(m)(None)(None)
-                      List::Cons(_, _) => Result0::Err(Elab_error::EE_AmbiguousMethod(q, m))
-                    }
-                  }
-                }
-              }
-            }
-          }
+      Sexpr::SLit(_, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
         }
-        match array_kind_of(t) {
-          Some(k) => match args {
-            List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
-              true => match exp {
-                Some(t0) => match t0 {
-                  Ty::TArray(_, t1) => Result0::Ok(Expr::EMem(Mem_op::MArray(k, t1, Nat::O), List::Nil))
-                  _ => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-                }
-                None => Result0::Err(Elab_error::EE_CannotInfer(q, m))
-              }
-              false => qcall(())
-            }
-            List::Cons(n, l0) => match l0 {
-              List::Nil => qcall(())
-              List::Cons(v, l1) => match l1 {
-                List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))) {
-                  true => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BInt(Int_kind::I32))), n), fn(n_) {
-                    bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match exp {
-                      Some(t0) => match t0 {
-                        Ty::TBase(_) => None
-                        Ty::TVar(_) => None
-                        Ty::TTuple(_) => None
-                        Ty::TArrow(_, _, _) => None
-                        Ty::TData(_, _) => None
-                        Ty::TRef(_) => None
-                        Ty::TArray(_, t1) => Some(t1)
-                        Ty::TError => None
-                      }
-                      None => None
-                    }, v), fn(v_) {
-                      bind(type_of(hdr, p, l, _UU0393_, v_), fn(t0) {
-                        Result0::Ok(Expr::EMem(Mem_op::MMake(k, t0), List::Cons(n_, List::Cons(v_, List::Nil))))
-                      })
-                    })
-                  })
-                  false => qcall(())
-                }
-                List::Cons(_, _) => qcall(())
-              }
-            }
-          }
-          None => match args {
-            List::Nil => qcall(())
-            List::Cons(v, l0) => match l0 {
-              List::Nil => match (match eqDec_ident(t)(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))) {
-                true => eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString))))
-                false => false
-              }) {
-                true => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match exp {
-                  Some(t0) => match t0 {
-                    Ty::TBase(_) => None
-                    Ty::TVar(_) => None
-                    Ty::TTuple(_) => None
-                    Ty::TArrow(_, _, _) => None
-                    Ty::TData(r, ts) => match ts {
-                      List::Nil => None
-                      List::Cons(t1, l1) => match l1 {
-                        List::Nil => match eqDec_ident(r)(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))) {
-                          true => Some(t1)
-                          false => None
+      })
+      Sexpr::SApp(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SInfix(_, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SUnary(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SLet(_, _, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SIf(_, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::STup(_, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SProj(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SLam(q, lps, ret, a, body) => match pt {
+        Some(t) => match t {
+          Ty::TBase(_) => {
+            let p = (repeat(None, length(lps)), None)
+            let _UU03b5_exp = None
+            match p {
+              (pexps, rexp) => bind(params_ann_dec(e, q, lps, pexps), fn(x) {
+                bind(eff_pick(e, a, _UU03b5_exp), fn(x0) {
+                  let _UU0393__ = app(lam_ctx(lps, x), _UU0393_)
+                  bind(match ret {
+                    Some(s0) => {
+                      let r0 = Some(s0)
+                      bind(match r0 {
+                        Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                        None => match rexp {
+                          Some(r) => Result0::Ok(r)
+                          None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
                         }
-                        List::Cons(_, _) => None
+                      }, fn(x1) {
+                        bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                          Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                        })
+                      })
+                    }
+                    None => {
+                      let r0 = None
+                      match rexp {
+                        Some(_) => bind(match r0 {
+                          Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                          None => match rexp {
+                            Some(r) => Result0::Ok(r)
+                            None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                          }
+                        }, fn(x1) {
+                          bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                            Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                          })
+                        })
+                        None => bind(rec(body)(Cenv::Mk_cenv(List::Nil, x0))(_UU0393__)(Mode::Syn), fn(x1) {
+                          match x1 {
+                            SigT::ExistT(r, s0) => Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, r, x0), Expr::ELam(x, r, x0, s0)), learn(Ty::TArrow(x, r, x0))))
+                          }
+                        })
                       }
                     }
-                    _ => None
-                  }
-                  None => None
-                }, v), fn(v_) {
-                  bind(type_of(hdr, p, l, _UU0393_, v_), fn(t0) {
-                    Result0::Ok(Expr::EConstr(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(t0, List::Nil), Expr::ETuple(List::Cons(Expr::EMem(Mem_op::MRef(t0), List::Cons(v_, List::Nil)), List::Nil))))
+                  }, fn(x1) {
+                    match x1 {
+                      (h, st_) => Result0::Ok((ahd_cast(e, l, _UU0393_, Sexpr::SLam(q, lps, ret, a, body), s, h), st_))
+                    }
                   })
                 })
-                false => qcall(())
-              }
-              List::Cons(_, _) => qcall(())
+              })
             }
+          }
+          Ty::TVar(_) => {
+            let p = (repeat(None, length(lps)), None)
+            let _UU03b5_exp = None
+            match p {
+              (pexps, rexp) => bind(params_ann_dec(e, q, lps, pexps), fn(x) {
+                bind(eff_pick(e, a, _UU03b5_exp), fn(x0) {
+                  let _UU0393__ = app(lam_ctx(lps, x), _UU0393_)
+                  bind(match ret {
+                    Some(s0) => {
+                      let r0 = Some(s0)
+                      bind(match r0 {
+                        Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                        None => match rexp {
+                          Some(r) => Result0::Ok(r)
+                          None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                        }
+                      }, fn(x1) {
+                        bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                          Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                        })
+                      })
+                    }
+                    None => {
+                      let r0 = None
+                      match rexp {
+                        Some(_) => bind(match r0 {
+                          Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                          None => match rexp {
+                            Some(r) => Result0::Ok(r)
+                            None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                          }
+                        }, fn(x1) {
+                          bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                            Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                          })
+                        })
+                        None => bind(rec(body)(Cenv::Mk_cenv(List::Nil, x0))(_UU0393__)(Mode::Syn), fn(x1) {
+                          match x1 {
+                            SigT::ExistT(r, s0) => Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, r, x0), Expr::ELam(x, r, x0, s0)), learn(Ty::TArrow(x, r, x0))))
+                          }
+                        })
+                      }
+                    }
+                  }, fn(x1) {
+                    match x1 {
+                      (h, st_) => Result0::Ok((ahd_cast(e, l, _UU0393_, Sexpr::SLam(q, lps, ret, a, body), s, h), st_))
+                    }
+                  })
+                })
+              })
+            }
+          }
+          Ty::TTuple(_) => {
+            let p = (repeat(None, length(lps)), None)
+            let _UU03b5_exp = None
+            match p {
+              (pexps, rexp) => bind(params_ann_dec(e, q, lps, pexps), fn(x) {
+                bind(eff_pick(e, a, _UU03b5_exp), fn(x0) {
+                  let _UU0393__ = app(lam_ctx(lps, x), _UU0393_)
+                  bind(match ret {
+                    Some(s0) => {
+                      let r0 = Some(s0)
+                      bind(match r0 {
+                        Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                        None => match rexp {
+                          Some(r) => Result0::Ok(r)
+                          None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                        }
+                      }, fn(x1) {
+                        bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                          Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                        })
+                      })
+                    }
+                    None => {
+                      let r0 = None
+                      match rexp {
+                        Some(_) => bind(match r0 {
+                          Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                          None => match rexp {
+                            Some(r) => Result0::Ok(r)
+                            None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                          }
+                        }, fn(x1) {
+                          bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                            Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                          })
+                        })
+                        None => bind(rec(body)(Cenv::Mk_cenv(List::Nil, x0))(_UU0393__)(Mode::Syn), fn(x1) {
+                          match x1 {
+                            SigT::ExistT(r, s0) => Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, r, x0), Expr::ELam(x, r, x0, s0)), learn(Ty::TArrow(x, r, x0))))
+                          }
+                        })
+                      }
+                    }
+                  }, fn(x1) {
+                    match x1 {
+                      (h, st_) => Result0::Ok((ahd_cast(e, l, _UU0393_, Sexpr::SLam(q, lps, ret, a, body), s, h), st_))
+                    }
+                  })
+                })
+              })
+            }
+          }
+          Ty::TArrow(pps, pr, p_UU03b5_) => {
+            let p = (match eqb0(length(pps), length(lps)) {
+              true => map(fn(x1) { resolve(st, x1) }, pps)
+              false => repeat(None, length(lps))
+            }, resolve(st, pr))
+            let _UU03b5_exp = resolve(st, p_UU03b5_)
+            match p {
+              (pexps, rexp) => bind(params_ann_dec(e, q, lps, pexps), fn(x) {
+                bind(eff_pick(e, a, _UU03b5_exp), fn(x0) {
+                  let _UU0393__ = app(lam_ctx(lps, x), _UU0393_)
+                  bind(match ret {
+                    Some(s0) => {
+                      let r0 = Some(s0)
+                      bind(match r0 {
+                        Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                        None => match rexp {
+                          Some(r) => Result0::Ok(r)
+                          None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                        }
+                      }, fn(x1) {
+                        bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                          Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                        })
+                      })
+                    }
+                    None => {
+                      let r0 = None
+                      match rexp {
+                        Some(_) => bind(match r0 {
+                          Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                          None => match rexp {
+                            Some(r) => Result0::Ok(r)
+                            None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                          }
+                        }, fn(x1) {
+                          bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                            Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                          })
+                        })
+                        None => bind(rec(body)(Cenv::Mk_cenv(List::Nil, x0))(_UU0393__)(Mode::Syn), fn(x1) {
+                          match x1 {
+                            SigT::ExistT(r, s0) => Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, r, x0), Expr::ELam(x, r, x0, s0)), learn(Ty::TArrow(x, r, x0))))
+                          }
+                        })
+                      }
+                    }
+                  }, fn(x1) {
+                    match x1 {
+                      (h, st_) => Result0::Ok((ahd_cast(e, l, _UU0393_, Sexpr::SLam(q, lps, ret, a, body), s, h), st_))
+                    }
+                  })
+                })
+              })
+            }
+          }
+          _ => {
+            let p = (repeat(None, length(lps)), None)
+            let _UU03b5_exp = None
+            match p {
+              (pexps, rexp) => bind(params_ann_dec(e, q, lps, pexps), fn(x) {
+                bind(eff_pick(e, a, _UU03b5_exp), fn(x0) {
+                  let _UU0393__ = app(lam_ctx(lps, x), _UU0393_)
+                  bind(match ret {
+                    Some(s0) => {
+                      let r0 = Some(s0)
+                      bind(match r0 {
+                        Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                        None => match rexp {
+                          Some(r) => Result0::Ok(r)
+                          None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                        }
+                      }, fn(x1) {
+                        bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                          Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                        })
+                      })
+                    }
+                    None => {
+                      let r0 = None
+                      match rexp {
+                        Some(_) => bind(match r0 {
+                          Some(t0) => bind(ety_dec(e, t0), fn(x1) { Result0::Ok(x1) })
+                          None => match rexp {
+                            Some(r) => Result0::Ok(r)
+                            None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                          }
+                        }, fn(x1) {
+                          bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                            Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                          })
+                        })
+                        None => bind(rec(body)(Cenv::Mk_cenv(List::Nil, x0))(_UU0393__)(Mode::Syn), fn(x1) {
+                          match x1 {
+                            SigT::ExistT(r, s0) => Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, r, x0), Expr::ELam(x, r, x0, s0)), learn(Ty::TArrow(x, r, x0))))
+                          }
+                        })
+                      }
+                    }
+                  }, fn(x1) {
+                    match x1 {
+                      (h, st_) => Result0::Ok((ahd_cast(e, l, _UU0393_, Sexpr::SLam(q, lps, ret, a, body), s, h), st_))
+                    }
+                  })
+                })
+              })
+            }
+          }
+        }
+        None => {
+          let p = (repeat(None, length(lps)), None)
+          let _UU03b5_exp = None
+          match p {
+            (pexps, rexp) => bind(params_ann_dec(e, q, lps, pexps), fn(x) {
+              bind(eff_pick(e, a, _UU03b5_exp), fn(x0) {
+                let _UU0393__ = app(lam_ctx(lps, x), _UU0393_)
+                bind(match ret {
+                  Some(s0) => {
+                    let r0 = Some(s0)
+                    bind(match r0 {
+                      Some(t) => bind(ety_dec(e, t), fn(x1) { Result0::Ok(x1) })
+                      None => match rexp {
+                        Some(r) => Result0::Ok(r)
+                        None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                      }
+                    }, fn(x1) {
+                      bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                        Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                      })
+                    })
+                  }
+                  None => {
+                    let r0 = None
+                    match rexp {
+                      Some(_) => bind(match r0 {
+                        Some(t) => bind(ety_dec(e, t), fn(x1) { Result0::Ok(x1) })
+                        None => match rexp {
+                          Some(r) => Result0::Ok(r)
+                          None => Result0::Err(Elab_error::EE_LambdaParam(q, String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))
+                        }
+                      }, fn(x1) {
+                        bind(cres(e, fun_env(x1, x0), _UU0393__, body, x1, rec(body)(fun_env(x1, x0))(_UU0393__)(Mode::Chk(x1))), fn(x2) {
+                          Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))), learn(Ty::TArrow(x, x1, x0))))
+                        })
+                      })
+                      None => bind(rec(body)(Cenv::Mk_cenv(List::Nil, x0))(_UU0393__)(Mode::Syn), fn(x1) {
+                        match x1 {
+                          SigT::ExistT(r, s0) => Result0::Ok((Ahd::AH_Chk(Ty::TArrow(x, r, x0), Expr::ELam(x, r, x0, s0)), learn(Ty::TArrow(x, r, x0))))
+                        }
+                      })
+                    }
+                  }
+                }, fn(x1) {
+                  match x1 {
+                    (h, st_) => Result0::Ok((ahd_cast(e, l, _UU0393_, Sexpr::SLam(q, lps, ret, a, body), s, h), st_))
+                  }
+                })
+              })
+            })
           }
         }
       }
-      Sexpr::SWhile(_, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
+      Sexpr::SAnnot(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SConstr(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SRecord(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SField(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SMatch(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SLetMut(_, _, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SAssign(_, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SArray(_, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SIndex(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SIndexSet(_, _, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SFieldSet(_, _, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SMethod(_, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SQual(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SWhile(_, _, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SFor(_, _, _, _, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SBlock(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SBreak(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SContinue(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SReturn(_, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SForIn(_, _, _, _, _, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SRaise(_, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::STry(_, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::STryBang(_, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SDefer(_, _, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+      Sexpr::SAs(_, _, _) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(t, s0) => Result0::Ok((Ahd::AH_Syn(t, s0), learn(t)))
+        }
+      })
+    }
+  }
+}
+
+pub fn pass2(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], l : Cenv, _UU0393_ : Lctx, args : List[Sexpr], rs : List[SigT[Sexpr, Ahd]], x : List[Ty], x0 : List[Option[Ty]]) -> Result0[(Ares, List[Option[Ty]]), Elab_error] {
+  match args {
+    List::Nil => Result0::Ok((List::Nil, x0))
+    List::Cons(s, args_) => match rs {
+      List::Nil => abort("absurd case")
+      List::Cons(x1, rs_) => match split_hd(x) {
+        (pt, ps_) => match x1 {
+          SigT::ExistT(s0, h) => match h {
+            Ahd::AH_Chk(_, _) => bind(pass2(e, rec, l, _UU0393_, args_, rs_, ps_, x0), fn(x2) {
+              match x2 {
+                (a, st2) => Result0::Ok((List::Cons(SigT::ExistT(s0, h), a), st2))
+              }
+            })
+            Ahd::AH_Syn(_, _) => bind(pass2(e, rec, l, _UU0393_, args_, rs_, ps_, x0), fn(x2) {
+              match x2 {
+                (a, st2) => Result0::Ok((List::Cons(SigT::ExistT(s0, h), a), st2))
+              }
+            })
+            Ahd::AH_Post => bind(late_lam(e, rec, l, _UU0393_, pt, x0, s), fn(x2) {
+              match x2 {
+                (h0, st1) => bind(pass2(e, rec, l, _UU0393_, args_, rs_, ps_, st1), fn(x3) {
+                  match x3 {
+                    (a, st2) => Result0::Ok((List::Cons(SigT::ExistT(s, h0), a), st2))
+                  }
+                })
+              }
+            })
+          }
+        }
+      }
+    }
+  }
+}
+
+pub fn finish(e : Senv, p : Pos, l : Cenv, _UU0393_ : Lctx, args : List[Sexpr], rs : List[SigT[Sexpr, Ahd]], _UU03c4_s : List[Ty]) -> Result0[List[Expr], Elab_error] {
+  match args {
+    List::Nil => match _UU03c4_s {
+      List::Nil => Result0::Ok(List::Nil)
+      List::Cons(_, _) => Result0::Err(Elab_error::EE_Type(p, Type_error::E_ArgArity(length(_UU03c4_s), Nat::O)))
+    }
+    List::Cons(_, args_) => match rs {
+      List::Nil => abort("absurd case")
+      List::Cons(x, rs_) => match _UU03c4_s {
+        List::Nil => Result0::Err(Elab_error::EE_Type(p, Type_error::E_ArgArity(Nat::O, length(args))))
+        List::Cons(_UU03c4_, _UU03c4_s_) => bind(match x {
+          SigT::ExistT(_, y) => match y {
+            Ahd::AH_Chk(t, e0) => match ty_eq_dec(t)(_UU03c4_) {
+              true => Result0::Ok(e0)
+              false => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_, t))
+            }
+            Ahd::AH_Syn(t, e0) => bind(coerce(e, p, _UU0393_, e0, t, _UU03c4_), fn(x0) { Result0::Ok(x0) })
+            Ahd::AH_Post => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString))))))))))
+          }
+        }, fn(x0) {
+          bind(finish(e, p, l, _UU0393_, args_, rs_, _UU03c4_s_), fn(x1) { Result0::Ok(List::Cons(x0, x1)) })
+        })
+      }
+    }
+  }
+}
+
+pub fn gargs(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, q : Pos, l : Cenv, _UU0393_ : Lctx, args : List[Sexpr], ps : List[Ty], n : Nat, st0 : List[Option[Ty]], g : Ident) -> Result0[SigT[List[Ty], List[Expr]], Elab_error] {
+  bind(bcheck(eqb0(length(args), length(ps)), Elab_error::EE_Type(q, Type_error::E_ArgArity(length(ps), length(args)))), fn(_) {
+    bind(pass1(e, rec, l, _UU0393_, args, ps, st0), fn(x) {
+      match x {
+        (a, st1) => bind(pass2(e, rec, l, _UU0393_, args, a, ps, st1), fn(x0) {
+          match x0 {
+            (a0, st2) => bind(targs(q, g, n, st2), fn(x1) {
+              bind(finish(e, p, l, _UU0393_, args, a0, map({ let a1 = fn(x2) { inst(x1, x2) }; fn(x2) { tsubst(a1, x2) } }, ps)), fn(x2) { Result0::Ok(SigT::ExistT(x1, x2)) })
+            })
+          }
+        })
+      }
+    })
+  })
+}
+
+pub fn lit_err(p : Pos, l : Slit) -> Elab_error {
+  match l {
+    Slit::SLInt(ko, z) => Elab_error::EE_IntRange(p, match ko {
+      Some(k) => k
+      None => Int_kind::I32
+    }, z)
+    _ => Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))))))
+  }
+}
+
+pub fn lit_syn(_ : Senv, p : Pos, _ : Cenv, _ : Lctx, l : Slit) -> Result0[Sout, Elab_error] {
+  match lit_of(l) {
+    Some(l_) => Result0::Ok(SigT::ExistT(Ty::TBase(lit_ty(l_)), Expr::ELit(l_)))
+    None => Result0::Err(lit_err(p, l))
+  }
+}
+
+pub fn lit_m(e : Senv, p : Pos, l : Cenv, _UU0393_ : Lctx, l0 : Slit, m : Mode) -> Result0[Out, Elab_error] {
+  match m {
+    Mode::Syn => lit_syn(e, p, l, _UU0393_, l0)
+    Mode::Chk(_UU03c4_) => match l0 {
+      Slit::SLInt(k0, z) => match k0 {
+        Some(i) => {
+          let l1 = Slit::SLInt(Some(i), z)
+          fin(e, p, l, _UU0393_, Sexpr::SLit(p, l1), Mode::Chk(_UU03c4_), lit_syn(e, p, l, _UU0393_, l1))
+        }
+        None => {
+          let l1 = Slit::SLInt(None, z)
+          match _UU03c4_ {
+            Ty::TBase(b) => match b {
+              Base_ty::BInt(k) => bind(bcheck(int_in_range(k, z), Elab_error::EE_IntRange(p, k, z)), fn(_) {
+                okc(e, l, _UU0393_, Sexpr::SLit(p, Slit::SLInt(None, z)), Ty::TBase(Base_ty::BInt(k)), Expr::ELit(Lit::LInt(k, z)))
+              })
+              x => fin(e, p, l, _UU0393_, Sexpr::SLit(p, l1), Mode::Chk(Ty::TBase(x)), lit_syn(e, p, l, _UU0393_, l1))
+            }
+            x => fin(e, p, l, _UU0393_, Sexpr::SLit(p, l1), Mode::Chk(x), lit_syn(e, p, l, _UU0393_, l1))
+          }
+        }
+      }
+      x => fin(e, p, l, _UU0393_, Sexpr::SLit(p, x), Mode::Chk(_UU03c4_), lit_syn(e, p, l, _UU0393_, x))
+    }
+  }
+}
+
+pub fn var_syn(e : Senv, p : Pos, _ : Cenv, _UU0393_ : Lctx, x : Ident, h : Option[Ty]) -> Result0[Sout, Elab_error] {
+  match lookup_local(x, _UU0393_) {
+    Some(i) => bind(of_option(nth_error(ctx_of(_UU0393_), i), Elab_error::EE_Unbound(p, x)), fn(x0) {
+      match x0 {
+        Ty::TRef(u) => Result0::Ok(SigT::ExistT(u, Expr::EMem(Mem_op::MGet(u), List::Cons(Expr::EVar(i), List::Nil))))
+        x1 => Result0::Ok(SigT::ExistT(x1, Expr::EVar(i)))
+      }
+    })
+    None => bind(of_option(lookup_fn(match e {
+      Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+    }, x), Elab_error::EE_Unbound(p, x)), fn(x0) {
+      bind(no_bounds(e, p, x), fn(_) {
+        let n = match x0 {
+          Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+        }
+        bind(fn_targs(p, x, x0, match h {
+          Some(t) => tmatch(Ty::TArrow(match x0 {
+            Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
+          }, match x0 {
+            Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+          }, match x0 {
+            Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
+          }), t, repeat(None, n))
+          None => repeat(None, n)
+        }), fn(x1) { Result0::Ok(SigT::ExistT(fn_inst(x0, x1), Expr::EGlobal(x, x1))) })
+      })
+    })
+  }
+}
+
+pub fn tq_dec(_ : Pos, tq : Option[Ident], t : Ident, err : Elab_error) -> Result0[Unit, Elab_error] {
+  match tq {
+    Some(t_) => match eq_dec0(eqDec_ident, t_, t) {
+      true => Result0::Ok(())
+      false => Result0::Err(err)
+    }
+    None => Result0::Ok(())
+  }
+}
+
+pub fn ctor_pick_dec(e : Senv, p : Pos, tq : Option[Ident], c : Ident) -> Result0[Ident, Elab_error] {
+  match tq {
+    Some(t) => Result0::Ok(t)
+    None => match map(fn(t) {
+      match t {
+        Tdef::Mk_tdef(td_name, _, _, _) => td_name
+      }
+    }, filter(fn(td) {
+      match negb(is_rec(e, match td {
+        Tdef::Mk_tdef(td_name, _, _, _) => td_name
+      })) {
+        true => ctor_in(c, td)
+        false => false
+      }
+    }, match (match e {
+      Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+    }) {
+      Genv::Mk_genv(ge_types, _) => ge_types
+    })) {
+      List::Nil => Result0::Err(Elab_error::EE_UnknownCtor(p, c))
+      List::Cons(t, l) => match l {
+        List::Nil => Result0::Ok(t)
+        List::Cons(_, _) => Result0::Err(Elab_error::EE_AmbiguousCtor(p, c))
+      }
+    }
+  }
+}
+
+pub fn err_owner_dec(e : Senv, p : Pos, tq : Option[Ident], c : Ident) -> Result0[Ident, Elab_error] {
+  match tq {
+    Some(t) => Result0::Ok(t)
+    None => match map(fn(t) {
+      match t {
+        Tdef::Mk_tdef(td_name, _, _, _) => td_name
+      }
+    }, filter(fn(td) {
+      match (match td {
+        Tdef::Mk_tdef(_, _, _, td_err) => td_err
+      }) {
+        true => ctor_in(c, td)
+        false => false
+      }
+    }, match (match e {
+      Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+    }) {
+      Genv::Mk_genv(ge_types, _) => ge_types
+    })) {
+      List::Nil => Result0::Err(Elab_error::EE_UnknownCtor(p, c))
+      List::Cons(t, l) => match l {
+        List::Nil => Result0::Ok(t)
+        List::Cons(_, _) => Result0::Err(Elab_error::EE_AmbiguousCtor(p, c))
+      }
+    }
+  }
+}
+
+pub fn single_ctor(p : Pos, td : Tdef, t : Ty) -> Result0[Cdef, Elab_error] {
+  match (match td {
+    Tdef::Mk_tdef(_, _, td_ctors, _) => td_ctors
+  }) {
+    List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, t))
+    List::Cons(cd, l) => match l {
+      List::Nil => Result0::Ok(cd)
+      List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, t))
+    }
+  }
+}
+
+pub fn fpat(_ : Senv, rec : (Spat) -> (Ty) -> Result0[SigT[Pat, Lctx], Elab_error], sp : Spat, _UU03c4_ : Ty) -> Result0[SigT[Pat, Lctx], Elab_error] {
+  match _UU03c4_ {
+    Ty::TBase(b) => {
+      let t = Ty::TBase(b)
+      bind(rec(sp)(t), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, s))
+        }
+      })
+    }
+    Ty::TVar(i) => {
+      let t = Ty::TVar(i)
+      bind(rec(sp)(t), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, s))
+        }
+      })
+    }
+    Ty::TTuple(ts) => {
+      let t = Ty::TTuple(ts)
+      bind(rec(sp)(t), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, s))
+        }
+      })
+    }
+    Ty::TArrow(ps, r, _UU03b5_) => {
+      let t = Ty::TArrow(ps, r, _UU03b5_)
+      bind(rec(sp)(t), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, s))
+        }
+      })
+    }
+    Ty::TData(t, ts) => {
+      let t0 = Ty::TData(t, ts)
+      bind(rec(sp)(t0), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, s))
+        }
+      })
+    }
+    Ty::TRef(u) => bind(rec(sp)(u), fn(x) {
+      match x {
+        SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(Pat::PRef(q), s))
+      }
+    })
+    Ty::TArray(k, t0) => {
+      let t = Ty::TArray(k, t0)
+      bind(rec(sp)(t), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, s))
+        }
+      })
+    }
+    Ty::TError => {
+      let t = Ty::TError
+      bind(rec(sp)(t), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, s))
+        }
+      })
+    }
+  }
+}
+
+pub fn fpats_prefix(e : Senv, rec : (Spat) -> (Ty) -> Result0[SigT[Pat, Lctx], Elab_error], err : Elab_error, sps : List[Spat], fs : List[Ty]) -> Result0[SigT[List[Pat], SigT[Lctx, SigT[List[Ty], List[Ty]]]], Elab_error] {
+  match sps {
+    List::Nil => Result0::Ok(SigT::ExistT(List::Nil, SigT::ExistT(List::Nil, SigT::ExistT(List::Nil, fs))))
+    List::Cons(sp, sps_) => match fs {
+      List::Nil => Result0::Err(err)
+      List::Cons(_UU03c4_, fs_) => bind(fpat(e, rec, sp, _UU03c4_), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => bind(fpats_prefix(e, rec, err, sps_, fs_), fn(x0) {
+            match x0 {
+              SigT::ExistT(qs, s0) => match s0 {
+                SigT::ExistT(_UU0394_2, s1) => match s1 {
+                  SigT::ExistT(fs1, s2) => Result0::Ok(SigT::ExistT(List::Cons(q, qs), SigT::ExistT(app(s, _UU0394_2), SigT::ExistT(List::Cons(_UU03c4_, fs1), s2))))
+                }
+              }
             }
           })
-        })
+        }
       })
-      Sexpr::SFor(_, _, _, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SBlock(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SBreak(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SContinue(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SReturn(_, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SForIn(_, _, _, _, _, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SRaise(_, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::STry(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::STryBang(_, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SDefer(_, _, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
-            }
-          })
-        })
-      })
-      Sexpr::SAs(_, _, _) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, f), fn(f_) {
-        bind(type_of(hdr, p, l, _UU0393_, f_), fn(_UU03c4_f) {
-          bind(elab_args(args)(arrow_params(_UU03c4_f, length(args))), fn(args_) {
-            match _UU03c4_f {
-              Ty::TArrow(_, r, _UU03b5_) => Result0::Ok(promote(l, _UU03b5_, r, Expr::EApp(f_, args_)))
-              _ => Result0::Ok(Expr::EApp(f_, args_))
+    }
+  }
+}
+
+pub fn named_pats(e : Senv, rec : (Spat) -> (Ty) -> Result0[SigT[Pat, Lctx], Elab_error], p : Pos, names : List[Ident], fs : List[Ty], fps : List[(Ident, Spat)]) -> Result0[List[((Nat, Pat), Lctx)], Elab_error] {
+  match fps {
+    List::Nil => Result0::Ok(List::Nil)
+    List::Cons(p0, fps_) => match p0 {
+      (f, sp) => bind(of_option(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(x) {
+        bind(of_option(nth_error(fs, x), Elab_error::EE_UnknownField(p, f)), fn(x0) {
+          bind(fpat(e, rec, sp, x0), fn(x1) {
+            match x1 {
+              SigT::ExistT(q, s) => bind(named_pats(e, rec, p, names, fs, fps_), fn(x2) { Result0::Ok(List::Cons(((x, q), s), x2)) })
             }
           })
         })
       })
     }
-    Sexpr::SInfix(p, op, a, b) => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(false, true, true, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, false, false), String0::EmptyString))) {
-      true => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
-        bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), b), fn(b_) { Result0::Ok(Expr::EIf(a_, b_, e_false)) })
-      })
-      false => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(false, false, true, true, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, true, true, true, false), String0::EmptyString))) {
-        true => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
-          bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), b), fn(b_) { Result0::Ok(Expr::EIf(a_, e_true, b_)) })
-        })
-        false => {
-          let exp_ = match assoc(op, arith_ops) {
-            Some(_) => exp
-            None => None
+  }
+}
+
+pub fn open_ok(p : Pos, _UU03c4_ : Ty, op : Bool, fs2 : List[Ty]) -> Result0[Unit, Elab_error] {
+  match op {
+    true => Result0::Ok(())
+    false => match fs2 {
+      List::Nil => Result0::Ok(())
+      List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
+    }
+  }
+}
+
+pub fn missing_field(names : List[Ident], given : List[((Nat, Pat), Lctx)]) -> Ident {
+  match find(fn(f) {
+    match index_of(f, names) {
+      Some(j) => negb(existsb(fn(x) { eqb0(fst(fst(x)), j) }, given))
+      None => false
+    }
+  }, names) {
+    Some(f) => f
+    None => String0::EmptyString
+  }
+}
+
+pub fn epat(e : Senv, sp : Spat, _UU03c4_ : Ty) -> Result0[SigT[Pat, Lctx], Elab_error] {
+  match sp {
+    Spat::SPWild(_) => Result0::Ok(SigT::ExistT(Pat::PWild, List::Nil))
+    Spat::SPVar(_, x) => Result0::Ok(SigT::ExistT(Pat::PVar, List::Cons((Some(x), _UU03c4_), List::Nil)))
+    Spat::SPLit(p, l) => match elab_lit(p, Some(_UU03c4_), l) {
+      Result0::Ok(l_) => match ty_eq_dec(Ty::TBase(lit_ty(l_)))(_UU03c4_) {
+        true => Result0::Ok(SigT::ExistT(Pat::PLit(l_), List::Nil))
+        false => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
+      }
+      Result0::Err(err) => Result0::Err(err)
+    }
+    Spat::SPTuple(p, sps) => match _UU03c4_ {
+      Ty::TTuple(_UU03c4_s) => bind(fpats_prefix(e, fn(x1) { fn(x2) { epat(e, x1, x2) } }, Elab_error::EE_PatType(p, Ty::TTuple(_UU03c4_s)), sps, _UU03c4_s), fn(x) {
+        match x {
+          SigT::ExistT(qs, s) => match s {
+            SigT::ExistT(_UU0394_, s0) => match s0 {
+              SigT::ExistT(_, s1) => match s1 {
+                List::Nil => Result0::Ok(SigT::ExistT(Pat::PTuple(qs), _UU0394_))
+                List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, Ty::TTuple(_UU03c4_s)))
+              }
+            }
           }
-          match (match flexible(a) {
+        }
+      })
+      _ => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
+    }
+    Spat::SPConstr(p, tq, c, sps, op) => match _UU03c4_ {
+      Ty::TData(t, ts) => bind(tq_dec(p, tq, t, Elab_error::EE_PatType(p, Ty::TData(t, ts))), fn(_) {
+        bind(of_option(lookup_ty(match e {
+          Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+        }, t), Elab_error::EE_UnknownType(p, t)), fn(x) {
+          bind(of_option(lookup_ctor(x, c), Elab_error::EE_UnknownCtor(p, c)), fn(x0) {
+            bind(fpats_prefix(e, fn(x1) { fn(x2) { epat(e, x1, x2) } }, Elab_error::EE_PatType(p, Ty::TData(t, ts)), sps, map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match x0 {
+              Cdef::Mk_cdef(_, cd_fields) => cd_fields
+            })), fn(x1) {
+              match x1 {
+                SigT::ExistT(qs, s) => match s {
+                  SigT::ExistT(_UU0394_, s0) => match s0 {
+                    SigT::ExistT(_, s1) => bind(open_ok(p, Ty::TData(t, ts), op, s1), fn(_) {
+                      Result0::Ok(SigT::ExistT(Pat::PConstr(c, app(qs, map(fn(_) { Pat::PWild }, s1))), _UU0394_))
+                    })
+                  }
+                }
+              }
+            })
+          })
+        })
+      })
+      Ty::TError => bind(err_owner_dec(e, p, tq, c), fn(x) {
+        bind(of_option(lookup_ty(match e {
+          Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+        }, x), Elab_error::EE_UnknownType(p, x)), fn(x0) {
+          bind(of_option(lookup_ctor(x0, c), Elab_error::EE_UnknownCtor(p, c)), fn(x1) {
+            bind(fpats_prefix(e, fn(x3) { fn(x2) { epat(e, x3, x2) } }, Elab_error::EE_PatType(p, Ty::TError), sps, map({ let a1 = fn(x2) { inst(List::Nil, x2) }; fn(x2) { tsubst(a1, x2) } }, match x1 {
+              Cdef::Mk_cdef(_, cd_fields) => cd_fields
+            })), fn(x2) {
+              match x2 {
+                SigT::ExistT(qs, s) => match s {
+                  SigT::ExistT(_UU0394_, s0) => match s0 {
+                    SigT::ExistT(_, s1) => bind(open_ok(p, Ty::TError, op, s1), fn(_) {
+                      Result0::Ok(SigT::ExistT(Pat::PUp(x, Pat::PConstr(c, app(qs, map(fn(_) { Pat::PWild }, s1)))), _UU0394_))
+                    })
+                  }
+                }
+              }
+            })
+          })
+        })
+      })
+      _ => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_))
+    }
+    Spat::SPRecord(p, fps, op) => match _UU03c4_ {
+      Ty::TData(t, ts) => bind(of_option(assoc(t, match e {
+        Senv::Mk_senv(_, _, se_sinfo, _, _) => se_sinfo
+      }), Elab_error::EE_NotRecord(p, Ty::TData(t, ts))), fn(x) {
+        bind(of_option(lookup_ty(match e {
+          Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+        }, t), Elab_error::EE_UnknownType(p, t)), fn(x0) {
+          bind(single_ctor(p, x0, Ty::TData(t, ts)), fn(x1) {
+            bind(named_pats(e, fn(x3) { fn(x2) { epat(e, x3, x2) } }, p, x, map({ let a1 = fn(x2) { inst(ts, x2) }; fn(x2) { tsubst(a1, x2) } }, match x1 {
+              Cdef::Mk_cdef(_, cd_fields) => cd_fields
+            }), fps), fn(x2) {
+              match assemble(op, x2, Nat::O, map({ let a1 = fn(x3) { inst(ts, x3) }; fn(x3) { tsubst(a1, x3) } }, match x1 {
+                Cdef::Mk_cdef(_, cd_fields) => cd_fields
+              })) {
+                Some(p0) => match p0 {
+                  (qs, _UU0394_) => Result0::Ok(SigT::ExistT(Pat::PConstr(match x1 {
+                    Cdef::Mk_cdef(cd_name, _) => cd_name
+                  }, qs), _UU0394_))
+                }
+                None => Result0::Err(Elab_error::EE_MissingField(p, missing_field(x, x2)))
+              }
+            })
+          })
+        })
+      })
+      _ => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
+    }
+    Spat::SPAnnot(p, sp0, t) => bind(ety_dec(e, t), fn(x) {
+      match ty_eq_dec(x)(_UU03c4_) {
+        true => bind(epat(e, sp0, _UU03c4_), fn(x0) {
+          match x0 {
+            SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, s))
+          }
+        })
+        false => Result0::Err(Elab_error::EE_Annot(p, x, _UU03c4_))
+      }
+    })
+  }
+}
+
+pub fn arm_live(c : (Spat, Sexpr)) -> Bool {
+  negb(diverges(snd(c)))
+}
+
+pub fn live_arm(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], l : Cenv, _UU0393_ : Lctx, _UU03c4_s : Ty, cs : List[(Spat, Sexpr)]) -> Result0[Sumor[Ty], Elab_error] {
+  match cs {
+    List::Nil => Result0::Ok(Sumor::Inright)
+    List::Cons(p, cs_) => match p {
+      (sp, b) => match arm_live((sp, b)) {
+        true => bind(epat(e, sp, _UU03c4_s), fn(x) {
+          match x {
+            SigT::ExistT(_, s) => bind(rec(b)(l)(app(s, _UU0393_))(Mode::Syn), fn(x0) {
+              match x0 {
+                SigT::ExistT(_UU03c4_, _) => Result0::Ok(Sumor::Inleft(_UU03c4_))
+              }
+            })
+          }
+        })
+        false => bind(live_arm(e, rec, l, _UU0393_, _UU03c4_s, cs_), fn(r) {
+          match r {
+            Sumor::Inleft(s) => Result0::Ok(Sumor::Inleft(s))
+            Sumor::Inright => Result0::Ok(Sumor::Inright)
+          }
+        })
+      }
+    }
+  }
+}
+
+pub fn pick_syn(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, _UU03c4_s : Ty, cs : List[(Spat, Sexpr)]) -> Result0[Ty, Elab_error] {
+  bind(live_arm(e, rec, l, _UU0393_, _UU03c4_s, cs), fn(r) {
+    match r {
+      Sumor::Inleft(s) => Result0::Ok(s)
+      Sumor::Inright => match cs {
+        List::Nil => Result0::Err(Elab_error::EE_EmptyMatch(p))
+        List::Cons(p0, _) => match p0 {
+          (sp, b) => bind(epat(e, sp, _UU03c4_s), fn(x) {
+            match x {
+              SigT::ExistT(_, s) => bind(rec(b)(l)(app(s, _UU0393_))(Mode::Syn), fn(x0) {
+                match x0 {
+                  SigT::ExistT(_UU03c4_, _) => Result0::Ok(_UU03c4_)
+                }
+              })
+            }
+          })
+        }
+      }
+    }
+  })
+}
+
+pub fn arms_list(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], l : Cenv, _UU0393_ : Lctx, _UU03c4_s : Ty, _UU03c4_ : Ty, cs : List[(Spat, Sexpr)]) -> Result0[List[(Pat, Expr)], Elab_error] {
+  match cs {
+    List::Nil => Result0::Ok(List::Nil)
+    List::Cons(p, cs_) => match p {
+      (sp, b) => bind(epat(e, sp, _UU03c4_s), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => bind(cres(e, l, app(s, _UU0393_), b, _UU03c4_, rec(b)(l)(app(s, _UU0393_))(Mode::Chk(_UU03c4_))), fn(x0) {
+            bind(arms_list(e, rec, l, _UU0393_, _UU03c4_s, _UU03c4_, cs_), fn(x1) { Result0::Ok(List::Cons((q, x0), x1)) })
+          })
+        }
+      })
+    }
+  }
+}
+
+pub fn nil_fields(p : Pos, c : Ident, cd : Cdef) -> Result0[Unit, Elab_error] {
+  match (match cd {
+    Cdef::Mk_cdef(_, cd_fields) => cd_fields
+  }) {
+    List::Nil => Result0::Ok(())
+    List::Cons(t, l0) => Result0::Err(Elab_error::EE_CtorArity(p, c, length(List::Cons(t, l0)), Nat::O))
+  }
+}
+
+pub fn rec_pick_dec(e : Senv, p : Pos, tq : Option[Ident], written : List[Ident]) -> Result0[Ident, Elab_error] {
+  match tq {
+    Some(t) => Result0::Ok(t)
+    None => match map(fn(x1) { fst(x1) }, filter(fn(tf) { same_fields(snd(tf), written) }, match e {
+      Senv::Mk_senv(_, _, se_sinfo, _, _) => se_sinfo
+    })) {
+      List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TBase(Base_ty::BUnit)))
+      List::Cons(t, l) => match l {
+        List::Nil => Result0::Ok(t)
+        List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TBase(Base_ty::BUnit)))
+      }
+    }
+  }
+}
+
+pub fn rfields_dec(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, names : List[Ident], fs : List[Ty], fes : List[(Ident, Sexpr)]) -> Result0[SigT[List[Expr], List[Nat]], Elab_error] {
+  match fes {
+    List::Nil => Result0::Ok(SigT::ExistT(List::Nil, List::Nil))
+    List::Cons(p0, fes_) => match p0 {
+      (f, fe) => bind(of_option(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(x) {
+        bind(of_option(nth_error(fs, x), Elab_error::EE_UnknownField(p, f)), fn(x0) {
+          match x0 {
+            Ty::TBase(b) => {
+              let t = Ty::TBase(b)
+              bind(cres(e, l, _UU0393_, fe, t, rec(fe)(l)(_UU0393_)(Mode::Chk(t))), fn(x1) {
+                bind(rfields_dec(e, rec, p, l, _UU0393_, names, fs, fes_), fn(x2) {
+                  match x2 {
+                    SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(x1, es), List::Cons(x, s)))
+                  }
+                })
+              })
+            }
+            Ty::TVar(i0) => {
+              let t = Ty::TVar(i0)
+              bind(cres(e, l, _UU0393_, fe, t, rec(fe)(l)(_UU0393_)(Mode::Chk(t))), fn(x1) {
+                bind(rfields_dec(e, rec, p, l, _UU0393_, names, fs, fes_), fn(x2) {
+                  match x2 {
+                    SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(x1, es), List::Cons(x, s)))
+                  }
+                })
+              })
+            }
+            Ty::TTuple(ts) => {
+              let t = Ty::TTuple(ts)
+              bind(cres(e, l, _UU0393_, fe, t, rec(fe)(l)(_UU0393_)(Mode::Chk(t))), fn(x1) {
+                bind(rfields_dec(e, rec, p, l, _UU0393_, names, fs, fes_), fn(x2) {
+                  match x2 {
+                    SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(x1, es), List::Cons(x, s)))
+                  }
+                })
+              })
+            }
+            Ty::TArrow(ps, r, _UU03b5_) => {
+              let t = Ty::TArrow(ps, r, _UU03b5_)
+              bind(cres(e, l, _UU0393_, fe, t, rec(fe)(l)(_UU0393_)(Mode::Chk(t))), fn(x1) {
+                bind(rfields_dec(e, rec, p, l, _UU0393_, names, fs, fes_), fn(x2) {
+                  match x2 {
+                    SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(x1, es), List::Cons(x, s)))
+                  }
+                })
+              })
+            }
+            Ty::TData(t, ts) => {
+              let t0 = Ty::TData(t, ts)
+              bind(cres(e, l, _UU0393_, fe, t0, rec(fe)(l)(_UU0393_)(Mode::Chk(t0))), fn(x1) {
+                bind(rfields_dec(e, rec, p, l, _UU0393_, names, fs, fes_), fn(x2) {
+                  match x2 {
+                    SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(x1, es), List::Cons(x, s)))
+                  }
+                })
+              })
+            }
+            Ty::TRef(u) => bind(cres(e, l, _UU0393_, fe, u, rec(fe)(l)(_UU0393_)(Mode::Chk(u))), fn(x1) {
+              bind(rfields_dec(e, rec, p, l, _UU0393_, names, fs, fes_), fn(x2) {
+                match x2 {
+                  SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(Expr::EMem(Mem_op::MRef(u), List::Cons(x1, List::Nil)), es), List::Cons(x, s)))
+                }
+              })
+            })
+            Ty::TArray(k, t0) => {
+              let t = Ty::TArray(k, t0)
+              bind(cres(e, l, _UU0393_, fe, t, rec(fe)(l)(_UU0393_)(Mode::Chk(t))), fn(x1) {
+                bind(rfields_dec(e, rec, p, l, _UU0393_, names, fs, fes_), fn(x2) {
+                  match x2 {
+                    SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(x1, es), List::Cons(x, s)))
+                  }
+                })
+              })
+            }
+            Ty::TError => {
+              let t = Ty::TError
+              bind(cres(e, l, _UU0393_, fe, t, rec(fe)(l)(_UU0393_)(Mode::Chk(t))), fn(x1) {
+                bind(rfields_dec(e, rec, p, l, _UU0393_, names, fs, fes_), fn(x2) {
+                  match x2 {
+                    SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(x1, es), List::Cons(x, s)))
+                  }
+                })
+              })
+            }
+          }
+        })
+      })
+    }
+  }
+}
+
+pub fn rec_vars_dec(p : Pos, names : List[Ident], ixs : List[Nat]) -> Result0[List[Expr], Elab_error] {
+  match rec_vars(ixs, length(names)) {
+    Some(vs) => Result0::Ok(vs)
+    None => match find(fn(f) {
+      match index_of(f, names) {
+        Some(j) => negb(existsb(fn(x1) { eqb0(j, x1) }, ixs))
+        None => false
+      }
+    }, names) {
+      Some(f) => Result0::Err(Elab_error::EE_MissingField(p, f))
+      None => Result0::Err(Elab_error::EE_UnknownField(p, String0::EmptyString))
+    }
+  }
+}
+
+pub fn len_dec(p : Pos, t : Ident, a : Nat, b : Nat) -> Result0[Unit, Elab_error] {
+  match eq_dec(a, b) {
+    true => Result0::Ok(())
+    false => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TData(t, List::Nil)))
+  }
+}
+
+pub fn content(t : Ty) -> Ty {
+  match t {
+    Ty::TRef(u) => u
+    _ => t
+  }
+}
+
+pub fn rpass(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], l : Cenv, _UU0393_ : Lctx, names : List[Ident], fs0 : List[Ty], fes : List[(Ident, Sexpr)], st : List[Option[Ty]]) -> Result0[List[Option[Ty]], Elab_error] {
+  match fes {
+    List::Nil => Result0::Ok(st)
+    List::Cons(p, fes_) => match p {
+      (f, fe) => {
+        let pt = match index_of(f, names) {
+          Some(i) => content(nth(i, fs0, Ty::TBase(Base_ty::BUnit)))
+          None => Ty::TBase(Base_ty::BUnit)
+        }
+        bind(match resolve(st, pt) {
+          Some(_) => Result0::Ok(st)
+          None => bind(rec(fe)(l)(_UU0393_)(Mode::Syn), fn(x) {
+            match x {
+              SigT::ExistT(t, _) => Result0::Ok(tmatch(pt, t, st))
+            }
+          })
+        }, fn(st_) { rpass(e, rec, l, _UU0393_, names, fs0, fes_, st_) })
+      }
+    }
+  }
+}
+
+pub fn upd_rhs_dec(p : Pos, op : Option[Ident], _UU03c4_ : Ty, cur : Expr, v : Expr) -> Result0[Expr, Elab_error] {
+  match op {
+    Some(o) => match ty_eq_dec(binop_res(o, _UU03c4_))(_UU03c4_) {
+      true => bind(binop_dec(p, o, _UU03c4_, cur, v), fn(x) { Result0::Ok(x) })
+      false => Result0::Err(Elab_error::EE_NoOperator(p, o, _UU03c4_))
+    }
+    None => Result0::Ok(v)
+  }
+}
+
+pub fn field_cell_dec(e : Senv, p : Pos, f : Ident, t : Ident, ts : List[Ty], i : Nat) -> Result0[((Ident, Nat), Ty), Elab_error] {
+  match field_cell(e, t, ts, i) {
+    Some(r) => Result0::Ok(r)
+    None => Result0::Err(Elab_error::EE_NotMutable(p, f))
+  }
+}
+
+pub fn ref_ok_dec(e : Senv, p : Pos) -> Result0[Unit, Elab_error] {
+  bind(of_option(lookup_ty(match e {
+    Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+  }, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))), Elab_error::EE_UnknownType(p, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))))), fn(x) {
+    match eq_dec(match x {
+      Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+    }, Nat::S(Nat::O)) {
+      true => bind(of_option(lookup_ctor(x, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))), Elab_error::EE_UnknownCtor(p, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))))), fn(x0) {
+        match list_eq_dec(ty_eq_dec, match x0 {
+          Cdef::Mk_cdef(_, cd_fields) => cd_fields
+        }, List::Cons(Ty::TRef(Ty::TVar(Nat::O)), List::Nil)) {
+          true => Result0::Ok(())
+          false => Result0::Err(Elab_error::EE_UnknownType(p, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))))
+        }
+      })
+      false => Result0::Err(Elab_error::EE_UnknownType(p, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))))
+    }
+  })
+}
+
+pub fn sinits_dec(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], l : Cenv, _UU0393_ : Lctx, inits : List[(Ident, Sexpr)]) -> Result0[SigT[List[Ty], List[Expr]], Elab_error] {
+  match inits {
+    List::Nil => Result0::Ok(SigT::ExistT(List::Nil, List::Nil))
+    List::Cons(p, inits_) => match p {
+      (_, s) => bind(rec(s)(l)(_UU0393_)(Mode::Syn), fn(x0) {
+        match x0 {
+          SigT::ExistT(_UU03c4_, s0) => bind(sinits_dec(e, rec, l, _UU0393_, inits_), fn(x1) {
+            match x1 {
+              SigT::ExistT(_UU03c4_s, s1) => Result0::Ok(SigT::ExistT(List::Cons(_UU03c4_, _UU03c4_s), List::Cons(s0, s1)))
+            }
+          })
+        }
+      })
+    }
+  }
+}
+
+pub fn supds_dec(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, names : List[Ident], _UU03c4_s : List[Ty], upds : List[(Ident, Sexpr)]) -> Result0[List[(Ident, Expr)], Elab_error] {
+  match upds {
+    List::Nil => Result0::Ok(List::Nil)
+    List::Cons(p0, upds_) => match p0 {
+      (y, s) => bind(of_option(index_of(y, names), Elab_error::EE_Unbound(p, y)), fn(x) {
+        bind(of_option(nth_error(_UU03c4_s, x), Elab_error::EE_Unbound(p, y)), fn(x0) {
+          bind(cres(e, l, _UU0393_, s, x0, rec(s)(l)(_UU0393_)(Mode::Chk(x0))), fn(x1) {
+            bind(supds_dec(e, rec, p, l, _UU0393_, names, _UU03c4_s, upds_), fn(x2) { Result0::Ok(List::Cons((y, x1), x2)) })
+          })
+        })
+      })
+    }
+  }
+}
+
+pub fn ochk_dec(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], l : Cenv, _UU0393_ : Lctx, _UU03c4_ : Ty, os : Option[Sexpr]) -> Result0[Option[Expr], Elab_error] {
+  match os {
+    Some(s) => bind(cres(e, l, _UU0393_, s, _UU03c4_, rec(s)(l)(_UU0393_)(Mode::Chk(_UU03c4_))), fn(x) { Result0::Ok(Some(x)) })
+    None => Result0::Ok(None)
+  }
+}
+
+pub fn label_at(p : Pos, l : Cenv, k : Nat) -> Result0[(List[Ty], Ty), Elab_error] {
+  of_option(nth_error(core_labels(match l {
+    Cenv::Mk_cenv(ce_labs, _) => ce_labs
+  }), k), Elab_error::EE_NoTarget(p))
+}
+
+pub fn array_src(_ : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, src : Sexpr) -> Result0[SigT[Expr, SigT[Expr, Iter_src]], Elab_error] {
+  bind(rec(src)(l)(_UU0393_)(Mode::Syn), fn(x) {
+    match x {
+      SigT::ExistT(_UU03c4_, s) => match _UU03c4_ {
+        Ty::TArray(k, t) => Result0::Ok(SigT::ExistT(s, SigT::ExistT(Expr::EMem(Mem_op::MLength(k, t), List::Cons(Expr::EVar(Nat::O), List::Nil)), Iter_src::IArray(k, t))))
+        _ => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_))
+      }
+    }
+  })
+}
+
+pub fn fsrc_dec(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, src : Sexpr) -> Result0[SigT[Expr, SigT[Expr, Iter_src]], Elab_error] {
+  match src {
+    Sexpr::SInfix(q, op, lo, hi) => match range_op(op) {
+      Some(rk) => bind(rec(lo)(l)(_UU0393_)(Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(_UU03c4_, s) => match _UU03c4_ {
+            Ty::TBase(b) => match b {
+              Base_ty::BInt(kk) => bind(cres(e, l, List::Cons((None, Ty::TBase(Base_ty::BInt(kk))), _UU0393_), hi, Ty::TBase(Base_ty::BInt(kk)), rec(hi)(l)(List::Cons((None, Ty::TBase(Base_ty::BInt(kk))), _UU0393_))(Mode::Chk(Ty::TBase(Base_ty::BInt(kk))))), fn(x0) {
+                Result0::Ok(SigT::ExistT(s, SigT::ExistT(x0, Iter_src::IRange(rk, kk))))
+              })
+              _ => Result0::Err(Elab_error::EE_NoOperator(q, op, _UU03c4_))
+            }
+            _ => Result0::Err(Elab_error::EE_NoOperator(q, op, _UU03c4_))
+          }
+        }
+      })
+      None => array_src(e, rec, p, l, _UU0393_, src)
+    }
+    _ => array_src(e, rec, p, l, _UU0393_, src)
+  }
+}
+
+pub fn fi_pat_dec(e : Senv, p : Pos, it : Iter_src, _UU03c4_s : List[Ty], pats : List[Spat]) -> Result0[SigT[Pat, SigT[Lctx, SigT[Expr, Ty]]], Elab_error] {
+  match pats {
+    List::Nil => Result0::Err(Elab_error::EE_PatType(p, fi_elem_ty(it)))
+    List::Cons(sp1, l) => match l {
+      List::Nil => bind(epat(e, sp1, fi_elem_ty(it)), fn(x) {
+        match x {
+          SigT::ExistT(q, s) => Result0::Ok(SigT::ExistT(q, SigT::ExistT(s, SigT::ExistT(fi_elem(it, fi_n(it, _UU03c4_s)), fi_elem_ty(it)))))
+        }
+      })
+      List::Cons(sp2, l0) => match l0 {
+        List::Nil => match it {
+          Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, fi_elem_ty(it)))
+          Iter_src::IArray(_, t) => bind(epat(e, sp1, Ty::TBase(Base_ty::BInt(Int_kind::I32))), fn(x) {
+            match x {
+              SigT::ExistT(q1, s) => bind(epat(e, sp2, t), fn(x0) {
+                match x0 {
+                  SigT::ExistT(q2, s0) => Result0::Ok(SigT::ExistT(Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), SigT::ExistT(app(s, s0), SigT::ExistT(Expr::ETuple(List::Cons(Expr::EVar(Nat::O), List::Cons(fi_elem(it, fi_n(it, _UU03c4_s)), List::Nil))), Ty::TTuple(List::Cons(Ty::TBase(Base_ty::BInt(Int_kind::I32)), List::Cons(t, List::Nil)))))))
+                }
+              })
+            }
+          })
+        }
+        List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, fi_elem_ty(it)))
+      }
+    }
+  }
+}
+
+pub fn try_cands(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, body : Sexpr, bm : Mode, ts : List[Ident]) -> List[SigT[Ident, (Unit, Out)]] {
+  match ts {
+    List::Nil => List::Nil
+    List::Cons(t, ts_) => match err_dec(e, p, t) {
+      Result0::Ok(_) => match rec(body)(set_exn(Ty::TData(t, List::Nil), l))(_UU0393_)(bm) {
+        Result0::Ok(o) => List::Cons(SigT::ExistT(t, ((), o)), try_cands(e, rec, p, l, _UU0393_, body, bm, ts_))
+        Result0::Err(_) => try_cands(e, rec, p, l, _UU0393_, body, bm, ts_)
+      }
+      Result0::Err(_) => try_cands(e, rec, p, l, _UU0393_, body, bm, ts_)
+    }
+  }
+}
+
+pub fn try_pick(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, cases : List[(Spat, Sexpr)], body : Sexpr, bm : Mode) -> Result0[SigT[Ty, (Unit, Out)], Elab_error] {
+  match catch_of(e, cases) {
+    Catch_info::CINone => match try_cands(e, rec, p, l, _UU0393_, body, bm, map(fn(t) {
+      match t {
+        Tdef::Mk_tdef(td_name, _, _, _) => td_name
+      }
+    }, filter(fn(t) {
+      match t {
+        Tdef::Mk_tdef(_, _, _, td_err) => td_err
+      }
+    }, match (match e {
+      Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+    }) {
+      Genv::Mk_genv(ge_types, _) => ge_types
+    }))) {
+      List::Nil => bind(rec(body)(set_exn(Ty::TError, l))(_UU0393_)(bm), fn(o) { Result0::Ok(SigT::ExistT(Ty::TError, ((), o))) })
+      List::Cons(s, l0) => match s {
+        SigT::ExistT(t, p0) => match p0 {
+          (_, o) => match l0 {
+            List::Nil => Result0::Ok(SigT::ExistT(Ty::TData(t, List::Nil), ((), o)))
+            List::Cons(_, _) => bind(rec(body)(set_exn(Ty::TError, l))(_UU0393_)(bm), fn(o0) { Result0::Ok(SigT::ExistT(Ty::TError, ((), o0))) })
+          }
+        }
+      }
+    }
+    Catch_info::CIOne(t) => bind(rec(body)(set_exn(Ty::TData(t, List::Nil), l))(_UU0393_)(bm), fn(o) { Result0::Ok(SigT::ExistT(Ty::TData(t, List::Nil), ((), o))) })
+    Catch_info::CIMany => bind(rec(body)(set_exn(Ty::TError, l))(_UU0393_)(bm), fn(o) { Result0::Ok(SigT::ExistT(Ty::TError, ((), o))) })
+  }
+}
+
+pub fn failure_ok_dec(e : Senv, p : Pos) -> Result0[Unit, Elab_error] {
+  bind(of_option(lookup_ty(match e {
+    Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+  }, String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))))))), Elab_error::EE_UnknownType(p, String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))))), fn(x) {
+    match eq_dec(match x {
+      Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+    }, Nat::O) {
+      true => bind(of_option(lookup_ctor(x, String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))))))), Elab_error::EE_UnknownCtor(p, String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))))), fn(x0) {
+        match list_eq_dec(ty_eq_dec, match x0 {
+          Cdef::Mk_cdef(_, cd_fields) => cd_fields
+        }, List::Cons(Ty::TBase(Base_ty::BString), List::Nil)) {
+          true => Result0::Ok(())
+          false => Result0::Err(Elab_error::EE_UnknownType(p, String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))))))))
+        }
+      })
+      false => Result0::Err(Elab_error::EE_UnknownType(p, String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString)))))))))
+    }
+  })
+}
+
+pub fn qual_trait_dec(e : Senv, q : Pos, t : Ident, mn : Ident) -> Result0[SigT[Ident, Option[Ty]], Elab_error] {
+  match find_trait(trs(e), t) {
+    Some(_) => Result0::Ok(SigT::ExistT(t, None))
+    None => match index_of(t, match e {
+      Senv::Mk_senv(_, _, _, se_tps, _) => se_tps
+    }) {
+      Some(i) => match hd_error(filter(fn(x1) { declares(e, mn, x1) }, asm_traits(e, Ty::TVar(i)))) {
+        Some(tr) => Result0::Ok(SigT::ExistT(tr, Some(Ty::TVar(i))))
+        None => Result0::Err(Elab_error::EE_NoMethod(q, mn, Ty::TVar(i)))
+      }
+      None => match filter(fn(x1) { declares(e, mn, x1) }, map(fn(t0) {
+        match t0 {
+          Trinfo::Mk_trinfo(ti_name, _, _, _) => ti_name
+        }
+      }, trs(e))) {
+        List::Nil => Result0::Err(Elab_error::EE_NoMethod(q, mn, Ty::TBase(Base_ty::BUnit)))
+        List::Cons(tr, l) => match l {
+          List::Nil => Result0::Ok(SigT::ExistT(tr, None))
+          List::Cons(_, _) => Result0::Err(Elab_error::EE_AmbiguousMethod(q, mn))
+        }
+      }
+    }
+  }
+}
+
+pub type Pre_t = SigT[Ty, Expr]
+
+pub fn tself(_ : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], q : Pos, l : Cenv, _UU0393_ : Lctx, os : Option[Ty], sg : Msig, args : List[Sexpr], hm : Option[Ty]) -> Result0[SigT[Ty, Option[Pre_t]], Elab_error] {
+  match os {
+    Some(t) => Result0::Ok(SigT::ExistT(t, None))
+    None => match (match sg {
+      Msig::Mk_msig(_, ms_params, _, _) => ms_params
+    }) {
+      List::Nil => match (match sg {
+        Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
+      }) {
+        Ty::TVar(i) => match i {
+          Nat::O => match hm {
+            Some(t) => Result0::Ok(SigT::ExistT(t, None))
+            None => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+              Msig::Mk_msig(ms_name, _, _, _) => ms_name
+            }))
+          }
+          Nat::S(_) => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+            Msig::Mk_msig(ms_name, _, _, _) => ms_name
+          }))
+        }
+        _ => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+          Msig::Mk_msig(ms_name, _, _, _) => ms_name
+        }))
+      }
+      List::Cons(t, _) => match t {
+        Ty::TVar(i) => match i {
+          Nat::O => match args {
+            List::Nil => match (match sg {
+              Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
+            }) {
+              Ty::TVar(i0) => match i0 {
+                Nat::O => match hm {
+                  Some(t0) => Result0::Ok(SigT::ExistT(t0, None))
+                  None => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+                    Msig::Mk_msig(ms_name, _, _, _) => ms_name
+                  }))
+                }
+                Nat::S(_) => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+                  Msig::Mk_msig(ms_name, _, _, _) => ms_name
+                }))
+              }
+              _ => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+                Msig::Mk_msig(ms_name, _, _, _) => ms_name
+              }))
+            }
+            List::Cons(a0, _) => bind(rec(a0)(l)(_UU0393_)(Mode::Syn), fn(x) {
+              match x {
+                SigT::ExistT(t0, s) => Result0::Ok(SigT::ExistT(t0, Some(SigT::ExistT(t0, s))))
+              }
+            })
+          }
+          Nat::S(_) => match (match sg {
+            Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
+          }) {
+            Ty::TVar(i0) => match i0 {
+              Nat::O => match hm {
+                Some(t0) => Result0::Ok(SigT::ExistT(t0, None))
+                None => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+                  Msig::Mk_msig(ms_name, _, _, _) => ms_name
+                }))
+              }
+              Nat::S(_) => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+                Msig::Mk_msig(ms_name, _, _, _) => ms_name
+              }))
+            }
+            _ => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+              Msig::Mk_msig(ms_name, _, _, _) => ms_name
+            }))
+          }
+        }
+        _ => match (match sg {
+          Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
+        }) {
+          Ty::TVar(i) => match i {
+            Nat::O => match hm {
+              Some(t0) => Result0::Ok(SigT::ExistT(t0, None))
+              None => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+                Msig::Mk_msig(ms_name, _, _, _) => ms_name
+              }))
+            }
+            Nat::S(_) => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+              Msig::Mk_msig(ms_name, _, _, _) => ms_name
+            }))
+          }
+          _ => Result0::Err(Elab_error::EE_CannotInfer(q, match sg {
+            Msig::Mk_msig(ms_name, _, _, _) => ms_name
+          }))
+        }
+      }
+    }
+  }
+}
+
+pub fn pre_args(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, args : List[Sexpr], pre : Option[Pre_t], ps : List[Ty]) -> Result0[List[Expr], Elab_error] {
+  match args {
+    List::Nil => chk_list(e, p, l, _UU0393_, fn(s_) {
+      fn(_UU03c4__) {
+        cres(e, l, _UU0393_, s_, _UU03c4__, rec(s_)(l)(_UU0393_)(Mode::Chk(_UU03c4__)))
+      }
+    }, List::Nil, ps)
+    List::Cons(a0, rest) => match pre {
+      Some(p0) => match p0 {
+        SigT::ExistT(t, s) => match ps {
+          List::Nil => Result0::Err(Elab_error::EE_Type(p, Type_error::E_ArgArity(Nat::O, length(List::Cons(a0, rest)))))
+          List::Cons(p1, ps_) => match ty_eq_dec(t)(p1) {
+            true => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+              fn(_UU03c4__) {
+                cres(e, l, _UU0393_, s_, _UU03c4__, rec(s_)(l)(_UU0393_)(Mode::Chk(_UU03c4__)))
+              }
+            }, rest, ps_), fn(x) { Result0::Ok(List::Cons(s, x)) })
+            false => Result0::Err(Elab_error::EE_Annot(p, p1, t))
+          }
+        }
+      }
+      None => chk_list(e, p, l, _UU0393_, fn(s_) {
+        fn(_UU03c4__) {
+          cres(e, l, _UU0393_, s_, _UU03c4__, rec(s_)(l)(_UU0393_)(Mode::Chk(_UU03c4__)))
+        }
+      }, List::Cons(a0, rest), ps)
+    }
+  }
+}
+
+pub fn tcall(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, q : Pos, l : Cenv, _UU0393_ : Lctx, _ : Sexpr, t : Ident, mn : Ident, args : List[Sexpr], hm : Option[Ty]) -> Result0[Sout, Elab_error] {
+  bind(qual_trait_dec(e, q, t, mn), fn(x) {
+    match x {
+      SigT::ExistT(tr, s) => bind(of_option(find_trait(trs(e), tr), Elab_error::EE_NoMethod(q, mn, Ty::TBase(Base_ty::BUnit))), fn(x0) {
+        bind(of_option(method_of(x0, mn), Elab_error::EE_NoMethod(q, mn, Ty::TBase(Base_ty::BUnit))), fn(x1) {
+          match x1 {
+            (i, sg) => bind(tself(e, rec, q, l, _UU0393_, s, sg, args, hm), fn(x2) {
+              match x2 {
+                SigT::ExistT(_UU03c4_s, s0) => bind(dict_dec(e, q, _UU0393_, tr, _UU03c4_s), fn(x3) {
+                  bind(field_proj_dec(e, q, tr, List::Cons(_UU03c4_s, List::Nil), i, x3), fn(x4) {
+                    match x4 {
+                      (mv, t0) => match t0 {
+                        Ty::TArrow(ps, r, _UU03b5_) => bind(pre_args(e, rec, p, l, _UU0393_, args, s0, ps), fn(x5) {
+                          bind(allowed_dec(e, p, _UU03b5_, match l {
+                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                          }), fn(_) { Result0::Ok(SigT::ExistT(r, wrap_call(l, _UU03b5_, r, mv, x5))) })
+                        })
+                        _ => Result0::Err(Elab_error::EE_Type(q, Type_error::E_NotFunction(t0)))
+                      }
+                    }
+                  })
+                })
+              }
+            })
+          }
+        })
+      })
+    }
+  })
+}
+
+pub fn qcall(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, q : Pos, l : Cenv, _UU0393_ : Lctx, f : Sexpr, t : Ident, mn : Ident, args : List[Sexpr], hm : Option[Ty]) -> Result0[Sout, Elab_error] {
+  match has_meth(e, t, mn) {
+    true => bind(of_option(lookup_fn(match e {
+      Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+    }, meth_name(t, mn)), Elab_error::EE_Unbound(q, meth_name(t, mn))), fn(x) {
+      let n = nbounds(e, meth_name(t, mn))
+      let st0 = match hm {
+        Some(t0) => tmatch(match x {
+          Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+        }, t0, repeat(None, match x {
+          Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+        }))
+        None => repeat(None, match x {
+          Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+        })
+      }
+      bind(gargs(e, rec, p, q, l, _UU0393_, args, skipn(n, match x {
+        Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
+      }), match x {
+        Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+      }, st0, meth_name(t, mn)), fn(x0) {
+        match x0 {
+          SigT::ExistT(ts, s) => bind(dicts_dec(e, q, _UU0393_, map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, firstn(n, match x {
+            Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
+          }))), fn(x1) {
+            bind(allowed_dec(e, p, tsubst(fn(x2) { inst(ts, x2) }, match x {
+              Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
+            }), match l {
+              Cenv::Mk_cenv(_, ce_exn) => ce_exn
+            }), fn(_) {
+              Result0::Ok(SigT::ExistT(tsubst(fn(x2) { inst(ts, x2) }, match x {
+                Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+              }), wrap_call(l, tsubst(fn(x2) { inst(ts, x2) }, match x {
+                Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
+              }), tsubst(fn(x2) { inst(ts, x2) }, match x {
+                Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+              }), Expr::EGlobal(meth_name(t, mn), ts), app(x1, s))))
+            })
+          })
+        }
+      })
+    })
+    false => tcall(e, rec, p, q, l, _UU0393_, f, t, mn, args, hm)
+  }
+}
+
+pub fn dcall(e : Senv, rec : (Sexpr) -> (Cenv) -> (Lctx) -> (Mode) -> Result0[Out, Elab_error], p : Pos, l : Cenv, _UU0393_ : Lctx, _ : Sexpr, mn : Ident, args : List[Sexpr], _UU03c4_r : Ty, r_ : Expr, hm : Option[Ty]) -> Result0[Sout, Elab_error] {
+  match meth_fn(e, _UU03c4_r, mn) {
+    true => bind(of_option(head_name(_UU03c4_r), Elab_error::EE_NoMethod(p, mn, _UU03c4_r)), fn(x) {
+      bind(bcheck(has_meth(e, x, mn), Elab_error::EE_NoMethod(p, mn, _UU03c4_r)), fn(_) {
+        bind(of_option(lookup_fn(match e {
+          Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+        }, meth_name(x, mn)), Elab_error::EE_Unbound(p, meth_name(x, mn))), fn(x0) {
+          let n = nbounds(e, meth_name(x, mn))
+          match skipn(n, match x0 {
+            Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
+          }) {
+            List::Nil => Result0::Err(Elab_error::EE_Type(p, Type_error::E_ArgArity(Nat::O, length(args))))
+            List::Cons(p0, ps) => {
+              let st0 = match hm {
+                Some(t) => tmatch(match x0 {
+                  Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+                }, t, repeat(None, match x0 {
+                  Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+                }))
+                None => repeat(None, match x0 {
+                  Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+                })
+              }
+              bind(gargs(e, rec, p, p, l, _UU0393_, args, ps, match x0 {
+                Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+              }, tmatch(p0, _UU03c4_r, st0), meth_name(x, mn)), fn(x1) {
+                match x1 {
+                  SigT::ExistT(ts, s0) => match ty_eq_dec(tsubst(fn(x2) { inst(ts, x2) }, p0))(_UU03c4_r) {
+                    true => bind(dicts_dec(e, p, _UU0393_, map({ let a1 = fn(x2) { inst(ts, x2) }; fn(x2) { tsubst(a1, x2) } }, firstn(n, match x0 {
+                      Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
+                    }))), fn(x2) {
+                      bind(allowed_dec(e, p, tsubst(fn(x3) { inst(ts, x3) }, match x0 {
+                        Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
+                      }), match l {
+                        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                      }), fn(_) {
+                        Result0::Ok(SigT::ExistT(tsubst(fn(x3) { inst(ts, x3) }, match x0 {
+                          Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+                        }), wrap_call(l, tsubst(fn(x3) { inst(ts, x3) }, match x0 {
+                          Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
+                        }), tsubst(fn(x3) { inst(ts, x3) }, match x0 {
+                          Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+                        }), Expr::EGlobal(meth_name(x, mn), ts), app(x2, List::Cons(r_, s0)))))
+                      })
+                    })
+                    false => Result0::Err(Elab_error::EE_Annot(p, tsubst(fn(x2) { inst(ts, x2) }, p0), _UU03c4_r))
+                  }
+                }
+              })
+            }
+          }
+        })
+      })
+    })
+    false => match obj_of(e, _UU03c4_r) {
+      Some(tr) => bind(of_option(obj_index(obj_fields(trs(e), tr), mn), Elab_error::EE_NoMethod(p, mn, _UU03c4_r)), fn(x) {
+        bind(field_proj_dec(e, p, obj_name(tr), List::Nil, x, r_), fn(x0) {
+          match x0 {
+            (fv, t) => match t {
+              Ty::TArrow(ps, r, _UU03b5_) => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+                fn(_UU03c4__) {
+                  cres(e, l, _UU0393_, s_, _UU03c4__, rec(s_)(l)(_UU0393_)(Mode::Chk(_UU03c4__)))
+                }
+              }, args, ps), fn(x1) {
+                bind(allowed_dec(e, p, _UU03b5_, match l {
+                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                }), fn(_) { Result0::Ok(SigT::ExistT(r, wrap_call(l, _UU03b5_, r, fv, x1))) })
+              })
+              _ => Result0::Err(Elab_error::EE_Type(p, Type_error::E_NotFunction(t)))
+            }
+          }
+        })
+      })
+      None => bind(bcheck(dot_traits(_UU03c4_r), Elab_error::EE_NoMethod(p, mn, _UU03c4_r)), fn(_) {
+        match dot_trait(e, _UU0393_, mn, _UU03c4_r) {
+          List::Nil => Result0::Err(Elab_error::EE_NoMethod(p, mn, _UU03c4_r))
+          List::Cons(tr, l0) => match l0 {
+            List::Nil => bind(of_option(find_trait(trs(e), tr), Elab_error::EE_NoMethod(p, mn, _UU03c4_r)), fn(x) {
+              bind(of_option(method_of(x, mn), Elab_error::EE_NoMethod(p, mn, _UU03c4_r)), fn(x0) {
+                match x0 {
+                  (i, _) => bind(dict_dec(e, p, _UU0393_, tr, _UU03c4_r), fn(x1) {
+                    bind(field_proj_dec(e, p, tr, List::Cons(_UU03c4_r, List::Nil), i, x1), fn(x2) {
+                      match x2 {
+                        (mv, t) => match t {
+                          Ty::TArrow(ps0, r, _UU03b5_) => match ps0 {
+                            List::Nil => Result0::Err(Elab_error::EE_Type(p, Type_error::E_NotFunction(t)))
+                            List::Cons(p0, ps) => match ty_eq_dec(p0)(_UU03c4_r) {
+                              true => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+                                fn(_UU03c4__) {
+                                  cres(e, l, _UU0393_, s_, _UU03c4__, rec(s_)(l)(_UU0393_)(Mode::Chk(_UU03c4__)))
+                                }
+                              }, args, ps), fn(x3) {
+                                bind(allowed_dec(e, p, _UU03b5_, match l {
+                                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                }), fn(_) {
+                                  Result0::Ok(SigT::ExistT(r, wrap_call(l, _UU03b5_, r, mv, List::Cons(r_, x3))))
+                                })
+                              })
+                              false => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_r, p0))
+                            }
+                          }
+                          _ => Result0::Err(Elab_error::EE_Type(p, Type_error::E_NotFunction(t)))
+                        }
+                      }
+                    })
+                  })
+                }
+              })
+            })
+            List::Cons(_, _) => Result0::Err(Elab_error::EE_AmbiguousMethod(p, mn))
+          }
+        }
+      })
+    }
+  }
+}
+
+pub(all) enum Head0 {
+  HName(Pos, Ident)
+  HExpr
+  HCtor(Pos, Option[Ident], Ident)
+  HQual(Pos, Ident, Ident)
+  HOther
+}
+
+pub fn head_of(_UU0393_ : Lctx, f : Sexpr) -> Head0 {
+  match f {
+    Sexpr::SVar(q, g) => match lookup_local(g, _UU0393_) {
+      Some(_) => Head0::HExpr
+      None => Head0::HName(q, g)
+    }
+    Sexpr::SConstr(q, tq, c) => Head0::HCtor(q, tq, c)
+    Sexpr::SQual(q, t, m) => Head0::HQual(q, t, m)
+    _ => Head0::HExpr
+  }
+}
+
+pub fn elab(e : Senv, s : Sexpr, l : Cenv, _UU0393_ : Lctx, m : Mode) -> Result0[Out, Elab_error] {
+  match s {
+    Sexpr::SVar(p, x) => fin(e, p, l, _UU0393_, Sexpr::SVar(p, x), m, var_syn(e, p, l, _UU0393_, x, hint(m)))
+    Sexpr::SLit(p, l0) => lit_m(e, p, l, _UU0393_, l0, m)
+    Sexpr::SApp(p, f, args) => match head_of(_UU0393_, f) {
+      Head0::HName(q, g) => match lookup_fn(match e {
+        Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+      }, g) {
+        Some(fd) => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, args), m, {
+          let n = nbounds(e, g)
+          let st0 = match hint(m) {
+            Some(t) => tmatch(match fd {
+              Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+            }, t, repeat(None, match fd {
+              Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+            }))
+            None => repeat(None, match fd {
+              Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+            })
+          }
+          bind(gargs(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, q, l, _UU0393_, args, skipn(n, match fd {
+            Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
+          }), match fd {
+            Fdef::Mk_fdef(_, fd_tparams, _, _, _, _) => fd_tparams
+          }, st0, g), fn(x) {
+            match x {
+              SigT::ExistT(ts, s0) => bind(dicts_dec(e, q, _UU0393_, map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, firstn(n, match fd {
+                Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
+              }))), fn(x0) {
+                bind(allowed_dec(e, p, tsubst(fn(x1) { inst(ts, x1) }, match fd {
+                  Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
+                }), match l {
+                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                }), fn(_) {
+                  Result0::Ok(SigT::ExistT(tsubst(fn(x1) { inst(ts, x1) }, match fd {
+                    Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+                  }), wrap_call(l, tsubst(fn(x1) { inst(ts, x1) }, match fd {
+                    Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
+                  }), tsubst(fn(x1) { inst(ts, x1) }, match fd {
+                    Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
+                  }), Expr::EGlobal(g, ts), app(x0, s0))))
+                })
+              })
+            }
+          })
+        })
+        None => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))) {
+          true => match args {
+            List::Nil => {
+              let a0 = List::Nil
+              match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))) {
+                true => match a0 {
+                  List::Nil => match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+                    true => match a0 {
+                      List::Nil => match m {
+                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                      }
+                      List::Cons(s0, l0) => {
+                        let a2 = List::Cons(s0, l0)
+                        match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                          true => match a2 {
+                            List::Nil => {
+                              let a3 = List::Nil
+                              match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                true => match a3 {
+                                  List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  List::Cons(a, l1) => match l1 {
+                                    List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                      bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                        bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                          Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                        }), fn(x0) {
+                                          match m {
+                                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                          }
+                                        })
+                                      })
+                                    })
+                                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            List::Cons(a, l1) => match l1 {
+                              List::Nil => bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                }
+                              })
+                              List::Cons(s1, l2) => {
+                                let a3 = List::Cons(a, List::Cons(s1, l2))
+                                match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                  true => match a3 {
+                                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    List::Cons(a1, l3) => match l3 {
+                                      List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                        bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                          bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                          }), fn(x0) {
+                                            match m {
+                                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                            }
+                                          })
+                                        })
+                                      })
+                                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                            }
+                          }
+                          false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a2 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a, l1) => match l1 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                      }
+                    }
+                    false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                      true => match a0 {
+                        List::Nil => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                          true => match a0 {
+                            List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            List::Cons(a, l0) => match l0 {
+                              List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                  bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                    Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                  }), fn(x0) {
+                                    match m {
+                                      Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                      Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                    }
+                                  })
+                                })
+                              })
+                              List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                          false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        }
+                        List::Cons(a, l0) => match l0 {
+                          List::Nil => bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                            match m {
+                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                            }
+                          })
+                          List::Cons(s0, l1) => {
+                            let a3 = List::Cons(a, List::Cons(s0, l1))
+                            match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                              true => match a3 {
+                                List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                List::Cons(a1, l2) => match l2 {
+                                  List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                    bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                      bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                      }), fn(x0) {
+                                        match m {
+                                          Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                          Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                        }
+                                      })
+                                    })
+                                  })
+                                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                              false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                        }
+                      }
+                      false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                        true => match a0 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          List::Cons(a, l0) => match l0 {
+                            List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                              bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                }), fn(x0) {
+                                  match m {
+                                    Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                    Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                  }
+                                })
+                              })
+                            })
+                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                        false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                      }
+                    }
+                  }
+                  List::Cons(a, l0) => match l0 {
+                    List::Nil => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), m, bind(elab(e, a, l, _UU0393_, Mode::Syn), fn(x) {
+                      match x {
+                        SigT::ExistT(_, s0) => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(s0, Expr::ELit(Lit::LUnit))))
+                      }
+                    }))
+                    List::Cons(s0, l1) => {
+                      let a1 = List::Cons(a, List::Cons(s0, l1))
+                      match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+                        true => match a1 {
+                          List::Nil => match m {
+                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                          }
+                          List::Cons(s1, l2) => {
+                            let a2 = List::Cons(s1, l2)
+                            match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                              true => match a2 {
+                                List::Nil => {
+                                  let a3 = List::Nil
+                                  match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                    true => match a3 {
+                                      List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                      List::Cons(a4, l3) => match l3 {
+                                        List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                          bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                            bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                              Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                            }), fn(x0) {
+                                              match m {
+                                                Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                                Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                              }
+                                            })
+                                          })
+                                        })
+                                        List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                      }
+                                    }
+                                    false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                List::Cons(a3, l3) => match l3 {
+                                  List::Nil => bind(cres(e, l, _UU0393_, a3, Ty::TBase(Base_ty::BString), elab(e, a3, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    match m {
+                                      Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                      Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a3, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                    }
+                                  })
+                                  List::Cons(s2, l4) => {
+                                    let a4 = List::Cons(a3, List::Cons(s2, l4))
+                                    match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                      true => match a4 {
+                                        List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                        List::Cons(a5, l5) => match l5 {
+                                          List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                            bind(cres(e, l, _UU0393_, a5, Ty::TBase(Base_ty::BString), elab(e, a5, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                              bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                                Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                              }), fn(x0) {
+                                                match m {
+                                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a5, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                                }
+                                              })
+                                            })
+                                          })
+                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                        }
+                                      }
+                                      false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                }
+                              }
+                              false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                true => match a2 {
+                                  List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  List::Cons(a3, l3) => match l3 {
+                                    List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                      bind(cres(e, l, _UU0393_, a3, Ty::TBase(Base_ty::BString), elab(e, a3, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                        bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                          Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                        }), fn(x0) {
+                                          match m {
+                                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a3, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                          }
+                                        })
+                                      })
+                                    })
+                                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                          }
+                        }
+                        false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                          true => match a1 {
+                            List::Nil => {
+                              let a3 = List::Nil
+                              match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                true => match a3 {
+                                  List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  List::Cons(a2, l2) => match l2 {
+                                    List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                      bind(cres(e, l, _UU0393_, a2, Ty::TBase(Base_ty::BString), elab(e, a2, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                        bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                          Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                        }), fn(x0) {
+                                          match m {
+                                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a2, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                          }
+                                        })
+                                      })
+                                    })
+                                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            List::Cons(a2, l2) => match l2 {
+                              List::Nil => bind(cres(e, l, _UU0393_, a2, Ty::TBase(Base_ty::BString), elab(e, a2, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a2, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                }
+                              })
+                              List::Cons(s1, l3) => {
+                                let a3 = List::Cons(a2, List::Cons(s1, l3))
+                                match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                  true => match a3 {
+                                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    List::Cons(a4, l4) => match l4 {
+                                      List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                        bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                          bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                          }), fn(x0) {
+                                            match m {
+                                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                            }
+                                          })
+                                        })
+                                      })
+                                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                            }
+                          }
+                          false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a1 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a2, l2) => match l2 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a2, Ty::TBase(Base_ty::BString), elab(e, a2, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a2, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                false => match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+                  true => match a0 {
+                    List::Nil => match m {
+                      Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                      Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                    }
+                    List::Cons(s0, l0) => {
+                      let a2 = List::Cons(s0, l0)
+                      match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                        true => match a2 {
+                          List::Nil => {
+                            let a3 = List::Nil
+                            match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                              true => match a3 {
+                                List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                List::Cons(a, l1) => match l1 {
+                                  List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                    bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                      bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                      }), fn(x0) {
+                                        match m {
+                                          Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                          Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                        }
+                                      })
+                                    })
+                                  })
+                                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                              false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                          List::Cons(a, l1) => match l1 {
+                            List::Nil => bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                              match m {
+                                Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                              }
+                            })
+                            List::Cons(s1, l2) => {
+                              let a3 = List::Cons(a, List::Cons(s1, l2))
+                              match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                true => match a3 {
+                                  List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  List::Cons(a1, l3) => match l3 {
+                                    List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                      bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                        bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                          Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                        }), fn(x0) {
+                                          match m {
+                                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                          }
+                                        })
+                                      })
+                                    })
+                                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                          }
+                        }
+                        false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                          true => match a2 {
+                            List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            List::Cons(a, l1) => match l1 {
+                              List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                  bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                    Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                  }), fn(x0) {
+                                    match m {
+                                      Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                      Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                    }
+                                  })
+                                })
+                              })
+                              List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                          false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        }
+                      }
+                    }
+                  }
+                  false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                    true => match a0 {
+                      List::Nil => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                        true => match a0 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          List::Cons(a, l0) => match l0 {
+                            List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                              bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                }), fn(x0) {
+                                  match m {
+                                    Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                    Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                  }
+                                })
+                              })
+                            })
+                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                        false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                      }
+                      List::Cons(a, l0) => match l0 {
+                        List::Nil => bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                          match m {
+                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                          }
+                        })
+                        List::Cons(s0, l1) => {
+                          let a3 = List::Cons(a, List::Cons(s0, l1))
+                          match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a3 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a1, l2) => match l2 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                      }
+                    }
+                    false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                      true => match a0 {
+                        List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        List::Cons(a, l0) => match l0 {
+                          List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                            bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                              bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                              }), fn(x0) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                }
+                              })
+                            })
+                          })
+                          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        }
+                      }
+                      false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                    }
+                  }
+                }
+              }
+            }
+            List::Cons(a, l0) => match l0 {
+              List::Nil => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), m, bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BBool), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x) {
+                Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BBool), Expr::EPrim(Prim_op::PBoolNot, List::Cons(x, List::Nil))))
+              }))
+              List::Cons(s0, l1) => {
+                let a0 = List::Cons(a, List::Cons(s0, l1))
+                match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))) {
+                  true => match a0 {
+                    List::Nil => {
+                      let a1 = List::Nil
+                      match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+                        true => match a1 {
+                          List::Nil => match m {
+                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                          }
+                          List::Cons(s1, l2) => {
+                            let a2 = List::Cons(s1, l2)
+                            match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                              true => match a2 {
+                                List::Nil => {
+                                  let a3 = List::Nil
+                                  match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                    true => match a3 {
+                                      List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                      List::Cons(a4, l3) => match l3 {
+                                        List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                          bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                            bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                              Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                            }), fn(x0) {
+                                              match m {
+                                                Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                                Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                              }
+                                            })
+                                          })
+                                        })
+                                        List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                      }
+                                    }
+                                    false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                List::Cons(a3, l3) => match l3 {
+                                  List::Nil => bind(cres(e, l, _UU0393_, a3, Ty::TBase(Base_ty::BString), elab(e, a3, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    match m {
+                                      Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                      Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a3, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                    }
+                                  })
+                                  List::Cons(s2, l4) => {
+                                    let a4 = List::Cons(a3, List::Cons(s2, l4))
+                                    match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                      true => match a4 {
+                                        List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                        List::Cons(a5, l5) => match l5 {
+                                          List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                            bind(cres(e, l, _UU0393_, a5, Ty::TBase(Base_ty::BString), elab(e, a5, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                              bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                                Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                              }), fn(x0) {
+                                                match m {
+                                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a5, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                                }
+                                              })
+                                            })
+                                          })
+                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                        }
+                                      }
+                                      false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                }
+                              }
+                              false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                true => match a2 {
+                                  List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  List::Cons(a3, l3) => match l3 {
+                                    List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                      bind(cres(e, l, _UU0393_, a3, Ty::TBase(Base_ty::BString), elab(e, a3, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                        bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                          Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                        }), fn(x0) {
+                                          match m {
+                                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a3, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                          }
+                                        })
+                                      })
+                                    })
+                                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                          }
+                        }
+                        false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                          true => match a1 {
+                            List::Nil => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                              true => match a1 {
+                                List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                List::Cons(a2, l2) => match l2 {
+                                  List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                    bind(cres(e, l, _UU0393_, a2, Ty::TBase(Base_ty::BString), elab(e, a2, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                      bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                      }), fn(x0) {
+                                        match m {
+                                          Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                          Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a2, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                        }
+                                      })
+                                    })
+                                  })
+                                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                              false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                            List::Cons(a2, l2) => match l2 {
+                              List::Nil => bind(cres(e, l, _UU0393_, a2, Ty::TBase(Base_ty::BString), elab(e, a2, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a2, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                }
+                              })
+                              List::Cons(s1, l3) => {
+                                let a3 = List::Cons(a2, List::Cons(s1, l3))
+                                match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                  true => match a3 {
+                                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    List::Cons(a4, l4) => match l4 {
+                                      List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                        bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                          bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                          }), fn(x0) {
+                                            match m {
+                                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                            }
+                                          })
+                                        })
+                                      })
+                                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                            }
+                          }
+                          false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a1 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a2, l2) => match l2 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a2, Ty::TBase(Base_ty::BString), elab(e, a2, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a2, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                      }
+                    }
+                    List::Cons(a1, l2) => match l2 {
+                      List::Nil => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), m, bind(elab(e, a1, l, _UU0393_, Mode::Syn), fn(x) {
+                        match x {
+                          SigT::ExistT(_, s1) => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(s1, Expr::ELit(Lit::LUnit))))
+                        }
+                      }))
+                      List::Cons(s1, l3) => {
+                        let a2 = List::Cons(a1, List::Cons(s1, l3))
+                        match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+                          true => match a2 {
+                            List::Nil => match m {
+                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                            }
+                            List::Cons(s2, l4) => {
+                              let a3 = List::Cons(s2, l4)
+                              match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                                true => match a3 {
+                                  List::Nil => {
+                                    let a4 = List::Nil
+                                    match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                      true => match a4 {
+                                        List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                        List::Cons(a5, l5) => match l5 {
+                                          List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                            bind(cres(e, l, _UU0393_, a5, Ty::TBase(Base_ty::BString), elab(e, a5, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                              bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                                Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                              }), fn(x0) {
+                                                match m {
+                                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a5, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                                }
+                                              })
+                                            })
+                                          })
+                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                        }
+                                      }
+                                      false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                  List::Cons(a4, l5) => match l5 {
+                                    List::Nil => bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                      }
+                                    })
+                                    List::Cons(s3, l6) => {
+                                      let a5 = List::Cons(a4, List::Cons(s3, l6))
+                                      match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                        true => match a5 {
+                                          List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                          List::Cons(a6, l7) => match l7 {
+                                            List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                              bind(cres(e, l, _UU0393_, a6, Ty::TBase(Base_ty::BString), elab(e, a6, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                                bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                                }), fn(x0) {
+                                                  match m {
+                                                    Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                                    Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a6, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                                  }
+                                                })
+                                              })
+                                            })
+                                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                          }
+                                        }
+                                        false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                      }
+                                    }
+                                  }
+                                }
+                                false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                  true => match a3 {
+                                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    List::Cons(a4, l5) => match l5 {
+                                      List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                        bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                          bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                          }), fn(x0) {
+                                            match m {
+                                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                            }
+                                          })
+                                        })
+                                      })
+                                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                            }
+                          }
+                          false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                            true => match a2 {
+                              List::Nil => {
+                                let a3 = List::Nil
+                                match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                  true => match a3 {
+                                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    List::Cons(a4, l4) => match l4 {
+                                      List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                        bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                          bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                          }), fn(x0) {
+                                            match m {
+                                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                            }
+                                          })
+                                        })
+                                      })
+                                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                              List::Cons(a3, l4) => match l4 {
+                                List::Nil => bind(cres(e, l, _UU0393_, a3, Ty::TBase(Base_ty::BString), elab(e, a3, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                  match m {
+                                    Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                    Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a3, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                  }
+                                })
+                                List::Cons(s2, l5) => {
+                                  let a4 = List::Cons(a3, List::Cons(s2, l5))
+                                  match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                    true => match a4 {
+                                      List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                      List::Cons(a5, l6) => match l6 {
+                                        List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                          bind(cres(e, l, _UU0393_, a5, Ty::TBase(Base_ty::BString), elab(e, a5, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                            bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                              Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                            }), fn(x0) {
+                                              match m {
+                                                Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                                Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a5, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                              }
+                                            })
+                                          })
+                                        })
+                                        List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                      }
+                                    }
+                                    false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                              }
+                            }
+                            false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                              true => match a2 {
+                                List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                List::Cons(a3, l4) => match l4 {
+                                  List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                    bind(cres(e, l, _UU0393_, a3, Ty::TBase(Base_ty::BString), elab(e, a3, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                      bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                      }), fn(x0) {
+                                        match m {
+                                          Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                          Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a3, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                        }
+                                      })
+                                    })
+                                  })
+                                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                              false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                  false => match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+                    true => match a0 {
+                      List::Nil => match m {
+                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                      }
+                      List::Cons(s1, l2) => {
+                        let a2 = List::Cons(s1, l2)
+                        match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                          true => match a2 {
+                            List::Nil => {
+                              let a3 = List::Nil
+                              match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                true => match a3 {
+                                  List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  List::Cons(a1, l3) => match l3 {
+                                    List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                      bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                        bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                          Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                        }), fn(x0) {
+                                          match m {
+                                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                          }
+                                        })
+                                      })
+                                    })
+                                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            List::Cons(a1, l3) => match l3 {
+                              List::Nil => bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                }
+                              })
+                              List::Cons(s2, l4) => {
+                                let a3 = List::Cons(a1, List::Cons(s2, l4))
+                                match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                  true => match a3 {
+                                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    List::Cons(a4, l5) => match l5 {
+                                      List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                        bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                          bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                          }), fn(x0) {
+                                            match m {
+                                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                            }
+                                          })
+                                        })
+                                      })
+                                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                            }
+                          }
+                          false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a2 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a1, l3) => match l3 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                      }
+                    }
+                    false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                      true => match a0 {
+                        List::Nil => {
+                          let a3 = List::Nil
+                          match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a3 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a1, l2) => match l2 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                        List::Cons(a1, l2) => match l2 {
+                          List::Nil => bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                            match m {
+                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                            }
+                          })
+                          List::Cons(s1, l3) => {
+                            let a3 = List::Cons(a1, List::Cons(s1, l3))
+                            match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                              true => match a3 {
+                                List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                List::Cons(a2, l4) => match l4 {
+                                  List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                    bind(cres(e, l, _UU0393_, a2, Ty::TBase(Base_ty::BString), elab(e, a2, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                      bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                      }), fn(x0) {
+                                        match m {
+                                          Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                          Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a2, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                        }
+                                      })
+                                    })
+                                  })
+                                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                              false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                        }
+                      }
+                      false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                        true => match a0 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          List::Cons(a1, l2) => match l2 {
+                            List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                              bind(cres(e, l, _UU0393_, a1, Ty::TBase(Base_ty::BString), elab(e, a1, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                }), fn(x0) {
+                                  match m {
+                                    Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                    Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a1, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                  }
+                                })
+                              })
+                            })
+                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                        false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))) {
+            true => match args {
+              List::Nil => {
+                let a1 = List::Nil
+                match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+                  true => match a1 {
+                    List::Nil => match m {
+                      Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                      Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                    }
+                    List::Cons(s0, l0) => {
+                      let a2 = List::Cons(s0, l0)
+                      match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                        true => match a2 {
+                          List::Nil => {
+                            let a3 = List::Nil
+                            match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                              true => match a3 {
+                                List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                List::Cons(a, l1) => match l1 {
+                                  List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                    bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                      bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                      }), fn(x0) {
+                                        match m {
+                                          Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                          Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                        }
+                                      })
+                                    })
+                                  })
+                                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                              false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                          List::Cons(a, l1) => match l1 {
+                            List::Nil => bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                              match m {
+                                Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                              }
+                            })
+                            List::Cons(s1, l2) => {
+                              let a3 = List::Cons(a, List::Cons(s1, l2))
+                              match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                true => match a3 {
+                                  List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  List::Cons(a0, l3) => match l3 {
+                                    List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                      bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                        bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                          Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                        }), fn(x0) {
+                                          match m {
+                                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                          }
+                                        })
+                                      })
+                                    })
+                                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                          }
+                        }
+                        false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                          true => match a2 {
+                            List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            List::Cons(a, l1) => match l1 {
+                              List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                  bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                    Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                  }), fn(x0) {
+                                    match m {
+                                      Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                      Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                    }
+                                  })
+                                })
+                              })
+                              List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                          false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        }
+                      }
+                    }
+                  }
+                  false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                    true => match a1 {
+                      List::Nil => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                        true => match a1 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          List::Cons(a, l0) => match l0 {
+                            List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                              bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                }), fn(x0) {
+                                  match m {
+                                    Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                    Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                  }
+                                })
+                              })
+                            })
+                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                        false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                      }
+                      List::Cons(a, l0) => match l0 {
+                        List::Nil => bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                          match m {
+                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                          }
+                        })
+                        List::Cons(s0, l1) => {
+                          let a3 = List::Cons(a, List::Cons(s0, l1))
+                          match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a3 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a0, l2) => match l2 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                      }
+                    }
+                    false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                      true => match a1 {
+                        List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        List::Cons(a, l0) => match l0 {
+                          List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                            bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                              bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                              }), fn(x0) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                }
+                              })
+                            })
+                          })
+                          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        }
+                      }
+                      false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                    }
+                  }
+                }
+              }
+              List::Cons(a, l0) => match l0 {
+                List::Nil => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), m, bind(elab(e, a, l, _UU0393_, Mode::Syn), fn(x) {
+                  match x {
+                    SigT::ExistT(_, s0) => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(s0, Expr::ELit(Lit::LUnit))))
+                  }
+                }))
+                List::Cons(s0, l1) => {
+                  let a1 = List::Cons(a, List::Cons(s0, l1))
+                  match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+                    true => match a1 {
+                      List::Nil => match m {
+                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                      }
+                      List::Cons(s1, l2) => {
+                        let a2 = List::Cons(s1, l2)
+                        match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                          true => match a2 {
+                            List::Nil => {
+                              let a3 = List::Nil
+                              match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                true => match a3 {
+                                  List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  List::Cons(a0, l3) => match l3 {
+                                    List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                      bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                        bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                          Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                        }), fn(x0) {
+                                          match m {
+                                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                          }
+                                        })
+                                      })
+                                    })
+                                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                  }
+                                }
+                                false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            List::Cons(a0, l3) => match l3 {
+                              List::Nil => bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                                }
+                              })
+                              List::Cons(s2, l4) => {
+                                let a3 = List::Cons(a0, List::Cons(s2, l4))
+                                match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                                  true => match a3 {
+                                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    List::Cons(a4, l5) => match l5 {
+                                      List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                        bind(cres(e, l, _UU0393_, a4, Ty::TBase(Base_ty::BString), elab(e, a4, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                          bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                          }), fn(x0) {
+                                            match m {
+                                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a4, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                            }
+                                          })
+                                        })
+                                      })
+                                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                    }
+                                  }
+                                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                            }
+                          }
+                          false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a2 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a0, l3) => match l3 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                      }
+                    }
+                    false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                      true => match a1 {
+                        List::Nil => {
+                          let a3 = List::Nil
+                          match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a3 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a0, l2) => match l2 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                        List::Cons(a0, l2) => match l2 {
+                          List::Nil => bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                            match m {
+                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                            }
+                          })
+                          List::Cons(s1, l3) => {
+                            let a3 = List::Cons(a0, List::Cons(s1, l3))
+                            match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                              true => match a3 {
+                                List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                List::Cons(a2, l4) => match l4 {
+                                  List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                    bind(cres(e, l, _UU0393_, a2, Ty::TBase(Base_ty::BString), elab(e, a2, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                      bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                        Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                      }), fn(x0) {
+                                        match m {
+                                          Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                          Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a2, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                        }
+                                      })
+                                    })
+                                  })
+                                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                                }
+                              }
+                              false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                        }
+                      }
+                      false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                        true => match a1 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          List::Cons(a0, l2) => match l2 {
+                            List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                              bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                }), fn(x0) {
+                                  match m {
+                                    Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                    Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                  }
+                                })
+                              })
+                            })
+                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                        false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            false => match string_dec(g, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::EmptyString)))))) {
+              true => match args {
+                List::Nil => match m {
+                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EAbort(Ty::TBase(Base_ty::BUnit))))
+                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), _UU03c4_, Expr::EAbort(_UU03c4_))
+                }
+                List::Cons(s0, l0) => {
+                  let a2 = List::Cons(s0, l0)
+                  match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                    true => match a2 {
+                      List::Nil => {
+                        let a3 = List::Nil
+                        match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                          true => match a3 {
+                            List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            List::Cons(a, l1) => match l1 {
+                              List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                  bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                    Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                  }), fn(x0) {
+                                    match m {
+                                      Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                      Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                    }
+                                  })
+                                })
+                              })
+                              List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                            }
+                          }
+                          false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        }
+                      }
+                      List::Cons(a, l1) => match l1 {
+                        List::Nil => bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                          match m {
+                            Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                            Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                          }
+                        })
+                        List::Cons(s1, l2) => {
+                          let a3 = List::Cons(a, List::Cons(s1, l2))
+                          match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                            true => match a3 {
+                              List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              List::Cons(a0, l3) => match l3 {
+                                List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                                  bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                    bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                    }), fn(x0) {
+                                      match m {
+                                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                      }
+                                    })
+                                  })
+                                })
+                                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                              }
+                            }
+                            false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                      }
+                    }
+                    false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                      true => match a2 {
+                        List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        List::Cons(a, l1) => match l1 {
+                          List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                            bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                              bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                              }), fn(x0) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                }
+                              })
+                            })
+                          })
+                          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        }
+                      }
+                      false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                    }
+                  }
+                }
+              }
+              false => match string_dec(g, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))))) {
+                true => match args {
+                  List::Nil => {
+                    let a3 = List::Nil
+                    match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                      true => match a3 {
+                        List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        List::Cons(a, l0) => match l0 {
+                          List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                            bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                              bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                              }), fn(x0) {
+                                match m {
+                                  Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                  Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                }
+                              })
+                            })
+                          })
+                          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                        }
+                      }
+                      false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                    }
+                  }
+                  List::Cons(a, l0) => match l0 {
+                    List::Nil => bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                      match m {
+                        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(x, Expr::EAbort(Ty::TBase(Base_ty::BUnit)))))
+                        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ELet(x, Expr::EAbort(_UU03c4_)))
+                      }
+                    })
+                    List::Cons(s0, l1) => {
+                      let a3 = List::Cons(a, List::Cons(s0, l1))
+                      match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                        true => match a3 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          List::Cons(a0, l2) => match l2 {
+                            List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                              bind(cres(e, l, _UU0393_, a0, Ty::TBase(Base_ty::BString), elab(e, a0, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                                bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                                  Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                                }), fn(x0) {
+                                  match m {
+                                    Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                                    Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a0, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                                  }
+                                })
+                              })
+                            })
+                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                          }
+                        }
+                        false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                      }
+                    }
+                  }
+                }
+                false => match string_dec(g, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString))))) {
+                  true => match args {
+                    List::Nil => Result0::Err(Elab_error::EE_Unbound(q, g))
+                    List::Cons(a, l0) => match l0 {
+                      List::Nil => bind(failure_ok_dec(e, q), fn(_) {
+                        bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BString), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BString)))), fn(x) {
+                          bind(coerce(e, q, _UU0393_, fail_val(x), Ty::TData(String0::String1(Ascii::Ascii0(false, true, true, false, false, false, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))))), List::Nil), match l {
+                            Cenv::Mk_cenv(_, ce_exn) => ce_exn
+                          }), fn(x0) {
+                            match m {
+                              Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x0, Ty::TBase(Base_ty::BUnit))))
+                              Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(a, List::Nil)), _UU03c4_, Expr::ERaise(x0, _UU03c4_))
+                            }
+                          })
+                        })
+                      })
+                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unbound(q, g))
+                    }
+                  }
+                  false => Result0::Err(Elab_error::EE_Unbound(q, g))
+                }
+              }
+            }
+          }
+        }
+      }
+      Head0::HExpr => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, args), m, bind(elab(e, f, l, _UU0393_, Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(_UU03c4_f, s0) => match _UU03c4_f {
+            Ty::TArrow(ps, r, _UU03b5_) => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+              fn(_UU03c4__) {
+                cres(e, l, _UU0393_, s_, _UU03c4__, elab(e, s_, l, _UU0393_, Mode::Chk(_UU03c4__)))
+              }
+            }, args, ps), fn(x0) {
+              bind(allowed_dec(e, p, _UU03b5_, match l {
+                Cenv::Mk_cenv(_, ce_exn) => ce_exn
+              }), fn(_) { Result0::Ok(SigT::ExistT(r, wrap_call(l, _UU03b5_, r, s0, x0))) })
+            })
+            _ => Result0::Err(Elab_error::EE_Type(p, Type_error::E_NotFunction(_UU03c4_f)))
+          }
+        }
+      }))
+      Head0::HCtor(q, tq, c) => {
+        let syn_c = bind(ctor_pick_dec(e, q, tq, c), fn(x) {
+          bind(of_option(lookup_ty(match e {
+            Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+          }, x), Elab_error::EE_UnknownType(q, x)), fn(x0) {
+            bind(of_option(lookup_ctor(x0, c), Elab_error::EE_UnknownCtor(q, c)), fn(x1) {
+              let ps = match x1 {
+                Cdef::Mk_cdef(_, cd_fields) => cd_fields
+              }
+              bind(bcheck(eqb0(length(args), length(ps)), Elab_error::EE_CtorArity(q, c, length(ps), length(args))), fn(_) {
+                bind(pass1(e, fn(x5) { fn(x2) { fn(x3) { fn(x4) { elab(e, x5, x2, x3, x4) } } } }, l, _UU0393_, args, ps, repeat(None, match x0 {
+                  Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                })), fn(x2) {
+                  match x2 {
+                    (a, st1) => bind(pass2(e, fn(x6) { fn(x5) { fn(x3) { fn(x4) { elab(e, x6, x5, x3, x4) } } } }, l, _UU0393_, args, a, ps, st1), fn(x3) {
+                      match x3 {
+                        (a0, st2) => bind(targs(q, c, match x0 {
+                          Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                        }, st2), fn(x4) {
+                          bind(finish(e, p, l, _UU0393_, args, a0, map({ let a1 = fn(x5) { inst(x4, x5) }; fn(x5) { tsubst(a1, x5) } }, ps)), fn(x5) {
+                            Result0::Ok(SigT::ExistT(Ty::TData(x, x4), Expr::EConstr(x, c, x4, Expr::ETuple(x5))))
+                          })
+                        })
+                      }
+                    })
+                  }
+                })
+              })
+            })
+          })
+        })
+        match m {
+          Mode::Syn => syn_c
+          Mode::Chk(_UU03c4_) => match _UU03c4_ {
+            Ty::TData(t, ts) => match lookup_ty(match e {
+              Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+            }, t) {
+              Some(td) => match lookup_ctor(td, c) {
+                Some(cd) => bind(tq_dec(q, tq, t, Elab_error::EE_UnknownCtor(q, c)), fn(_) {
+                  bind(match eq_dec(length(ts), match td {
+                    Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                  }) {
+                    true => Result0::Ok(())
+                    false => Result0::Err(Elab_error::EE_TypeArgs(q, t, match td {
+                      Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                    }, length(ts)))
+                  }, fn(_) {
+                    bind(bcheck(eqb0(length(args), length(match cd {
+                      Cdef::Mk_cdef(_, cd_fields) => cd_fields
+                    })), Elab_error::EE_CtorArity(q, c, length(match cd {
+                      Cdef::Mk_cdef(_, cd_fields) => cd_fields
+                    }), length(args))), fn(_) {
+                      bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+                        fn(_UU03c4__) {
+                          cres(e, l, _UU0393_, s_, _UU03c4__, elab(e, s_, l, _UU0393_, Mode::Chk(_UU03c4__)))
+                        }
+                      }, args, map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match cd {
+                        Cdef::Mk_cdef(_, cd_fields) => cd_fields
+                      })), fn(x) {
+                        okc(e, l, _UU0393_, Sexpr::SApp(p, f, args), Ty::TData(t, ts), Expr::EConstr(t, c, ts, Expr::ETuple(x)))
+                      })
+                    })
+                  })
+                })
+                None => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, args), Mode::Chk(Ty::TData(t, ts)), syn_c)
+              }
+              None => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, args), Mode::Chk(Ty::TData(t, ts)), syn_c)
+            }
+            x => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, args), Mode::Chk(x), syn_c)
+          }
+        }
+      }
+      Head0::HQual(q, t, mn) => match qual_builtin(t, mn, length(args)) {
+        true => match string_dec(t, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))) {
+          true => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+            true => match args {
+              List::Nil => {
+                let a0 = List::Nil
+                match array_kind_of(t) {
+                  Some(k) => match string_dec(mn, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))) {
+                    true => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+                      true => match a0 {
+                        List::Nil => match m {
+                          Mode::Syn => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                          Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                            Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                              true => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MArray(k, t0, Nat::O), List::Nil))
+                              false => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                            }
+                            _ => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                          }
+                        }
+                        List::Cons(n, l0) => match l0 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                          List::Cons(v, l1) => match l1 {
+                            List::Nil => bind(cres(e, l, _UU0393_, n, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, n, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x) {
+                              let syn_m = bind(elab(e, v, l, _UU0393_, Mode::Syn), fn(x0) {
+                                match x0 {
+                                  SigT::ExistT(t0, s0) => Result0::Ok(SigT::ExistT(Ty::TArray(k, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(s0, List::Nil)))))
+                                }
+                              })
+                              match m {
+                                Mode::Syn => syn_m
+                                Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                                  Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                                    true => bind(cres(e, l, _UU0393_, v, t0, elab(e, v, l, _UU0393_, Mode::Chk(t0))), fn(x0) {
+                                      okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(x0, List::Nil))))
+                                    })
+                                    false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(Ty::TArray(k_, t0)), syn_m)
+                                  }
+                                  x0 => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(x0), syn_m)
+                                }
+                              }
+                            })
+                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                          }
+                        }
+                      }
+                      false => match a0 {
+                        List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                        List::Cons(n, l0) => match l0 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                          List::Cons(v, l1) => match l1 {
+                            List::Nil => bind(cres(e, l, _UU0393_, n, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, n, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x) {
+                              let syn_m = bind(elab(e, v, l, _UU0393_, Mode::Syn), fn(x0) {
+                                match x0 {
+                                  SigT::ExistT(t0, s0) => Result0::Ok(SigT::ExistT(Ty::TArray(k, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(s0, List::Nil)))))
+                                }
+                              })
+                              match m {
+                                Mode::Syn => syn_m
+                                Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                                  Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                                    true => bind(cres(e, l, _UU0393_, v, t0, elab(e, v, l, _UU0393_, Mode::Chk(t0))), fn(x0) {
+                                      okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(x0, List::Nil))))
+                                    })
+                                    false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(Ty::TArray(k_, t0)), syn_m)
+                                  }
+                                  x0 => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(x0), syn_m)
+                                }
+                              }
+                            })
+                            List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                          }
+                        }
+                      }
+                    }
+                    false => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+                      true => match a0 {
+                        List::Nil => match m {
+                          Mode::Syn => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                          Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                            Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                              true => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MArray(k, t0, Nat::O), List::Nil))
+                              false => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                            }
+                            _ => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                          }
+                        }
+                        List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                      }
+                      false => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                    }
+                  }
+                  None => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                }
+              }
+              List::Cons(v, l0) => match l0 {
+                List::Nil => bind(ref_ok_dec(e, q), fn(_) {
+                  match m {
+                    Mode::Syn => bind(elab(e, v, l, _UU0393_, Mode::Syn), fn(x) {
+                      match x {
+                        SigT::ExistT(t0, s0) => Result0::Ok(SigT::ExistT(Ty::TData(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(t0, List::Nil)), Expr::EConstr(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(t0, List::Nil), Expr::ETuple(List::Cons(Expr::EMem(Mem_op::MRef(t0), List::Cons(s0, List::Nil)), List::Nil)))))
+                      }
+                    })
+                    Mode::Chk(_UU03c4_) => {
+                      let syn_r = bind(elab(e, v, l, _UU0393_, Mode::Syn), fn(x) {
+                        match x {
+                          SigT::ExistT(t0, s0) => Result0::Ok(SigT::ExistT(Ty::TData(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(t0, List::Nil)), Expr::EConstr(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(t0, List::Nil), Expr::ETuple(List::Cons(Expr::EMem(Mem_op::MRef(t0), List::Cons(s0, List::Nil)), List::Nil)))))
+                        }
+                      })
+                      match _UU03c4_ {
+                        Ty::TData(r, ts) => match ts {
+                          List::Nil => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(v, List::Nil)), Mode::Chk(Ty::TData(r, List::Nil)), syn_r)
+                          List::Cons(t0, l1) => match l1 {
+                            List::Nil => match string_dec(r, String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))) {
+                              true => bind(cres(e, l, _UU0393_, v, t0, elab(e, v, l, _UU0393_, Mode::Chk(t0))), fn(x) {
+                                okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(v, List::Nil)), Ty::TData(r, List::Cons(t0, List::Nil)), Expr::EConstr(String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), String0::String1(Ascii::Ascii0(false, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString))), List::Cons(t0, List::Nil), Expr::ETuple(List::Cons(Expr::EMem(Mem_op::MRef(t0), List::Cons(x, List::Nil)), List::Nil))))
+                              })
+                              false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(v, List::Nil)), Mode::Chk(Ty::TData(r, List::Cons(t0, List::Nil))), syn_r)
+                            }
+                            List::Cons(t1, l2) => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(v, List::Nil)), Mode::Chk(Ty::TData(r, List::Cons(t0, List::Cons(t1, l2)))), syn_r)
+                          }
+                        }
+                        x => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(v, List::Nil)), Mode::Chk(x), syn_r)
+                      }
+                    }
+                  }
+                })
+                List::Cons(s0, l1) => {
+                  let a0 = List::Cons(v, List::Cons(s0, l1))
+                  match array_kind_of(t) {
+                    Some(k) => match string_dec(mn, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))) {
+                      true => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+                        true => match a0 {
+                          List::Nil => match m {
+                            Mode::Syn => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                            Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                              Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                                true => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MArray(k, t0, Nat::O), List::Nil))
+                                false => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                              }
+                              _ => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                            }
+                          }
+                          List::Cons(n, l2) => match l2 {
+                            List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                            List::Cons(v0, l3) => match l3 {
+                              List::Nil => bind(cres(e, l, _UU0393_, n, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, n, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x) {
+                                let syn_m = bind(elab(e, v0, l, _UU0393_, Mode::Syn), fn(x0) {
+                                  match x0 {
+                                    SigT::ExistT(t0, s1) => Result0::Ok(SigT::ExistT(Ty::TArray(k, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(s1, List::Nil)))))
+                                  }
+                                })
+                                match m {
+                                  Mode::Syn => syn_m
+                                  Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                                    Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                                      true => bind(cres(e, l, _UU0393_, v0, t0, elab(e, v0, l, _UU0393_, Mode::Chk(t0))), fn(x0) {
+                                        okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v0, List::Nil))), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(x0, List::Nil))))
+                                      })
+                                      false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v0, List::Nil))), Mode::Chk(Ty::TArray(k_, t0)), syn_m)
+                                    }
+                                    x0 => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v0, List::Nil))), Mode::Chk(x0), syn_m)
+                                  }
+                                }
+                              })
+                              List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                            }
+                          }
+                        }
+                        false => match a0 {
+                          List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                          List::Cons(n, l2) => match l2 {
+                            List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                            List::Cons(v0, l3) => match l3 {
+                              List::Nil => bind(cres(e, l, _UU0393_, n, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, n, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x) {
+                                let syn_m = bind(elab(e, v0, l, _UU0393_, Mode::Syn), fn(x0) {
+                                  match x0 {
+                                    SigT::ExistT(t0, s1) => Result0::Ok(SigT::ExistT(Ty::TArray(k, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(s1, List::Nil)))))
+                                  }
+                                })
+                                match m {
+                                  Mode::Syn => syn_m
+                                  Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                                    Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                                      true => bind(cres(e, l, _UU0393_, v0, t0, elab(e, v0, l, _UU0393_, Mode::Chk(t0))), fn(x0) {
+                                        okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v0, List::Nil))), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(x0, List::Nil))))
+                                      })
+                                      false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v0, List::Nil))), Mode::Chk(Ty::TArray(k_, t0)), syn_m)
+                                    }
+                                    x0 => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v0, List::Nil))), Mode::Chk(x0), syn_m)
+                                  }
+                                }
+                              })
+                              List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                            }
+                          }
+                        }
+                      }
+                      false => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+                        true => match a0 {
+                          List::Nil => match m {
+                            Mode::Syn => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                            Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                              Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                                true => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MArray(k, t0, Nat::O), List::Nil))
+                                false => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                              }
+                              _ => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                            }
+                          }
+                          List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                        }
+                        false => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                      }
+                    }
+                    None => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                  }
+                }
+              }
+            }
+            false => match array_kind_of(t) {
+              Some(k) => match string_dec(mn, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))) {
+                true => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+                  true => match args {
+                    List::Nil => match m {
+                      Mode::Syn => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                      Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                        Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                          true => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MArray(k, t0, Nat::O), List::Nil))
+                          false => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                        }
+                        _ => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                      }
+                    }
+                    List::Cons(n, l0) => match l0 {
+                      List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                      List::Cons(v, l1) => match l1 {
+                        List::Nil => bind(cres(e, l, _UU0393_, n, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, n, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x) {
+                          let syn_m = bind(elab(e, v, l, _UU0393_, Mode::Syn), fn(x0) {
+                            match x0 {
+                              SigT::ExistT(t0, s0) => Result0::Ok(SigT::ExistT(Ty::TArray(k, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(s0, List::Nil)))))
+                            }
+                          })
+                          match m {
+                            Mode::Syn => syn_m
+                            Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                              Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                                true => bind(cres(e, l, _UU0393_, v, t0, elab(e, v, l, _UU0393_, Mode::Chk(t0))), fn(x0) {
+                                  okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(x0, List::Nil))))
+                                })
+                                false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(Ty::TArray(k_, t0)), syn_m)
+                              }
+                              x0 => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(x0), syn_m)
+                            }
+                          }
+                        })
+                        List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                      }
+                    }
+                  }
+                  false => match args {
+                    List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                    List::Cons(n, l0) => match l0 {
+                      List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                      List::Cons(v, l1) => match l1 {
+                        List::Nil => bind(cres(e, l, _UU0393_, n, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, n, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x) {
+                          let syn_m = bind(elab(e, v, l, _UU0393_, Mode::Syn), fn(x0) {
+                            match x0 {
+                              SigT::ExistT(t0, s0) => Result0::Ok(SigT::ExistT(Ty::TArray(k, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(s0, List::Nil)))))
+                            }
+                          })
+                          match m {
+                            Mode::Syn => syn_m
+                            Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                              Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                                true => bind(cres(e, l, _UU0393_, v, t0, elab(e, v, l, _UU0393_, Mode::Chk(t0))), fn(x0) {
+                                  okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(x0, List::Nil))))
+                                })
+                                false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(Ty::TArray(k_, t0)), syn_m)
+                              }
+                              x0 => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(x0), syn_m)
+                            }
+                          }
+                        })
+                        List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                      }
+                    }
+                  }
+                }
+                false => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+                  true => match args {
+                    List::Nil => match m {
+                      Mode::Syn => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                      Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                        Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                          true => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MArray(k, t0, Nat::O), List::Nil))
+                          false => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                        }
+                        _ => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                      }
+                    }
+                    List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                  }
+                  false => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                }
+              }
+              None => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+            }
+          }
+          false => match array_kind_of(t) {
+            Some(k) => match string_dec(mn, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::EmptyString))))) {
+              true => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+                true => match args {
+                  List::Nil => match m {
+                    Mode::Syn => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                    Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                      Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                        true => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MArray(k, t0, Nat::O), List::Nil))
+                        false => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                      }
+                      _ => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                    }
+                  }
+                  List::Cons(n, l0) => match l0 {
+                    List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                    List::Cons(v, l1) => match l1 {
+                      List::Nil => bind(cres(e, l, _UU0393_, n, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, n, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x) {
+                        let syn_m = bind(elab(e, v, l, _UU0393_, Mode::Syn), fn(x0) {
+                          match x0 {
+                            SigT::ExistT(t0, s0) => Result0::Ok(SigT::ExistT(Ty::TArray(k, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(s0, List::Nil)))))
+                          }
+                        })
+                        match m {
+                          Mode::Syn => syn_m
+                          Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                            Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                              true => bind(cres(e, l, _UU0393_, v, t0, elab(e, v, l, _UU0393_, Mode::Chk(t0))), fn(x0) {
+                                okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(x0, List::Nil))))
+                              })
+                              false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(Ty::TArray(k_, t0)), syn_m)
+                            }
+                            x0 => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(x0), syn_m)
+                          }
+                        }
+                      })
+                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                    }
+                  }
+                }
+                false => match args {
+                  List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                  List::Cons(n, l0) => match l0 {
+                    List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                    List::Cons(v, l1) => match l1 {
+                      List::Nil => bind(cres(e, l, _UU0393_, n, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, n, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x) {
+                        let syn_m = bind(elab(e, v, l, _UU0393_, Mode::Syn), fn(x0) {
+                          match x0 {
+                            SigT::ExistT(t0, s0) => Result0::Ok(SigT::ExistT(Ty::TArray(k, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(s0, List::Nil)))))
+                          }
+                        })
+                        match m {
+                          Mode::Syn => syn_m
+                          Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                            Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                              true => bind(cres(e, l, _UU0393_, v, t0, elab(e, v, l, _UU0393_, Mode::Chk(t0))), fn(x0) {
+                                okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MMake(k, t0), List::Cons(x, List::Cons(x0, List::Nil))))
+                              })
+                              false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(Ty::TArray(k_, t0)), syn_m)
+                            }
+                            x0 => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, List::Cons(n, List::Cons(v, List::Nil))), Mode::Chk(x0), syn_m)
+                          }
+                        }
+                      })
+                      List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                    }
+                  }
+                }
+              }
+              false => match string_dec(mn, String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, true, true, true, false), String0::EmptyString)))) {
+                true => match args {
+                  List::Nil => match m {
+                    Mode::Syn => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                    Mode::Chk(_UU03c4_) => match _UU03c4_ {
+                      Ty::TArray(k_, t0) => match array_kind_eq_dec(k, k_) {
+                        true => okc(e, l, _UU0393_, Sexpr::SApp(p, f, List::Nil), Ty::TArray(k_, t0), Expr::EMem(Mem_op::MArray(k, t0, Nat::O), List::Nil))
+                        false => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                      }
+                      _ => Result0::Err(Elab_error::EE_CannotInfer(q, mn))
+                    }
+                  }
+                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                }
+                false => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+              }
+            }
+            None => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+          }
+        }
+        false => fin(e, p, l, _UU0393_, Sexpr::SApp(p, f, args), m, qcall(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, q, l, _UU0393_, f, t, mn, args, hint(m)))
+      }
+      Head0::HOther => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+    }
+    Sexpr::SInfix(p, op, a, b) => match string_dec(op, String0::String1(Ascii::Ascii0(false, true, true, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, false, false), String0::EmptyString))) {
+      true => fin(e, p, l, _UU0393_, Sexpr::SInfix(p, op, a, b), m, bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BBool), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x) {
+        bind(cres(e, l, _UU0393_, b, Ty::TBase(Base_ty::BBool), elab(e, b, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x0) {
+          Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BBool), Expr::EIf(x, x0, e_false)))
+        })
+      }))
+      false => match string_dec(op, String0::String1(Ascii::Ascii0(false, false, true, true, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, true, true, true, false), String0::EmptyString))) {
+        true => fin(e, p, l, _UU0393_, Sexpr::SInfix(p, op, a, b), m, bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BBool), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x) {
+          bind(cres(e, l, _UU0393_, b, Ty::TBase(Base_ty::BBool), elab(e, b, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x0) {
+            Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BBool), Expr::EIf(x, e_true, x0)))
+          })
+        }))
+        false => {
+          let bin_syn = match (match flexible(a) {
             true => negb(flexible(b))
             false => false
           }) {
-            true => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, exp_, b), fn(b_) {
-              bind(type_of(hdr, p, l, _UU0393_, b_), fn(_UU03c4_) {
-                bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(_UU03c4_), a), fn(a_) { elab_binop(p, op, _UU03c4_, a_, b_) })
-              })
+            true => bind(elab(e, b, l, _UU0393_, Mode::Syn), fn(x) {
+              match x {
+                SigT::ExistT(_UU03c4_, s0) => bind(cres(e, l, _UU0393_, a, _UU03c4_, elab(e, a, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x0) {
+                  bind(binop_dec(p, op, _UU03c4_, x0, s0), fn(x1) { Result0::Ok(SigT::ExistT(binop_res(op, _UU03c4_), x1)) })
+                })
+              }
             })
-            false => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, exp_, a), fn(a_) {
-              bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_) {
-                bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(_UU03c4_), b), fn(b_) { elab_binop(p, op, _UU03c4_, a_, b_) })
-              })
+            false => bind(elab(e, a, l, _UU0393_, Mode::Syn), fn(x) {
+              match x {
+                SigT::ExistT(_UU03c4_, s0) => bind(cres(e, l, _UU0393_, b, _UU03c4_, elab(e, b, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x0) {
+                  bind(binop_dec(p, op, _UU03c4_, s0, x0), fn(x1) { Result0::Ok(SigT::ExistT(binop_res(op, _UU03c4_), x1)) })
+                })
+              }
             })
+          }
+          match m {
+            Mode::Syn => bin_syn
+            Mode::Chk(_UU03c4_) => match assoc(op, arith_ops) {
+              Some(_) => match ty_eq_dec(binop_res(op, _UU03c4_))(_UU03c4_) {
+                true => bind(cres(e, l, _UU0393_, a, _UU03c4_, elab(e, a, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x) {
+                  bind(cres(e, l, _UU0393_, b, _UU03c4_, elab(e, b, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x0) {
+                    bind(binop_dec(p, op, _UU03c4_, x, x0), fn(x1) { okc(e, l, _UU0393_, Sexpr::SInfix(p, op, a, b), _UU03c4_, x1) })
+                  })
+                })
+                false => fin(e, p, l, _UU0393_, Sexpr::SInfix(p, op, a, b), Mode::Chk(_UU03c4_), bin_syn)
+              }
+              None => fin(e, p, l, _UU0393_, Sexpr::SInfix(p, op, a, b), Mode::Chk(_UU03c4_), bin_syn)
+            }
           }
         }
       }
     }
-    Sexpr::SUnary(p, op, a) => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(true, false, true, true, false, true, false, false), String0::EmptyString)) {
-      true => match a {
-        Sexpr::SLit(q, l0) => match l0 {
-          Slit::SLInt(k, z) => bind(elab_lit(q, exp, Slit::SLInt(k, opp(z))), fn(l_) { Result0::Ok(Expr::ELit(l_)) })
-          _ => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, exp, a), fn(a_) {
-            bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_) {
-              match _UU03c4_ {
-                Ty::TBase(b) => match b {
-                  Base_ty::BInt(k) => Result0::Ok(Expr::EPrim(Prim_op::PIntNeg(k), List::Cons(a_, List::Nil)))
-                  _ => Result0::Err(Elab_error::EE_NoOperator(p, op, _UU03c4_))
+    Sexpr::SUnary(p, op, a) => match string_dec(op, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, false, false), String0::EmptyString)) {
+      true => match int_lit_dec(a) {
+        Sumor::Inleft(s0) => match s0 {
+          SigT::ExistT(q, s1) => match s1 {
+            SigT::ExistT(k, s2) => match m {
+              Mode::Syn => bind(lit_syn(e, q, l, _UU0393_, Slit::SLInt(k, opp(s2))), fn(x) {
+                match x {
+                  SigT::ExistT(_UU03c4_, s3) => Result0::Ok(SigT::ExistT(_UU03c4_, s3))
                 }
-                _ => Result0::Err(Elab_error::EE_NoOperator(p, op, _UU03c4_))
-              }
-            })
-          })
+              })
+              Mode::Chk(_UU03c4_) => bind(cres(e, l, _UU0393_, Sexpr::SLit(q, Slit::SLInt(k, opp(s2))), _UU03c4_, lit_m(e, q, l, _UU0393_, Slit::SLInt(k, opp(s2)), Mode::Chk(_UU03c4_))), fn(x) { okc(e, l, _UU0393_, Sexpr::SUnary(p, op, a), _UU03c4_, x) })
+            }
+          }
         }
-        _ => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, exp, a), fn(a_) {
-          bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_) {
-            match _UU03c4_ {
+        Sumor::Inright => fin(e, p, l, _UU0393_, Sexpr::SUnary(p, op, a), m, bind(elab(e, a, l, _UU0393_, Mode::Syn), fn(x) {
+          match x {
+            SigT::ExistT(_UU03c4_, s0) => match _UU03c4_ {
               Ty::TBase(b) => match b {
-                Base_ty::BInt(k) => Result0::Ok(Expr::EPrim(Prim_op::PIntNeg(k), List::Cons(a_, List::Nil)))
+                Base_ty::BInt(k) => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BInt(k)), Expr::EPrim(Prim_op::PIntNeg(k), List::Cons(s0, List::Nil))))
                 _ => Result0::Err(Elab_error::EE_NoOperator(p, op, _UU03c4_))
               }
               _ => Result0::Err(Elab_error::EE_NoOperator(p, op, _UU03c4_))
             }
-          })
-        })
+          }
+        }))
       }
-      false => match eqDec_ident(op)(String0::String1(Ascii::Ascii0(true, false, false, false, false, true, false, false), String0::EmptyString)) {
-        true => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), a), fn(a_) {
-          Result0::Ok(Expr::EPrim(Prim_op::PBoolNot, List::Cons(a_, List::Nil)))
-        })
+      false => match string_dec(op, String0::String1(Ascii::Ascii0(true, false, false, false, false, true, false, false), String0::EmptyString)) {
+        true => fin(e, p, l, _UU0393_, Sexpr::SUnary(p, op, a), m, bind(cres(e, l, _UU0393_, a, Ty::TBase(Base_ty::BBool), elab(e, a, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x) {
+          Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BBool), Expr::EPrim(Prim_op::PBoolNot, List::Cons(x, List::Nil))))
+        }))
         false => Result0::Err(Elab_error::EE_NoOperator(p, op, Ty::TBase(Base_ty::BUnit)))
       }
     }
-    Sexpr::SLet(p, x, ann, e1, body) => bind(match ann {
-      Some(t) => map_result(fn(x0) { Some(x0) }, elab_ty(tys, tps, t))
-      None => Result0::Ok(None)
-    }, fn(_UU03c4_ann) {
-      bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, _UU03c4_ann, e1), fn(e1_) {
-        bind(type_of(hdr, p, l, _UU0393_, e1_), fn(_UU03c4_0) {
-          bind(coerce_to(gx, p, _UU0393_, _UU03c4_ann, _UU03c4_0, e1_), fn(e1__) {
-            bind(type_of(hdr, p, l, _UU0393_, e1__), fn(_UU03c4_1) {
-              bind(match _UU03c4_ann {
-                Some(t) => match eqDec_ty(t)(_UU03c4_1) {
-                  true => Result0::Ok(())
-                  false => Result0::Err(Elab_error::EE_Annot(p, t, _UU03c4_1))
-                }
-                None => Result0::Ok(())
-              }, fn(_) {
-                bind(elab(tys, hdr, sinfo, tps, gx, l, List::Cons((x, _UU03c4_1), _UU0393_), exp, body), fn(body_) { Result0::Ok(Expr::ELet(e1__, body_)) })
-              })
-            })
-          })
-        })
+    Sexpr::SLet(p, x, ann, s1, s2) => bind(match ann {
+      Some(t) => bind(ety_dec(e, t), fn(x0) {
+        bind(cres(e, l, _UU0393_, s1, x0, elab(e, s1, l, _UU0393_, Mode::Chk(x0))), fn(x1) { Result0::Ok(SigT::ExistT(x0, x1)) })
       })
+      None => bind(elab(e, s1, l, _UU0393_, Mode::Syn), fn(x0) {
+        match x0 {
+          SigT::ExistT(_UU03c4_, s0) => Result0::Ok(SigT::ExistT(_UU03c4_, s0))
+        }
+      })
+    }, fn(x0) {
+      match x0 {
+        SigT::ExistT(_UU03c4_1, s0) => match m {
+          Mode::Syn => bind(elab(e, s2, l, List::Cons((x, _UU03c4_1), _UU0393_), Mode::Syn), fn(x1) {
+            match x1 {
+              SigT::ExistT(_UU03c4_, s3) => Result0::Ok(SigT::ExistT(_UU03c4_, Expr::ELet(s0, s3)))
+            }
+          })
+          Mode::Chk(_UU03c4_) => bind(cres(e, l, List::Cons((x, _UU03c4_1), _UU0393_), s2, _UU03c4_, elab(e, s2, l, List::Cons((x, _UU03c4_1), _UU0393_), Mode::Chk(_UU03c4_))), fn(x1) {
+            okc(e, l, _UU0393_, Sexpr::SLet(p, x, ann, s1, s2), _UU03c4_, Expr::ELet(s0, x1))
+          })
+        }
+      }
     })
-    Sexpr::SIf(p, c, t, oe) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BBool)), c), fn(c_) {
+    Sexpr::SIf(p, c, t, oe) => bind(cres(e, l, _UU0393_, c, Ty::TBase(Base_ty::BBool), elab(e, c, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x) {
       match oe {
-        Some(e0) => match (match (match exp {
-          Some(_) => false
-          None => diverges(t)
-        }) {
-          true => negb(diverges(e0))
-          false => false
-        }) {
-          true => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e0), fn(e0_) {
-            bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_e) {
-              bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(_UU03c4_e), t), fn(t_) { Result0::Ok(Expr::EIf(c_, t_, e0_)) })
-            })
-          })
-          false => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, exp, t), fn(t_) {
-            bind(match exp {
-              Some(_UU03c4_) => Result0::Ok(Some(_UU03c4_))
-              None => map_result(fn(x) { Some(x) }, type_of(hdr, p, l, _UU0393_, t_))
-            }, fn(exp_) {
-              bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, exp_, e0), fn(e0_) { Result0::Ok(Expr::EIf(c_, t_, e0_)) })
-            })
-          })
-        }
-        None => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BUnit)), t), fn(t_) { Result0::Ok(Expr::EIf(c_, t_, Expr::ELit(Lit::LUnit))) })
-      }
-    })
-    Sexpr::STup(_, es) => {
-      let exps = match exp {
-        Some(t) => match t {
-          Ty::TBase(_) => repeat(None, length(es))
-          Ty::TVar(_) => repeat(None, length(es))
-          Ty::TTuple(ts) => match eqb0(length(ts), length(es)) {
-            true => map(fn(x) { Some(x) }, ts)
-            false => repeat(None, length(es))
-          }
-          _ => repeat(None, length(es))
-        }
-        None => repeat(None, length(es))
-      }
-      bind(elab_args(es)(exps), fn(es_) { Result0::Ok(Expr::ETuple(es_)) })
-    }
-    Sexpr::SProj(p, e0, i) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
-        match _UU03c4_ {
-          Ty::TData(t, ts) => proj_field(hdr, p, t, ts, i, e0_)
-          _ => Result0::Ok(Expr::EProj(e0_, i))
-        }
-      })
-    })
-    Sexpr::SLam(p, ps, ret, eff, body) => {
-      let pexps = match exp {
-        Some(t) => arrow_params(t, length(ps))
-        None => repeat(None, length(ps))
-      }
-      let rexp = match exp {
-        Some(t) => match t {
-          Ty::TBase(_) => None
-          Ty::TVar(_) => None
-          Ty::TTuple(_) => None
-          Ty::TArrow(_, r, _) => Some(r)
-          _ => None
-        }
-        None => None
-      }
-      let _UU03b5_exp = match exp {
-        Some(t) => match t {
-          Ty::TBase(_) => None
-          Ty::TVar(_) => None
-          Ty::TTuple(_) => None
-          Ty::TArrow(_, _, _UU03b5_) => Some(_UU03b5_)
-          _ => None
-        }
-        None => None
-      }
-      elab_lam(tys, hdr, tps, _UU0393_, p, ps, ret, eff, pexps, rexp, _UU03b5_exp, fn(l_) {
-        fn(_UU0393__) { fn(t) { elab(tys, hdr, sinfo, tps, gx, l_, _UU0393__, t, body) } }
-      })
-    }
-    Sexpr::SAnnot(p, e0, t) => bind(elab_ty(tys, tps, t), fn(_UU03c4_) {
-      bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(_UU03c4_), e0), fn(e0_) {
-        bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_1) {
-          bind(coerce_to(gx, p, _UU0393_, Some(_UU03c4_), _UU03c4_1, e0_), fn(e0__) {
-            bind(type_of(hdr, p, l, _UU0393_, e0__), fn(_UU03c4_0) {
-              match eqDec_ty(_UU03c4_)(_UU03c4_0) {
-                true => Result0::Ok(e0__)
-                false => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_, _UU03c4_0))
-              }
-            })
-          })
-        })
-      })
-    })
-    Sexpr::SConstr(p, tq, c) => bind(resolve_ctor(hdr, sinfo, p, tq, c, exp), fn(x) {
-      match x {
-        (td, cd) => ctor_app(p)(p)(td)(cd)(List::Nil)
-      }
-    })
-    Sexpr::SRecord(p, tq, fes) => bind(resolve_record(sinfo, p, tq, map(fn(x1) { fst(x1) }, fes), exp), fn(t) {
-      bind(of_opt(assoc(t, sinfo), Elab_error::EE_NotRecord(p, Ty::TData(t, List::Nil))), fn(names) {
-        bind(of_opt(lookup_ty(hdr, t), Elab_error::EE_UnknownType(p, t)), fn(td) {
-          match (match td {
-            Tdef::Mk_tdef(_, _, td_ctors, _) => td_ctors
+        Some(f) => match m {
+          Mode::Syn => match (match diverges(t) {
+            true => negb(diverges(f))
+            false => false
           }) {
-            List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TData(t, List::Nil)))
-            List::Cons(cd, l0) => match l0 {
-              List::Nil => {
-                let n = match td {
-                  Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
-                }
-                bind(rfields(p)(_UU0393_)(names)(match cd {
-                  Cdef::Mk_cdef(_, cd_fields) => cd_fields
-                })(fes)(data_inst(t, n, exp)), fn(x) {
-                  match x {
-                    (p0, s) => match p0 {
-                      (bound, _) => bind(of_opt(all_some(s), Elab_error::EE_CannotInfer(p, t)), fn(ts) {
-                        let m = length(bound)
-                        let var_of = fn(j) {
-                          match find(fn(x0) { eqb0(snd(fst(x0)), j) }, combine(bound, seq(Nat::O, m))) {
-                            Some(p1) => match p1 {
-                              (_, k) => Result0::Ok(Expr::EVar(sub(sub(m, Nat::S(Nat::O)), k)))
-                            }
-                            None => Result0::Err(Elab_error::EE_MissingField(p, nth(j, names, String0::EmptyString)))
-                          }
-                        }
-                        bind(mapM(var_of, seq(Nat::O, length(names))), fn(vs) {
-                          bind(match eqb0(m, length(names)) {
-                            true => Result0::Ok(())
-                            false => Result0::Err(Elab_error::EE_UnknownField(p, String0::EmptyString))
-                          }, fn(_) {
-                            Result0::Ok(fold_right(fn(b) { fn(acc) { Expr::ELet(fst(b), acc) } }, Expr::EConstr(t, match cd {
-                              Cdef::Mk_cdef(cd_name, _) => cd_name
-                            }, ts, Expr::ETuple(vs)), bound))
-                          })
-                        })
-                      })
-                    }
-                  }
-                })
+            true => bind(elab(e, f, l, _UU0393_, Mode::Syn), fn(x0) {
+              match x0 {
+                SigT::ExistT(_UU03c4_, s0) => bind(cres(e, l, _UU0393_, t, _UU03c4_, elab(e, t, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x1) { Result0::Ok(SigT::ExistT(_UU03c4_, Expr::EIf(x, x1, s0))) })
               }
-              List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, Ty::TData(t, List::Nil)))
-            }
+            })
+            false => bind(elab(e, t, l, _UU0393_, Mode::Syn), fn(x0) {
+              match x0 {
+                SigT::ExistT(_UU03c4_, s0) => bind(cres(e, l, _UU0393_, f, _UU03c4_, elab(e, f, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x1) { Result0::Ok(SigT::ExistT(_UU03c4_, Expr::EIf(x, s0, x1))) })
+              }
+            })
           }
-        })
-      })
-    })
-    Sexpr::SField(p, e0, f) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
-        match _UU03c4_ {
-          Ty::TData(t, ts) => bind(of_opt(assoc(t, sinfo), Elab_error::EE_NotRecord(p, _UU03c4_)), fn(names) {
-            bind(of_opt(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(i) { proj_field(hdr, p, t, ts, i, e0_) })
-          })
-          _ => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
-        }
-      })
-    })
-    Sexpr::SMatch(p, e0, cases) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_s) {
-        bind(match exp {
-          Some(_) => Result0::Ok(exp)
-          None => first_arm(l)(_UU0393_)(_UU03c4_s)(cases)
-        }, fn(exp0) {
-          bind(arms(l)(_UU0393_)(_UU03c4_s)(cases)(exp0), fn(x) {
-            match x {
-              (bs, r) => bind(of_opt(r, Elab_error::EE_EmptyMatch(p)), fn(_UU03c4_) { Result0::Ok(Expr::EMatch(e0_, _UU03c4_, bs)) })
-            }
-          })
-        })
-      })
-    })
-    Sexpr::SLetMut(p, x, ann, e1, body) => bind(match ann {
-      Some(t) => map_result(fn(x0) { Some(x0) }, elab_ty(tys, tps, t))
-      None => Result0::Ok(None)
-    }, fn(_UU03c4_ann) {
-      bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, _UU03c4_ann, e1), fn(e1_) {
-        bind(type_of(hdr, p, l, _UU0393_, e1_), fn(_UU03c4_1) {
-          bind(match _UU03c4_ann {
-            Some(t) => match eqDec_ty(t)(_UU03c4_1) {
-              true => Result0::Ok(())
-              false => Result0::Err(Elab_error::EE_Annot(p, t, _UU03c4_1))
-            }
-            None => Result0::Ok(())
-          }, fn(_) {
-            bind(elab(tys, hdr, sinfo, tps, gx, l, List::Cons((Some(x), Ty::TRef(_UU03c4_1)), _UU0393_), exp, body), fn(body_) {
-              Result0::Ok(Expr::ELet(Expr::EMem(Mem_op::MRef(_UU03c4_1), List::Cons(e1_, List::Nil)), body_))
+          Mode::Chk(_UU03c4_) => bind(cres(e, l, _UU0393_, t, _UU03c4_, elab(e, t, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x0) {
+            bind(cres(e, l, _UU0393_, f, _UU03c4_, elab(e, f, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x1) {
+              okc(e, l, _UU0393_, Sexpr::SIf(p, c, t, Some(f)), _UU03c4_, Expr::EIf(x, x0, x1))
             })
           })
-        })
-      })
-    })
-    Sexpr::SAssign(p, x, op, e0) => bind(of_opt(lookup_local(x, _UU0393_), Elab_error::EE_NotMutable(p, x)), fn(i) {
-      match nth_error(_UU0393_, i) {
-        Some(p0) => match p0 {
-          (_, t) => match t {
-            Ty::TRef(_UU03c4_) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(_UU03c4_), e0), fn(v_) {
-              bind(match op {
-                Some(o) => elab_binop(p, o, _UU03c4_, Expr::EMem(Mem_op::MGet(_UU03c4_), List::Cons(Expr::EVar(i), List::Nil)), v_)
-                None => Result0::Ok(v_)
-              }, fn(v__) {
-                Result0::Ok(Expr::EMem(Mem_op::MSet(_UU03c4_), List::Cons(Expr::EVar(i), List::Cons(v__, List::Nil))))
-              })
-            })
-            _ => Result0::Err(Elab_error::EE_NotMutable(p, x))
-          }
         }
-        None => Result0::Err(Elab_error::EE_NotMutable(p, x))
+        None => fin(e, p, l, _UU0393_, Sexpr::SIf(p, c, t, None), m, bind(cres(e, l, _UU0393_, t, Ty::TBase(Base_ty::BUnit), elab(e, t, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x0) {
+          Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EIf(x, x0, Expr::ELit(Lit::LUnit))))
+        }))
       }
     })
-    Sexpr::SArray(p, es) => match exp {
-      Some(t0) => match t0 {
-        Ty::TBase(_) => match es {
-          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
-          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e1), fn(e1_) {
-            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
-              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
-                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
-              })
-            })
-          })
+    Sexpr::STup(p, ss) => {
+      let syn_t = bind(syn_list(e, l, _UU0393_, fn(s_) { elab(e, s_, l, _UU0393_, Mode::Syn) }, ss), fn(x) {
+        match x {
+          SigT::ExistT(_UU03c4_s, s0) => Result0::Ok(SigT::ExistT(Ty::TTuple(_UU03c4_s), Expr::ETuple(s0)))
         }
-        Ty::TVar(_) => match es {
-          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
-          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e1), fn(e1_) {
-            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
-              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
-                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
-              })
+      })
+      match m {
+        Mode::Syn => syn_t
+        Mode::Chk(_UU03c4_) => match _UU03c4_ {
+          Ty::TTuple(ts) => match eqb0(length(ts), length(ss)) {
+            true => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+              fn(_UU03c4__) {
+                cres(e, l, _UU0393_, s_, _UU03c4__, elab(e, s_, l, _UU0393_, Mode::Chk(_UU03c4__)))
+              }
+            }, ss, ts), fn(x) {
+              okc(e, l, _UU0393_, Sexpr::STup(p, ss), Ty::TTuple(ts), Expr::ETuple(x))
             })
-          })
+            false => fin(e, p, l, _UU0393_, Sexpr::STup(p, ss), Mode::Chk(Ty::TTuple(ts)), syn_t)
+          }
+          x => fin(e, p, l, _UU0393_, Sexpr::STup(p, ss), Mode::Chk(x), syn_t)
         }
-        Ty::TTuple(_) => match es {
-          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
-          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e1), fn(e1_) {
-            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
-              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
-                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
-              })
-            })
-          })
-        }
-        Ty::TArrow(_, _, _) => match es {
-          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
-          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e1), fn(e1_) {
-            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
-              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
-                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
-              })
-            })
-          })
-        }
-        Ty::TData(_, _) => match es {
-          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
-          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e1), fn(e1_) {
-            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
-              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
-                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
-              })
-            })
-          })
-        }
-        Ty::TRef(_) => match es {
-          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
-          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e1), fn(e1_) {
-            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
-              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
-                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
-              })
-            })
-          })
-        }
-        Ty::TArray(k, t) => bind(elab_args(es)(repeat(Some(t), length(es))), fn(es_) { Result0::Ok(Expr::EMem(Mem_op::MArray(k, t, length(es)), es_)) })
-        Ty::TError => match es {
-          List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
-          List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e1), fn(e1_) {
-            bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
-              bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
-                Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
-              })
-            })
-          })
-        }
-      }
-      None => match es {
-        List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
-        List::Cons(e1, es1) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e1), fn(e1_) {
-          bind(type_of(hdr, p, l, _UU0393_, e1_), fn(t) {
-            bind(elab_args(es1)(repeat(Some(t), length(es1))), fn(es1_) {
-              Result0::Ok(Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, length(es)), List::Cons(e1_, es1_)))
-            })
-          })
-        })
       }
     }
-    Sexpr::SIndex(p, a, i) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, a), fn(a_) {
-      bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) {
-        match _UU03c4_a {
-          Ty::TArray(k, t) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BInt(Int_kind::I32))), i), fn(i_) {
-            Result0::Ok(Expr::EMem(Mem_op::MIndex(k, t), List::Cons(a_, List::Cons(i_, List::Nil))))
+    Sexpr::SProj(p, s0, i) => fin(e, p, l, _UU0393_, Sexpr::SProj(p, s0, i), m, bind(elab(e, s0, l, _UU0393_, Mode::Syn), fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4_0, s1) => match _UU03c4_0 {
+          Ty::TTuple(_UU03c4_s) => bind(of_option(nth_error(_UU03c4_s, i), Elab_error::EE_Type(p, Type_error::E_TupleIndex(i, Ty::TTuple(_UU03c4_s)))), fn(x0) { Result0::Ok(SigT::ExistT(x0, Expr::EProj(s1, i))) })
+          Ty::TData(t, ts) => bind(field_proj_dec(e, p, t, ts, i, s1), fn(x0) {
+            match x0 {
+              (e_, _UU03c4_) => Result0::Ok(SigT::ExistT(_UU03c4_, e_))
+            }
           })
-          _ => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString)), _UU03c4_a))
+          _ => Result0::Err(Elab_error::EE_Type(p, Type_error::E_NotTuple(_UU03c4_0)))
         }
+      }
+    }))
+    Sexpr::SLam(p, ps, ret, a, body) => {
+      let syn_l = bind(params_syn_dec(e, p, ps), fn(x) {
+        bind(eff_syn_dec(e, a), fn(x0) {
+          match ret {
+            Some(t) => bind(ety_dec(e, t), fn(x1) {
+              bind(cres(e, fun_env(x1, x0), app(lam_ctx(ps, x), _UU0393_), body, x1, elab(e, body, fun_env(x1, x0), app(lam_ctx(ps, x), _UU0393_), Mode::Chk(x1))), fn(x2) {
+                Result0::Ok(SigT::ExistT(Ty::TArrow(x, x1, x0), Expr::ELam(x, x1, x0, eblock(x1, x2))))
+              })
+            })
+            None => bind(elab(e, body, Cenv::Mk_cenv(List::Nil, x0), app(lam_ctx(ps, x), _UU0393_), Mode::Syn), fn(x1) {
+              match x1 {
+                SigT::ExistT(r, s0) => Result0::Ok(SigT::ExistT(Ty::TArrow(x, r, x0), Expr::ELam(x, r, x0, s0)))
+              }
+            })
+          }
+        })
       })
-    })
-    Sexpr::SIndexSet(p, a, i, op, v) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, a), fn(a_) {
-      bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) {
-        match _UU03c4_a {
-          Ty::TArray(k, t) => match op {
-            Some(o) => {
-              let _UU0393_1 = List::Cons((None, _UU03c4_a), _UU0393_)
-              bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_1, Some(Ty::TBase(Base_ty::BInt(Int_kind::I32))), i), fn(i_) {
-                let _UU0393_2 = List::Cons((None, Ty::TBase(Base_ty::BInt(Int_kind::I32))), _UU0393_1)
-                bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_2, Some(t), v), fn(v_) {
-                  bind(elab_binop(p, o, t, Expr::EMem(Mem_op::MIndex(k, t), List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Cons(Expr::EVar(Nat::O), List::Nil))), v_), fn(rhs) {
-                    Result0::Ok(Expr::ELet(a_, Expr::ELet(i_, Expr::EMem(Mem_op::MSetIndex(k, t), List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Cons(Expr::EVar(Nat::O), List::Cons(rhs, List::Nil)))))))
+      match m {
+        Mode::Syn => syn_l
+        Mode::Chk(_UU03c4_) => match _UU03c4_ {
+          Ty::TArrow(_UU03c4_s, r, _UU03b5_) => match eqb0(length(_UU03c4_s), length(ps)) {
+            true => bind(params_fit(e, p, ps, _UU03c4_s), fn(_) {
+              bind(ann_fit(e, p, ret, r), fn(_) {
+                bind(eff_fit(e, p, a, _UU03b5_), fn(_) {
+                  bind(cres(e, fun_env(r, _UU03b5_), app(lam_ctx(ps, _UU03c4_s), _UU0393_), body, r, elab(e, body, fun_env(r, _UU03b5_), app(lam_ctx(ps, _UU03c4_s), _UU0393_), Mode::Chk(r))), fn(x) {
+                    okc(e, l, _UU0393_, Sexpr::SLam(p, ps, ret, a, body), Ty::TArrow(_UU03c4_s, r, _UU03b5_), Expr::ELam(_UU03c4_s, r, _UU03b5_, eblock(r, x)))
                   })
                 })
               })
+            })
+            false => fin(e, p, l, _UU0393_, Sexpr::SLam(p, ps, ret, a, body), Mode::Chk(Ty::TArrow(_UU03c4_s, r, _UU03b5_)), syn_l)
+          }
+          x => fin(e, p, l, _UU0393_, Sexpr::SLam(p, ps, ret, a, body), Mode::Chk(x), syn_l)
+        }
+      }
+    }
+    Sexpr::SAnnot(p, s0, t) => fin(e, p, l, _UU0393_, Sexpr::SAnnot(p, s0, t), m, bind(ety_dec(e, t), fn(x) {
+      bind(cres(e, l, _UU0393_, s0, x, elab(e, s0, l, _UU0393_, Mode::Chk(x))), fn(x0) { Result0::Ok(SigT::ExistT(x, x0)) })
+    }))
+    Sexpr::SConstr(p, tq, c) => {
+      let syn_c = bind(ctor_pick_dec(e, p, tq, c), fn(x) {
+        bind(of_option(lookup_ty(match e {
+          Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+        }, x), Elab_error::EE_UnknownType(p, x)), fn(x0) {
+          bind(of_option(lookup_ctor(x0, c), Elab_error::EE_UnknownCtor(p, c)), fn(x1) {
+            bind(nil_fields(p, c, x1), fn(_) {
+              bind(targs(p, c, match x0 {
+                Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+              }, repeat(None, match x0 {
+                Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+              })), fn(x2) {
+                Result0::Ok(SigT::ExistT(Ty::TData(x, x2), Expr::EConstr(x, c, x2, Expr::ETuple(List::Nil))))
+              })
+            })
+          })
+        })
+      })
+      match m {
+        Mode::Syn => syn_c
+        Mode::Chk(_UU03c4_) => match _UU03c4_ {
+          Ty::TData(t, ts) => match lookup_ty(match e {
+            Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+          }, t) {
+            Some(td) => match lookup_ctor(td, c) {
+              Some(cd) => bind(tq_dec(p, tq, t, Elab_error::EE_UnknownCtor(p, c)), fn(_) {
+                bind(match eq_dec(length(ts), match td {
+                  Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                }) {
+                  true => Result0::Ok(())
+                  false => Result0::Err(Elab_error::EE_TypeArgs(p, t, match td {
+                    Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                  }, length(ts)))
+                }, fn(_) {
+                  bind(nil_fields(p, c, cd), fn(_) {
+                    okc(e, l, _UU0393_, Sexpr::SConstr(p, tq, c), Ty::TData(t, ts), Expr::EConstr(t, c, ts, Expr::ETuple(List::Nil)))
+                  })
+                })
+              })
+              None => fin(e, p, l, _UU0393_, Sexpr::SConstr(p, tq, c), Mode::Chk(Ty::TData(t, ts)), syn_c)
             }
-            None => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(Ty::TBase(Base_ty::BInt(Int_kind::I32))), i), fn(i_) {
-              bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(t), v), fn(v_) {
-                Result0::Ok(Expr::EMem(Mem_op::MSetIndex(k, t), List::Cons(a_, List::Cons(i_, List::Cons(v_, List::Nil)))))
+            None => fin(e, p, l, _UU0393_, Sexpr::SConstr(p, tq, c), Mode::Chk(Ty::TData(t, ts)), syn_c)
+          }
+          x => fin(e, p, l, _UU0393_, Sexpr::SConstr(p, tq, c), Mode::Chk(x), syn_c)
+        }
+      }
+    }
+    Sexpr::SRecord(p, tq, fes) => {
+      let syn_r = bind(rec_pick_dec(e, p, tq, map(fn(x1) { fst(x1) }, fes)), fn(x) {
+        bind(of_option(assoc(x, match e {
+          Senv::Mk_senv(_, _, se_sinfo, _, _) => se_sinfo
+        }), Elab_error::EE_NotRecord(p, Ty::TData(x, List::Nil))), fn(x0) {
+          bind(of_option(lookup_ty(match e {
+            Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+          }, x), Elab_error::EE_UnknownType(p, x)), fn(x1) {
+            bind(single_ctor(p, x1, Ty::TData(x, List::Nil)), fn(x2) {
+              bind(len_dec(p, x, length(match x2 {
+                Cdef::Mk_cdef(_, cd_fields) => cd_fields
+              }), length(x0)), fn(_) {
+                bind(match (match x1 {
+                  Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                }) {
+                  Nat::O => Result0::Ok(List::Nil)
+                  Nat::S(_) => bind(rpass(e, fn(x6) { fn(x5) { fn(x3) { fn(x4) { elab(e, x6, x5, x3, x4) } } } }, l, _UU0393_, x0, match x2 {
+                    Cdef::Mk_cdef(_, cd_fields) => cd_fields
+                  }, fes, repeat(None, match x1 {
+                    Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                  })), fn(st) {
+                    targs(p, x, match x1 {
+                      Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                    }, st)
+                  })
+                }, fn(x3) {
+                  bind(rfields_dec(e, fn(x7) { fn(x6) { fn(x5) { fn(x4) { elab(e, x7, x6, x5, x4) } } } }, p, l, _UU0393_, x0, map({ let a1 = fn(x4) { inst(x3, x4) }; fn(x4) { tsubst(a1, x4) } }, match x2 {
+                    Cdef::Mk_cdef(_, cd_fields) => cd_fields
+                  }), fes), fn(x4) {
+                    match x4 {
+                      SigT::ExistT(es, s0) => bind(rec_vars_dec(p, x0, s0), fn(x5) {
+                        Result0::Ok(SigT::ExistT(Ty::TData(x, x3), Expr::ELet(Expr::ETuple(es), Expr::EConstr(x, match x2 {
+                          Cdef::Mk_cdef(cd_name, _) => cd_name
+                        }, x3, Expr::ETuple(x5)))))
+                      })
+                    }
+                  })
+                })
+              })
+            })
+          })
+        })
+      })
+      match m {
+        Mode::Syn => syn_r
+        Mode::Chk(_UU03c4_) => match _UU03c4_ {
+          Ty::TData(t, ts) => match assoc(t, match e {
+            Senv::Mk_senv(_, _, se_sinfo, _, _) => se_sinfo
+          }) {
+            Some(names) => bind(tq_dec(p, tq, t, Elab_error::EE_NotRecord(p, Ty::TData(t, ts))), fn(_) {
+              bind(of_option(lookup_ty(match e {
+                Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+              }, t), Elab_error::EE_UnknownType(p, t)), fn(x) {
+                bind(single_ctor(p, x, Ty::TData(t, ts)), fn(x0) {
+                  bind(len_dec(p, t, length(ts), match x {
+                    Tdef::Mk_tdef(_, td_tparams, _, _) => td_tparams
+                  }), fn(_) {
+                    bind(len_dec(p, t, length(match x0 {
+                      Cdef::Mk_cdef(_, cd_fields) => cd_fields
+                    }), length(names)), fn(_) {
+                      bind(rfields_dec(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, l, _UU0393_, names, map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match x0 {
+                        Cdef::Mk_cdef(_, cd_fields) => cd_fields
+                      }), fes), fn(x1) {
+                        match x1 {
+                          SigT::ExistT(es, s0) => bind(rec_vars_dec(p, names, s0), fn(x2) {
+                            okc(e, l, _UU0393_, Sexpr::SRecord(p, tq, fes), Ty::TData(t, ts), Expr::ELet(Expr::ETuple(es), Expr::EConstr(t, match x0 {
+                              Cdef::Mk_cdef(cd_name, _) => cd_name
+                            }, ts, Expr::ETuple(x2))))
+                          })
+                        }
+                      })
+                    })
+                  })
+                })
+              })
+            })
+            None => fin(e, p, l, _UU0393_, Sexpr::SRecord(p, tq, fes), Mode::Chk(Ty::TData(t, ts)), syn_r)
+          }
+          x => fin(e, p, l, _UU0393_, Sexpr::SRecord(p, tq, fes), Mode::Chk(x), syn_r)
+        }
+      }
+    }
+    Sexpr::SField(p, s0, f) => fin(e, p, l, _UU0393_, Sexpr::SField(p, s0, f), m, bind(elab(e, s0, l, _UU0393_, Mode::Syn), fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4_0, s1) => match _UU03c4_0 {
+          Ty::TData(t, ts) => bind(of_option(assoc(t, match e {
+            Senv::Mk_senv(_, _, se_sinfo, _, _) => se_sinfo
+          }), Elab_error::EE_NotRecord(p, Ty::TData(t, ts))), fn(x0) {
+            bind(of_option(index_of(f, x0), Elab_error::EE_UnknownField(p, f)), fn(x1) {
+              bind(field_proj_dec(e, p, t, ts, x1, s1), fn(x2) {
+                match x2 {
+                  (e_, _UU03c4_) => Result0::Ok(SigT::ExistT(_UU03c4_, e_))
+                }
+              })
+            })
+          })
+          _ => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_0))
+        }
+      }
+    }))
+    Sexpr::SMatch(p, s0, cases) => bind(elab(e, s0, l, _UU0393_, Mode::Syn), fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4_s, s1) => match m {
+          Mode::Syn => bind(pick_syn(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, l, _UU0393_, _UU03c4_s, cases), fn(x0) {
+            bind(arms_list(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, _UU0393_, _UU03c4_s, x0, cases), fn(x1) { Result0::Ok(SigT::ExistT(x0, Expr::EMatch(s1, x0, x1))) })
+          })
+          Mode::Chk(_UU03c4_) => bind(arms_list(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, _UU0393_, _UU03c4_s, _UU03c4_, cases), fn(x0) {
+            okc(e, l, _UU0393_, Sexpr::SMatch(p, s0, cases), _UU03c4_, Expr::EMatch(s1, _UU03c4_, x0))
+          })
+        }
+      }
+    })
+    Sexpr::SLetMut(p, x, ann, s1, s2) => bind(match ann {
+      Some(t) => bind(ety_dec(e, t), fn(x0) {
+        bind(cres(e, l, _UU0393_, s1, x0, elab(e, s1, l, _UU0393_, Mode::Chk(x0))), fn(x1) { Result0::Ok(SigT::ExistT(x0, x1)) })
+      })
+      None => bind(elab(e, s1, l, _UU0393_, Mode::Syn), fn(x0) {
+        match x0 {
+          SigT::ExistT(_UU03c4_, s0) => Result0::Ok(SigT::ExistT(_UU03c4_, s0))
+        }
+      })
+    }, fn(x0) {
+      match x0 {
+        SigT::ExistT(_UU03c4_1, s0) => match m {
+          Mode::Syn => bind(elab(e, s2, l, List::Cons((Some(x), Ty::TRef(_UU03c4_1)), _UU0393_), Mode::Syn), fn(x1) {
+            match x1 {
+              SigT::ExistT(_UU03c4_, s3) => Result0::Ok(SigT::ExistT(_UU03c4_, Expr::ELet(Expr::EMem(Mem_op::MRef(_UU03c4_1), List::Cons(s0, List::Nil)), s3)))
+            }
+          })
+          Mode::Chk(_UU03c4_) => bind(cres(e, l, List::Cons((Some(x), Ty::TRef(_UU03c4_1)), _UU0393_), s2, _UU03c4_, elab(e, s2, l, List::Cons((Some(x), Ty::TRef(_UU03c4_1)), _UU0393_), Mode::Chk(_UU03c4_))), fn(x1) {
+            okc(e, l, _UU0393_, Sexpr::SLetMut(p, x, ann, s1, s2), _UU03c4_, Expr::ELet(Expr::EMem(Mem_op::MRef(_UU03c4_1), List::Cons(s0, List::Nil)), x1))
+          })
+        }
+      }
+    })
+    Sexpr::SAssign(p, x, op, s0) => fin(e, p, l, _UU0393_, Sexpr::SAssign(p, x, op, s0), m, bind(of_option(lookup_local(x, _UU0393_), Elab_error::EE_NotMutable(p, x)), fn(x0) {
+      bind(of_option(nth_error(ctx_of(_UU0393_), x0), Elab_error::EE_NotMutable(p, x)), fn(x1) {
+        match x1 {
+          Ty::TRef(_UU03c4_) => bind(cres(e, l, _UU0393_, s0, _UU03c4_, elab(e, s0, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x2) {
+            bind(upd_rhs_dec(p, op, _UU03c4_, Expr::EMem(Mem_op::MGet(_UU03c4_), List::Cons(Expr::EVar(x0), List::Nil)), x2), fn(x3) {
+              Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EMem(Mem_op::MSet(_UU03c4_), List::Cons(Expr::EVar(x0), List::Cons(x3, List::Nil)))))
+            })
+          })
+          _ => Result0::Err(Elab_error::EE_NotMutable(p, x))
+        }
+      })
+    }))
+    Sexpr::SArray(p, ss) => {
+      let syn_a = match ss {
+        List::Nil => Result0::Err(Elab_error::EE_CannotInfer(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString))))
+        List::Cons(s0, ss_) => bind(elab(e, s0, l, _UU0393_, Mode::Syn), fn(x) {
+          match x {
+            SigT::ExistT(t, s1) => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+              fn(_UU03c4__) {
+                cres(e, l, _UU0393_, s_, _UU03c4__, elab(e, s_, l, _UU0393_, Mode::Chk(_UU03c4__)))
+              }
+            }, ss_, repeat(t, length(ss_))), fn(x0) {
+              Result0::Ok(SigT::ExistT(Ty::TArray(Array_kind::AGrow, t), Expr::EMem(Mem_op::MArray(Array_kind::AGrow, t, Nat::S(length(ss_))), List::Cons(s1, x0))))
+            })
+          }
+        })
+      }
+      match m {
+        Mode::Syn => syn_a
+        Mode::Chk(_UU03c4_) => match _UU03c4_ {
+          Ty::TArray(k, t) => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+            fn(_UU03c4__) {
+              cres(e, l, _UU0393_, s_, _UU03c4__, elab(e, s_, l, _UU0393_, Mode::Chk(_UU03c4__)))
+            }
+          }, ss, repeat(t, length(ss))), fn(x) {
+            okc(e, l, _UU0393_, Sexpr::SArray(p, ss), Ty::TArray(k, t), Expr::EMem(Mem_op::MArray(k, t, length(ss)), x))
+          })
+          x => fin(e, p, l, _UU0393_, Sexpr::SArray(p, ss), Mode::Chk(x), syn_a)
+        }
+      }
+    }
+    Sexpr::SIndex(p, a, i) => fin(e, p, l, _UU0393_, Sexpr::SIndex(p, a, i), m, bind(elab(e, a, l, _UU0393_, Mode::Syn), fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4_a, s0) => match _UU03c4_a {
+          Ty::TArray(k, t) => bind(cres(e, l, _UU0393_, i, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, i, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x0) {
+            Result0::Ok(SigT::ExistT(t, Expr::EMem(Mem_op::MIndex(k, t), List::Cons(s0, List::Cons(x0, List::Nil)))))
+          })
+          _ => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::EmptyString)), _UU03c4_a))
+        }
+      }
+    }))
+    Sexpr::SIndexSet(p, a, i, op, v) => fin(e, p, l, _UU0393_, Sexpr::SIndexSet(p, a, i, op, v), m, bind(elab(e, a, l, _UU0393_, Mode::Syn), fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4_a, s0) => match _UU03c4_a {
+          Ty::TArray(k, t) => match op {
+            Some(o) => bind(cres(e, l, List::Cons((None, Ty::TArray(k, t)), _UU0393_), i, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, i, l, List::Cons((None, Ty::TArray(k, t)), _UU0393_), Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x0) {
+              bind(cres(e, l, List::Cons((None, Ty::TBase(Base_ty::BInt(Int_kind::I32))), List::Cons((None, Ty::TArray(k, t)), _UU0393_)), v, t, elab(e, v, l, List::Cons((None, Ty::TBase(Base_ty::BInt(Int_kind::I32))), List::Cons((None, Ty::TArray(k, t)), _UU0393_)), Mode::Chk(t))), fn(x1) {
+                match ty_eq_dec(binop_res(o, t))(t) {
+                  true => bind(binop_dec(p, o, t, Expr::EMem(Mem_op::MIndex(k, t), List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Cons(Expr::EVar(Nat::O), List::Nil))), x1), fn(x2) {
+                    Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ELet(s0, Expr::ELet(x0, Expr::EMem(Mem_op::MSetIndex(k, t), List::Cons(Expr::EVar(Nat::S(Nat::O)), List::Cons(Expr::EVar(Nat::O), List::Cons(x2, List::Nil))))))))
+                  })
+                  false => Result0::Err(Elab_error::EE_NoOperator(p, o, t))
+                }
+              })
+            })
+            None => bind(cres(e, l, _UU0393_, i, Ty::TBase(Base_ty::BInt(Int_kind::I32)), elab(e, i, l, _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BInt(Int_kind::I32))))), fn(x0) {
+              bind(cres(e, l, _UU0393_, v, t, elab(e, v, l, _UU0393_, Mode::Chk(t))), fn(x1) {
+                Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EMem(Mem_op::MSetIndex(k, t), List::Cons(s0, List::Cons(x0, List::Cons(x1, List::Nil))))))
               })
             })
           }
           _ => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, true, false, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, true, true, true, false, false), String0::EmptyString))), _UU03c4_a))
         }
-      })
-    })
-    Sexpr::SFieldSet(p, e0, f, op, v) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
-        match _UU03c4_ {
-          Ty::TData(t, ts) => bind(of_opt(assoc(t, sinfo), Elab_error::EE_NotRecord(p, _UU03c4_)), fn(names) {
-            bind(of_opt(index_of(f, names), Elab_error::EE_UnknownField(p, f)), fn(i) {
-              bind(of_opt(lookup_ty(hdr, t), Elab_error::EE_UnknownType(p, t)), fn(td) {
-                match (match td {
-                  Tdef::Mk_tdef(_, _, td_ctors, _) => td_ctors
-                }) {
-                  List::Nil => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
-                  List::Cons(cd, l0) => match l0 {
-                    List::Nil => {
-                      let fs = map({ let a1 = fn(x1) { inst(ts, x1) }; fn(x1) { tsubst(a1, x1) } }, match cd {
-                        Cdef::Mk_cdef(_, cd_fields) => cd_fields
+      }
+    }))
+    Sexpr::SFieldSet(p, s0, f, op, v) => fin(e, p, l, _UU0393_, Sexpr::SFieldSet(p, s0, f, op, v), m, bind(elab(e, s0, l, _UU0393_, Mode::Syn), fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4_0, s1) => match _UU03c4_0 {
+          Ty::TData(t, ts) => bind(of_option(assoc(t, match e {
+            Senv::Mk_senv(_, _, se_sinfo, _, _) => se_sinfo
+          }), Elab_error::EE_NotRecord(p, Ty::TData(t, ts))), fn(x0) {
+            bind(of_option(index_of(f, x0), Elab_error::EE_UnknownField(p, f)), fn(x1) {
+              bind(field_cell_dec(e, p, f, t, ts, x1), fn(x2) {
+                match x2 {
+                  (p0, t0) => match p0 {
+                    (c, n) => bind(cres(e, l, List::Cons((None, Ty::TRef(t0)), _UU0393_), v, t0, elab(e, v, l, List::Cons((None, Ty::TRef(t0)), _UU0393_), Mode::Chk(t0))), fn(x3) {
+                      bind(upd_rhs_dec(p, op, t0, Expr::EMem(Mem_op::MGet(t0), List::Cons(Expr::EVar(Nat::O), List::Nil)), x3), fn(x4) {
+                        Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EMatch(s1, Ty::TBase(Base_ty::BUnit), List::Cons((Pat::PConstr(c, proj_pats(x1, Pat::PVar, Nat::O, n)), Expr::EMem(Mem_op::MSet(t0), List::Cons(Expr::EVar(Nat::O), List::Cons(x4, List::Nil)))), List::Nil))))
                       })
-                      match nth_error(fs, i) {
-                        Some(t0) => match t0 {
-                          Ty::TRef(t1) => {
-                            let _UU0393_1 = List::Cons((None, Ty::TRef(t1)), _UU0393_)
-                            bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_1, Some(t1), v), fn(v_) {
-                              bind(match op {
-                                Some(o) => elab_binop(p, o, t1, Expr::EMem(Mem_op::MGet(t1), List::Cons(Expr::EVar(Nat::O), List::Nil)), v_)
-                                None => Result0::Ok(v_)
-                              }, fn(rhs) {
-                                let ps = map(fn(j) {
-                                  match eqb0(j, i) {
-                                    true => Pat::PVar
-                                    false => Pat::PWild
-                                  }
-                                }, seq(Nat::O, length(fs)))
-                                Result0::Ok(Expr::EMatch(e0_, Ty::TBase(Base_ty::BUnit), List::Cons((Pat::PConstr(match cd {
-                                  Cdef::Mk_cdef(cd_name, _) => cd_name
-                                }, ps), Expr::EMem(Mem_op::MSet(t1), List::Cons(Expr::EVar(Nat::O), List::Cons(rhs, List::Nil)))), List::Nil)))
-                              })
-                            })
-                          }
-                          _ => Result0::Err(Elab_error::EE_NotMutable(p, f))
-                        }
-                        None => Result0::Err(Elab_error::EE_NotMutable(p, f))
-                      }
-                    }
-                    List::Cons(_, _) => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
+                    })
                   }
                 }
               })
             })
           })
-          _ => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_))
+          _ => Result0::Err(Elab_error::EE_NotRecord(p, _UU03c4_0))
         }
-      })
-    })
-    Sexpr::SMethod(p, e0, m, args) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
-        let via_trait = fn(_) {
-          match is_obj(gx, _UU03c4_) {
-            Some(tr) => {
-              let fs = obj_fields(match gx {
-                Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-              }, tr)
-              match find(fn(js) {
-                eqDec_ident(match snd(snd(js)) {
-                  Msig::Mk_msig(ms_name, _, _, _) => ms_name
-                })(m)
-              }, combine(seq(Nat::O, length(fs)), fs)) {
-                Some(p0) => match p0 {
-                  (j, p1) => match p1 {
-                    (_, sg) => bind(elab_args(args)(map(fn(x) { Some(x) }, tl(match sg {
-                      Msig::Mk_msig(_, ms_params, _, _) => ms_params
-                    }))), fn(args_) {
-                      Result0::Ok(promote(l, match sg {
-                        Msig::Mk_msig(_, _, _, ms_eff) => ms_eff
-                      }, match sg {
-                        Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
-                      }, Expr::EApp(field_of(obj_name(tr), length(fs), j, e0_, obj_field_ty(sg)), args_)))
-                    })
-                  }
-                }
-                None => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
-              }
-            }
-            None => match dot_traits(_UU03c4_) {
-              true => match traits_for(gx, p, _UU0393_, m, _UU03c4_) {
-                List::Nil => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
-                List::Cons(ti, l0) => match l0 {
-                  List::Nil => tcall(args)(p)(ti)(m)(None)(Some((e0_, _UU03c4_)))
-                  List::Cons(_, _) => Result0::Err(Elab_error::EE_AmbiguousMethod(p, m))
-                }
-              }
-              false => Result0::Err(Elab_error::EE_NoMethod(p, m, _UU03c4_))
-            }
-          }
-        }
-        let general = fn(_) {
-          match head_name(_UU03c4_) {
-            Some(h) => match has_meth(gx, h, m) {
-              true => match lookup_fn(hdr, append(h, append(String0::String1(Ascii::Ascii0(false, true, false, true, true, true, false, false), String0::String1(Ascii::Ascii0(false, true, false, true, true, true, false, false), String0::EmptyString)), m))) {
-                Some(fd) => gcall(args)(p)(p)(append(h, append(String0::String1(Ascii::Ascii0(false, true, false, true, true, true, false, false), String0::String1(Ascii::Ascii0(false, true, false, true, true, true, false, false), String0::EmptyString)), m)))(fd)(Some((e0_, _UU03c4_)))
-                None => Result0::Err(Elab_error::EE_Unbound(p, m))
-              }
-              false => via_trait(())
-            }
-            None => via_trait(())
-          }
-        }
-        match _UU03c4_ {
-          Ty::TArray(k, t) => match k {
-            Array_kind::AFixed => match args {
-              List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))))) {
-                true => Result0::Ok(Expr::EMem(Mem_op::MLength(k, t), List::Cons(e0_, List::Nil)))
-                false => general(())
-              }
-              List::Cons(_, _) => general(())
-            }
-            Array_kind::AGrow => match args {
-              List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))))) {
-                true => Result0::Ok(Expr::EMem(Mem_op::MLength(k, t), List::Cons(e0_, List::Nil)))
-                false => general(())
-              }
-              List::Cons(a, l0) => match l0 {
-                List::Nil => match eqDec_ident(m)(String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))) {
-                  true => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(t), a), fn(a_) {
-                    Result0::Ok(Expr::EMem(Mem_op::MPush(t), List::Cons(e0_, List::Cons(a_, List::Nil))))
-                  })
-                  false => general(())
-                }
-                List::Cons(_, _) => general(())
-              }
-            }
-          }
-          _ => general(())
-        }
-      })
-    })
-    Sexpr::SQual(p, _, m) => Result0::Err(Elab_error::EE_NoMethod(p, m, Ty::TBase(Base_ty::BUnit)))
-    Sexpr::SWhile(p, x, c, body, nb) => {
-      let hd = fn(_UU03c4_) {
-        push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, _UU03c4_), l)
       }
-      bind(match nb {
-        Some(e0) => match exp {
-          Some(t) => Result0::Ok(t)
-          None => bind(elab(tys, hdr, sinfo, tps, gx, hd(Ty::TBase(Base_ty::BUnit)), _UU0393_, None, e0), fn(e0_) { type_of(hdr, p, hd(Ty::TBase(Base_ty::BUnit)), _UU0393_, e0_) })
-        }
-        None => Result0::Ok(Ty::TBase(Base_ty::BUnit))
-      }, fn(_UU03c4_) {
-        bind(elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393_, Some(Ty::TBase(Base_ty::BBool)), c), fn(c_) {
-          bind(elab(tys, hdr, sinfo, tps, gx, push_lab(Lab::Mk_lab(x, Lab_kind::LKWhile, List::Nil, _UU03c4_), l), _UU0393_, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
-            bind(match nb {
-              Some(e0) => elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393_, Some(_UU03c4_), e0)
-              None => Result0::Ok(Expr::ELit(Lit::LUnit))
-            }, fn(nb_) {
-              Result0::Ok(Expr::ELoop(Expr::ETuple(List::Nil), List::Nil, _UU03c4_, Expr::EIf(c_, Expr::ELet(body_, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(List::Nil), _UU03c4_)), nb_)))
-            })
-          })
-        })
-      })
-    }
-    Sexpr::SFor(p, x, inits, c, upds, body, nb) => bind(elab_named(l)(_UU0393_)(fn(_) { None })(inits), fn(inits_) {
-      bind(mapM(fn(b) { type_of(hdr, p, l, _UU0393_, snd(b)) }, inits_), fn(_UU03c4_s) {
-        let names = map(fn(x1) { fst(x1) }, inits)
-        let _UU0393__ = app(combine(map(fn(x0) { Some(x0) }, names), _UU03c4_s), _UU0393_)
-        let hd = fn(_UU03c4_) {
-          push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, _UU03c4_s, _UU03c4_), l)
-        }
-        bind(match nb {
-          Some(e0) => match exp {
-            Some(t) => Result0::Ok(t)
-            None => bind(elab(tys, hdr, sinfo, tps, gx, hd(Ty::TBase(Base_ty::BUnit)), _UU0393__, None, e0), fn(e0_) { type_of(hdr, p, hd(Ty::TBase(Base_ty::BUnit)), _UU0393__, e0_) })
-          }
-          None => match c {
-            Some(_) => Result0::Ok(Ty::TBase(Base_ty::BUnit))
-            None => Result0::Ok(jty(exp))
-          }
-        }, fn(_UU03c4_) {
-          bind(match c {
-            Some(c0) => map_result(fn(x0) { Some(x0) }, elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393__, Some(Ty::TBase(Base_ty::BBool)), c0))
-            None => Result0::Ok(None)
-          }, fn(c_) {
-            bind(elab(tys, hdr, sinfo, tps, gx, push_lab(Lab::Mk_lab(x, Lab_kind::LKForBody, List::Nil, Ty::TBase(Base_ty::BUnit)), hd(_UU03c4_)), _UU0393__, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
-              let _UU0393___ = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393__)
-              bind(elab_named(hd(_UU03c4_))(_UU0393___)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
-                let next = map(fn(i) {
-                  match assoc(nth(i, names, String0::EmptyString), upds_) {
-                    Some(u) => u
-                    None => Expr::EVar(Nat::S(i))
+    }))
+    Sexpr::SMethod(p, s0, mn, args) => fin(e, p, l, _UU0393_, Sexpr::SMethod(p, s0, mn, args), m, bind(elab(e, s0, l, _UU0393_, Mode::Syn), fn(x) {
+      match x {
+        SigT::ExistT(_UU03c4_0, s1) => match arr_builtin(_UU03c4_0, mn, length(args)) {
+          true => match string_dec(mn, String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))))) {
+            true => match string_dec(mn, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))) {
+              true => match args {
+                List::Nil => match _UU03c4_0 {
+                  Ty::TArray(k, t) => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BInt(Int_kind::I32)), Expr::EMem(Mem_op::MLength(k, t), List::Cons(s1, List::Nil))))
+                  _ => Result0::Err(Elab_error::EE_NoMethod(p, mn, _UU03c4_0))
+                }
+                List::Cons(a, l0) => match l0 {
+                  List::Nil => match _UU03c4_0 {
+                    Ty::TArray(k, t) => match k {
+                      Array_kind::AFixed => Result0::Err(Elab_error::EE_NoMethod(p, mn, _UU03c4_0))
+                      Array_kind::AGrow => bind(cres(e, l, _UU0393_, a, t, elab(e, a, l, _UU0393_, Mode::Chk(t))), fn(x0) {
+                        Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EMem(Mem_op::MPush(t), List::Cons(s1, List::Cons(x0, List::Nil)))))
+                      })
+                    }
+                    _ => Result0::Err(Elab_error::EE_NoMethod(p, mn, _UU03c4_0))
                   }
-                }, seq(Nat::O, length(names)))
-                let step = Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
-                bind(match nb {
-                  Some(e0) => elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393__, Some(_UU03c4_), e0)
-                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
-                }, fn(nb_) {
-                  Result0::Ok(Expr::ELoop(Expr::ETuple(map(fn(x1) { snd(x1) }, inits_)), _UU03c4_s, _UU03c4_, match c_ {
-                    Some(c0) => Expr::EIf(c0, step, nb_)
-                    None => step
-                  }))
+                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                }
+              }
+              false => match args {
+                List::Nil => match _UU03c4_0 {
+                  Ty::TArray(k, t) => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BInt(Int_kind::I32)), Expr::EMem(Mem_op::MLength(k, t), List::Cons(s1, List::Nil))))
+                  _ => Result0::Err(Elab_error::EE_NoMethod(p, mn, _UU03c4_0))
+                }
+                List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+              }
+            }
+            false => match string_dec(mn, String0::String1(Ascii::Ascii0(false, false, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::EmptyString))))) {
+              true => match args {
+                List::Nil => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                List::Cons(a, l0) => match l0 {
+                  List::Nil => match _UU03c4_0 {
+                    Ty::TArray(k, t) => match k {
+                      Array_kind::AFixed => Result0::Err(Elab_error::EE_NoMethod(p, mn, _UU03c4_0))
+                      Array_kind::AGrow => bind(cres(e, l, _UU0393_, a, t, elab(e, a, l, _UU0393_, Mode::Chk(t))), fn(x0) {
+                        Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::EMem(Mem_op::MPush(t), List::Cons(s1, List::Cons(x0, List::Nil)))))
+                      })
+                    }
+                    _ => Result0::Err(Elab_error::EE_NoMethod(p, mn, _UU03c4_0))
+                  }
+                  List::Cons(_, _) => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+                }
+              }
+              false => Result0::Err(Elab_error::EE_Unsupported(p, String0::String1(Ascii::Ascii0(true, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::EmptyString)))))))))))))
+            }
+          }
+          false => dcall(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, l, _UU0393_, s0, mn, args, _UU03c4_0, s1, hint(m))
+        }
+      }
+    }))
+    Sexpr::SQual(_, _, _) => Result0::Err(Elab_error::EE_Unsupported(sexpr_pos(s), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, false, false, true, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, false, false, false, true, false, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))))))))))))))))))))))))))))))))))))
+    Sexpr::SWhile(p, x, c, body, onb) => match onb {
+      Some(nb) => match m {
+        Mode::Syn => bind(elab(e, nb, hd_env(List::Nil, Ty::TBase(Base_ty::BUnit), l), _UU0393_, Mode::Syn), fn(x0) {
+          match x0 {
+            SigT::ExistT(_UU03c4_, _) => bind(cres(e, hd_env(List::Nil, _UU03c4_, l), _UU0393_, c, Ty::TBase(Base_ty::BBool), elab(e, c, hd_env(List::Nil, _UU03c4_, l), _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x1) {
+              bind(cres(e, push_lab(Lab::Mk_lab(x, Lab_kind::LKWhile, List::Nil, _UU03c4_), l), _UU0393_, body, Ty::TBase(Base_ty::BUnit), elab(e, body, push_lab(Lab::Mk_lab(x, Lab_kind::LKWhile, List::Nil, _UU03c4_), l), _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x2) {
+                bind(cres(e, hd_env(List::Nil, _UU03c4_, l), _UU0393_, nb, _UU03c4_, elab(e, nb, hd_env(List::Nil, _UU03c4_, l), _UU0393_, Mode::Chk(_UU03c4_))), fn(x3) {
+                  Result0::Ok(SigT::ExistT(_UU03c4_, while_loop(_UU03c4_, x1, x2, x3)))
                 })
               })
             })
+          }
+        })
+        Mode::Chk(_UU03c4_) => bind(cres(e, hd_env(List::Nil, _UU03c4_, l), _UU0393_, c, Ty::TBase(Base_ty::BBool), elab(e, c, hd_env(List::Nil, _UU03c4_, l), _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x0) {
+          bind(cres(e, push_lab(Lab::Mk_lab(x, Lab_kind::LKWhile, List::Nil, _UU03c4_), l), _UU0393_, body, Ty::TBase(Base_ty::BUnit), elab(e, body, push_lab(Lab::Mk_lab(x, Lab_kind::LKWhile, List::Nil, _UU03c4_), l), _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x1) {
+            bind(cres(e, hd_env(List::Nil, _UU03c4_, l), _UU0393_, nb, _UU03c4_, elab(e, nb, hd_env(List::Nil, _UU03c4_, l), _UU0393_, Mode::Chk(_UU03c4_))), fn(x2) {
+              okc(e, l, _UU0393_, Sexpr::SWhile(p, x, c, body, Some(nb)), _UU03c4_, while_loop(_UU03c4_, x0, x1, x2))
+            })
           })
         })
-      })
-    })
-    Sexpr::SBlock(_, x, body) => {
-      let _UU03c4_ = jty(exp)
-      bind(elab(tys, hdr, sinfo, tps, gx, push_lab(Lab::Mk_lab(Some(x), Lab_kind::LKBlock, List::Nil, _UU03c4_), l), _UU0393_, Some(_UU03c4_), body), fn(body_) { Result0::Ok(eblock(_UU03c4_, body_)) })
+      }
+      None => fin(e, p, l, _UU0393_, Sexpr::SWhile(p, x, c, body, None), m, bind(cres(e, hd_env(List::Nil, Ty::TBase(Base_ty::BUnit), l), _UU0393_, c, Ty::TBase(Base_ty::BBool), elab(e, c, hd_env(List::Nil, Ty::TBase(Base_ty::BUnit), l), _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BBool)))), fn(x0) {
+        bind(cres(e, push_lab(Lab::Mk_lab(x, Lab_kind::LKWhile, List::Nil, Ty::TBase(Base_ty::BUnit)), l), _UU0393_, body, Ty::TBase(Base_ty::BUnit), elab(e, body, push_lab(Lab::Mk_lab(x, Lab_kind::LKWhile, List::Nil, Ty::TBase(Base_ty::BUnit)), l), _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x1) {
+          Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), while_loop(Ty::TBase(Base_ty::BUnit), x0, x1, Expr::ELit(Lit::LUnit))))
+        })
+      }))
     }
-    Sexpr::SBreak(p, x, arg) => bind(of_opt(break_target(x, match l {
-      Cenv::Mk_cenv(ce_labs, _) => ce_labs
-    }, Nat::O), Elab_error::EE_NoTarget(p)), fn(x0) {
+    Sexpr::SFor(p, x, inits, oc0, upds, body, onb) => bind(sinits_dec(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, _UU0393_, inits), fn(x0) {
       match x0 {
-        (k, _UU03c4_t) => bind(match arg {
-          Some(a) => elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(_UU03c4_t), a)
-          None => Result0::Ok(Expr::ELit(Lit::LUnit))
-        }, fn(a_) { Result0::Ok(Expr::EJump(Ctl::CBreak, k, a_, jty(exp))) })
-      }
-    })
-    Sexpr::SContinue(p, x, args) => bind(of_opt(cont_target_of(x, match l {
-      Cenv::Mk_cenv(ce_labs, _) => ce_labs
-    }, Nat::O), Elab_error::EE_NoTarget(p)), fn(tgt) {
-      match tgt {
-        Cont_target::CTWhile(k) => match args {
-          List::Nil => Result0::Ok(Expr::EJump(Ctl::CCont, k, Expr::ETuple(List::Nil), jty(exp)))
-          List::Cons(_, _) => Result0::Err(Elab_error::EE_BadContinue(p, Nat::O, length(args)))
-        }
-        Cont_target::CTFor(k, ps) => match args {
-          List::Nil => Result0::Ok(Expr::EJump(Ctl::CBreak, k, Expr::ELit(Lit::LUnit), jty(exp)))
-          List::Cons(_, _) => match eqb0(length(ps), length(args)) {
-            true => bind(elab_args(args)(map(fn(x0) { Some(x0) }, ps)), fn(args_) {
-              Result0::Ok(Expr::EJump(Ctl::CCont, Nat::S(k), Expr::ETuple(args_), jty(exp)))
-            })
-            false => Result0::Err(Elab_error::EE_BadContinue(p, length(ps), length(args)))
-          }
-        }
-        Cont_target::CTForIn(k, ss) => match args {
-          List::Nil => Result0::Ok(Expr::EJump(Ctl::CBreak, k, Expr::ELit(Lit::LUnit), jty(exp)))
-          List::Cons(_, _) => match eqb0(length(ss), length(args)) {
-            true => bind(elab_args(args)(map(fn(x0) { Some(x0) }, ss)), fn(args_) {
-              Result0::Ok(Expr::EJump(Ctl::CBreak, Nat::S(k), Expr::ETuple(args_), jty(exp)))
-            })
-            false => Result0::Err(Elab_error::EE_BadContinue(p, length(ss), length(args)))
-          }
-        }
-      }
-    })
-    Sexpr::SReturn(p, arg) => bind(of_opt(return_target(match l {
-      Cenv::Mk_cenv(ce_labs, _) => ce_labs
-    }, Nat::O), Elab_error::EE_NoTarget(p)), fn(x) {
-      match x {
-        (k, r) => bind(match arg {
-          Some(a) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, Some(r), a), fn(a_) {
-            bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) { coerce_to(gx, p, _UU0393_, Some(r), _UU03c4_a, a_) })
-          })
-          None => Result0::Ok(Expr::ELit(Lit::LUnit))
-        }, fn(a_) { Result0::Ok(Expr::EJump(Ctl::CBreak, k, a_, jty(exp))) })
-      }
-    })
-    Sexpr::SForIn(p, x, pats, src, inits, upds, body, nb) => {
-      let array_src = bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, src), fn(a_) {
-        bind(type_of(hdr, p, l, _UU0393_, a_), fn(_UU03c4_a) {
-          match _UU03c4_a {
-            Ty::TBase(_) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
-            Ty::TVar(_) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
-            Ty::TTuple(_) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
-            Ty::TArrow(_, _, _) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
-            Ty::TData(_, _) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
-            Ty::TRef(_) => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
-            Ty::TArray(k, t) => Result0::Ok(((a_, Expr::EMem(Mem_op::MLength(k, t), List::Cons(Expr::EVar(Nat::O), List::Nil))), Iter_src::IArray(k, t)))
-            Ty::TError => Result0::Err(Elab_error::EE_NoMethod(p, String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, false, false, true, true, true, false), String0::EmptyString)))), _UU03c4_a))
-          }
-        })
-      })
-      bind(match src {
-        Sexpr::SInfix(q, op, lo, hi) => match range_op(op) {
-          Some(rk) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, lo), fn(lo_) {
-            bind(type_of(hdr, q, l, _UU0393_, lo_), fn(_UU03c4_k) {
-              bind(elab(tys, hdr, sinfo, tps, gx, l, List::Cons((None, _UU03c4_k), _UU0393_), Some(_UU03c4_k), hi), fn(hi_) {
-                match _UU03c4_k {
-                  Ty::TBase(b) => match b {
-                    Base_ty::BInt(kk) => Result0::Ok(((lo_, hi_), Iter_src::IRange(rk, kk)))
-                    _ => Result0::Err(Elab_error::EE_NoOperator(q, op, _UU03c4_k))
-                  }
-                  _ => Result0::Err(Elab_error::EE_NoOperator(q, op, _UU03c4_k))
-                }
+        SigT::ExistT(_UU03c4_s, s0) => {
+          let _UU0393__ = app(names_ctx(map(fn(x1) { fst(x1) }, inits), _UU03c4_s), _UU0393_)
+          let names = map(fn(x1) { fst(x1) }, inits)
+          let parts = fn(_UU03c4_) {
+            bind(ochk_dec(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, hd_env(_UU03c4_s, _UU03c4_, l), _UU0393__, Ty::TBase(Base_ty::BBool), oc0), fn(x1) {
+              bind(cres(e, push_lab(Lab::Mk_lab(x, Lab_kind::LKForBody, List::Nil, Ty::TBase(Base_ty::BUnit)), hd_env(_UU03c4_s, _UU03c4_, l)), _UU0393__, body, Ty::TBase(Base_ty::BUnit), elab(e, body, push_lab(Lab::Mk_lab(x, Lab_kind::LKForBody, List::Nil, Ty::TBase(Base_ty::BUnit)), hd_env(_UU03c4_s, _UU03c4_, l)), _UU0393__, Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x2) {
+                bind(supds_dec(e, fn(x6) { fn(x5) { fn(x3) { fn(x4) { elab(e, x6, x5, x3, x4) } } } }, p, hd_env(_UU03c4_s, _UU03c4_, l), List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393__), names, _UU03c4_s, upds), fn(x3) { Result0::Ok(((x1, x2), x3)) })
               })
             })
-          })
-          None => array_src
-        }
-        _ => array_src
-      }, fn(x0) {
-        match x0 {
-          (p0, it) => match p0 {
-            (e1, e2) => match (match it {
-              Iter_src::IRange(rk, kk) => {
-                let incl = match rk {
-                  Range_kind::RUpExcl => false
-                  Range_kind::RDownExcl => false
-                  _ => true
-                }
-                ((((Ty::TBase(Base_ty::BInt(kk)), Ty::TBase(Base_ty::BInt(kk))), match incl {
-                  true => List::Cons(Ty::TBase(Base_ty::BInt(kk)), List::Cons(Ty::TBase(Base_ty::BBool), List::Nil))
-                  false => List::Cons(Ty::TBase(Base_ty::BInt(kk)), List::Nil)
-                }), Expr::EVar(Nat::S(Nat::O))), incl)
-              }
-              Iter_src::IArray(k, t) => ((((Ty::TArray(k, t), Ty::TBase(Base_ty::BInt(Int_kind::I32))), List::Cons(Ty::TBase(Base_ty::BInt(Int_kind::I32)), List::Nil)), Expr::ELit(Lit::LInt(Int_kind::I32, Z::Z0))), false)
-            }) {
-              (p1, incl) => match p1 {
-                (p2, start) => match p2 {
-                  (p3, ivs) => match p3 {
-                    (_UU03c4_1, _UU03c4_2) => {
-                      let _UU0393_o = List::Cons((None, _UU03c4_2), List::Cons((None, _UU03c4_1), _UU0393_))
-                      bind(elab_named(l)(_UU0393_o)(fn(_) { None })(inits), fn(inits_) {
-                        bind(mapM(fn(b) { type_of(hdr, p, l, _UU0393_o, snd(b)) }, inits_), fn(_UU03c4_s) {
-                          let names = map(fn(x1) { fst(x1) }, inits)
-                          let ps = app(ivs, _UU03c4_s)
-                          let n = length(ps)
-                          let _UU0393_l = app(app(map(fn(t) { (None, t) }, ivs), combine(map(fn(x1) { Some(x1) }, names), _UU03c4_s)), _UU0393_o)
-                          let hd = fn(_UU03c4_) { push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, ps, _UU03c4_), l) }
-                          bind(match nb {
-                            Some(e0) => match exp {
-                              Some(t) => Result0::Ok(t)
-                              None => bind(elab(tys, hdr, sinfo, tps, gx, hd(Ty::TBase(Base_ty::BUnit)), _UU0393_l, None, e0), fn(e0_) { type_of(hdr, p, hd(Ty::TBase(Base_ty::BUnit)), _UU0393_l, e0_) })
-                            }
-                            None => Result0::Ok(Ty::TBase(Base_ty::BUnit))
-                          }, fn(_UU03c4_) {
-                            let v = Expr::EVar(Nat::O)
-                            let bound = Expr::EVar(n)
-                            match it {
-                              Iter_src::IRange(rk, kk) => match rk {
-                                Range_kind::RUpExcl => {
-                                  let p4 = (icmp(Cmp_op::CLt, kk, v, bound), v)
-                                  let _UU03c4_e = Ty::TBase(Base_ty::BInt(kk))
-                                  match p4 {
-                                    (cond, elem) => bind(match pats {
-                                      List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                      List::Cons(sp1, l0) => match l0 {
-                                        List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp1), fn(x1) {
-                                          match x1 {
-                                            (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
-                                          }
-                                        })
-                                        List::Cons(sp2, l1) => match l1 {
-                                          List::Nil => match it {
-                                            Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                            Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
-                                              match x1 {
-                                                (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp2), fn(x2) {
-                                                  match x2 {
-                                                    (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
-                                                  }
-                                                })
-                                              }
-                                            })
-                                          }
-                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                        }
-                                      }
-                                    }, fn(x1) {
-                                      match x1 {
-                                        (p5, scrut) => match p5 {
-                                          (q, _UU0394_) => {
-                                            let d = length(_UU0394_)
-                                            let _UU0393_b = app(_UU0394_, _UU0393_l)
-                                            let st = push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
-                                            bind(elab(tys, hdr, sinfo, tps, gx, push_lab(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
-                                              let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
-                                              bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
-                                                let state = map(fn(j) {
-                                                  match assoc(nth(j, names, String0::EmptyString), upds_) {
-                                                    Some(u) => u
-                                                    None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
-                                                  }
-                                                }, seq(Nat::O, length(names)))
-                                                let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
-                                                let vv = Expr::EVar(add(Nat::S(Nat::O), d))
-                                                let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
-                                                let next_iv = match it {
-                                                  Iter_src::IRange(rk0, kk0) => match rk0 {
-                                                    Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk0, vv, int1(kk0)), List::Nil)
-                                                    Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::AAdd, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
-                                                    Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk0, vv, int1(kk0)), List::Nil)
-                                                    Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::ASub, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
-                                                  }
-                                                  Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
-                                                }
-                                                let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
-                                                let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
-                                                bind(match nb {
-                                                  Some(e0) => elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
-                                                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
-                                                }, fn(nb_) {
-                                                  let init0 = app(match incl {
-                                                    true => List::Cons(start, List::Cons(e_false, List::Nil))
-                                                    false => List::Cons(start, List::Nil)
-                                                  }, map(fn(x2) { snd(x2) }, inits_))
-                                                  Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
-                                                })
-                                              })
-                                            })
-                                          }
-                                        }
-                                      }
-                                    })
-                                  }
-                                }
-                                Range_kind::RUpIncl => {
-                                  let p4 = (Expr::EIf(Expr::EVar(Nat::S(Nat::O)), e_false, icmp(Cmp_op::CLe, kk, v, bound)), v)
-                                  let _UU03c4_e = Ty::TBase(Base_ty::BInt(kk))
-                                  match p4 {
-                                    (cond, elem) => bind(match pats {
-                                      List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                      List::Cons(sp1, l0) => match l0 {
-                                        List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp1), fn(x1) {
-                                          match x1 {
-                                            (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
-                                          }
-                                        })
-                                        List::Cons(sp2, l1) => match l1 {
-                                          List::Nil => match it {
-                                            Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                            Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
-                                              match x1 {
-                                                (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp2), fn(x2) {
-                                                  match x2 {
-                                                    (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
-                                                  }
-                                                })
-                                              }
-                                            })
-                                          }
-                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                        }
-                                      }
-                                    }, fn(x1) {
-                                      match x1 {
-                                        (p5, scrut) => match p5 {
-                                          (q, _UU0394_) => {
-                                            let d = length(_UU0394_)
-                                            let _UU0393_b = app(_UU0394_, _UU0393_l)
-                                            let st = push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
-                                            bind(elab(tys, hdr, sinfo, tps, gx, push_lab(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
-                                              let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
-                                              bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
-                                                let state = map(fn(j) {
-                                                  match assoc(nth(j, names, String0::EmptyString), upds_) {
-                                                    Some(u) => u
-                                                    None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
-                                                  }
-                                                }, seq(Nat::O, length(names)))
-                                                let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
-                                                let vv = Expr::EVar(add(Nat::S(Nat::O), d))
-                                                let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
-                                                let next_iv = match it {
-                                                  Iter_src::IRange(rk0, kk0) => match rk0 {
-                                                    Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk0, vv, int1(kk0)), List::Nil)
-                                                    Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::AAdd, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
-                                                    Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk0, vv, int1(kk0)), List::Nil)
-                                                    Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::ASub, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
-                                                  }
-                                                  Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
-                                                }
-                                                let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
-                                                let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
-                                                bind(match nb {
-                                                  Some(e0) => elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
-                                                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
-                                                }, fn(nb_) {
-                                                  let init0 = app(match incl {
-                                                    true => List::Cons(start, List::Cons(e_false, List::Nil))
-                                                    false => List::Cons(start, List::Nil)
-                                                  }, map(fn(x2) { snd(x2) }, inits_))
-                                                  Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
-                                                })
-                                              })
-                                            })
-                                          }
-                                        }
-                                      }
-                                    })
-                                  }
-                                }
-                                Range_kind::RDownExcl => {
-                                  let p4 = (icmp(Cmp_op::CGt, kk, v, bound), iarith(Arith_op::ASub, kk, v, int1(kk)))
-                                  let _UU03c4_e = Ty::TBase(Base_ty::BInt(kk))
-                                  match p4 {
-                                    (cond, elem) => bind(match pats {
-                                      List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                      List::Cons(sp1, l0) => match l0 {
-                                        List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp1), fn(x1) {
-                                          match x1 {
-                                            (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
-                                          }
-                                        })
-                                        List::Cons(sp2, l1) => match l1 {
-                                          List::Nil => match it {
-                                            Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                            Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
-                                              match x1 {
-                                                (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp2), fn(x2) {
-                                                  match x2 {
-                                                    (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
-                                                  }
-                                                })
-                                              }
-                                            })
-                                          }
-                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                        }
-                                      }
-                                    }, fn(x1) {
-                                      match x1 {
-                                        (p5, scrut) => match p5 {
-                                          (q, _UU0394_) => {
-                                            let d = length(_UU0394_)
-                                            let _UU0393_b = app(_UU0394_, _UU0393_l)
-                                            let st = push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
-                                            bind(elab(tys, hdr, sinfo, tps, gx, push_lab(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
-                                              let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
-                                              bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
-                                                let state = map(fn(j) {
-                                                  match assoc(nth(j, names, String0::EmptyString), upds_) {
-                                                    Some(u) => u
-                                                    None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
-                                                  }
-                                                }, seq(Nat::O, length(names)))
-                                                let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
-                                                let vv = Expr::EVar(add(Nat::S(Nat::O), d))
-                                                let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
-                                                let next_iv = match it {
-                                                  Iter_src::IRange(rk0, kk0) => match rk0 {
-                                                    Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk0, vv, int1(kk0)), List::Nil)
-                                                    Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::AAdd, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
-                                                    Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk0, vv, int1(kk0)), List::Nil)
-                                                    Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::ASub, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
-                                                  }
-                                                  Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
-                                                }
-                                                let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
-                                                let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
-                                                bind(match nb {
-                                                  Some(e0) => elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
-                                                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
-                                                }, fn(nb_) {
-                                                  let init0 = app(match incl {
-                                                    true => List::Cons(start, List::Cons(e_false, List::Nil))
-                                                    false => List::Cons(start, List::Nil)
-                                                  }, map(fn(x2) { snd(x2) }, inits_))
-                                                  Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
-                                                })
-                                              })
-                                            })
-                                          }
-                                        }
-                                      }
-                                    })
-                                  }
-                                }
-                                Range_kind::RDownIncl => {
-                                  let p4 = (Expr::EIf(Expr::EVar(Nat::S(Nat::O)), e_false, icmp(Cmp_op::CGe, kk, v, bound)), v)
-                                  let _UU03c4_e = Ty::TBase(Base_ty::BInt(kk))
-                                  match p4 {
-                                    (cond, elem) => bind(match pats {
-                                      List::Nil => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                      List::Cons(sp1, l0) => match l0 {
-                                        List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp1), fn(x1) {
-                                          match x1 {
-                                            (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
-                                          }
-                                        })
-                                        List::Cons(sp2, l1) => match l1 {
-                                          List::Nil => match it {
-                                            Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                            Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
-                                              match x1 {
-                                                (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, _UU03c4_e, sp2), fn(x2) {
-                                                  match x2 {
-                                                    (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
-                                                  }
-                                                })
-                                              }
-                                            })
-                                          }
-                                          List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, _UU03c4_e))
-                                        }
-                                      }
-                                    }, fn(x1) {
-                                      match x1 {
-                                        (p5, scrut) => match p5 {
-                                          (q, _UU0394_) => {
-                                            let d = length(_UU0394_)
-                                            let _UU0393_b = app(_UU0394_, _UU0393_l)
-                                            let st = push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
-                                            bind(elab(tys, hdr, sinfo, tps, gx, push_lab(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
-                                              let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
-                                              bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
-                                                let state = map(fn(j) {
-                                                  match assoc(nth(j, names, String0::EmptyString), upds_) {
-                                                    Some(u) => u
-                                                    None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
-                                                  }
-                                                }, seq(Nat::O, length(names)))
-                                                let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
-                                                let vv = Expr::EVar(add(Nat::S(Nat::O), d))
-                                                let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
-                                                let next_iv = match it {
-                                                  Iter_src::IRange(rk0, kk0) => match rk0 {
-                                                    Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk0, vv, int1(kk0)), List::Nil)
-                                                    Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::AAdd, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
-                                                    Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk0, vv, int1(kk0)), List::Nil)
-                                                    Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk0, vv, bb), vv, iarith(Arith_op::ASub, kk0, vv, int1(kk0))), List::Cons(icmp(Cmp_op::CEq, kk0, vv, bb), List::Nil))
-                                                  }
-                                                  Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
-                                                }
-                                                let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
-                                                let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
-                                                bind(match nb {
-                                                  Some(e0) => elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
-                                                  None => Result0::Ok(Expr::ELit(Lit::LUnit))
-                                                }, fn(nb_) {
-                                                  let init0 = app(match incl {
-                                                    true => List::Cons(start, List::Cons(e_false, List::Nil))
-                                                    false => List::Cons(start, List::Nil)
-                                                  }, map(fn(x2) { snd(x2) }, inits_))
-                                                  Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
-                                                })
-                                              })
-                                            })
-                                          }
-                                        }
-                                      }
-                                    })
-                                  }
-                                }
-                              }
-                              Iter_src::IArray(k, t) => {
-                                let p4 = (icmp(Cmp_op::CLt, Int_kind::I32, v, bound), Expr::EMem(Mem_op::MIndex(k, t), List::Cons(Expr::EVar(Nat::S(n)), List::Cons(v, List::Nil))))
-                                match p4 {
-                                  (cond, elem) => bind(match pats {
-                                    List::Nil => Result0::Err(Elab_error::EE_PatType(p, t))
-                                    List::Cons(sp1, l0) => match l0 {
-                                      List::Nil => bind(elab_pat(tys, hdr, sinfo, tps, t, sp1), fn(x1) {
-                                        match x1 {
-                                          (q, _UU0394_) => Result0::Ok(((q, _UU0394_), elem))
-                                        }
-                                      })
-                                      List::Cons(sp2, l1) => match l1 {
-                                        List::Nil => match it {
-                                          Iter_src::IRange(_, _) => Result0::Err(Elab_error::EE_PatType(p, t))
-                                          Iter_src::IArray(_, _) => bind(elab_pat(tys, hdr, sinfo, tps, Ty::TBase(Base_ty::BInt(Int_kind::I32)), sp1), fn(x1) {
-                                            match x1 {
-                                              (q1, _UU0394_1) => bind(elab_pat(tys, hdr, sinfo, tps, t, sp2), fn(x2) {
-                                                match x2 {
-                                                  (q2, _UU0394_2) => Result0::Ok(((Pat::PTuple(List::Cons(q1, List::Cons(q2, List::Nil))), app(_UU0394_1, _UU0394_2)), Expr::ETuple(List::Cons(v, List::Cons(elem, List::Nil)))))
-                                                }
-                                              })
-                                            }
-                                          })
-                                        }
-                                        List::Cons(_, _) => Result0::Err(Elab_error::EE_PatType(p, t))
-                                      }
-                                    }
-                                  }, fn(x1) {
-                                    match x1 {
-                                      (p5, scrut) => match p5 {
-                                        (q, _UU0394_) => {
-                                          let d = length(_UU0394_)
-                                          let _UU0393_b = app(_UU0394_, _UU0393_l)
-                                          let st = push_lab(Lab::Mk_lab(None, Lab_kind::LKHead, List::Nil, Ty::TTuple(_UU03c4_s)), hd(_UU03c4_))
-                                          bind(elab(tys, hdr, sinfo, tps, gx, push_lab(Lab::Mk_lab(x, Lab_kind::LKForInBody, List::Nil, Ty::TBase(Base_ty::BUnit)), st), _UU0393_b, Some(Ty::TBase(Base_ty::BUnit)), body), fn(body_) {
-                                            let _UU0393_u = List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393_b)
-                                            bind(elab_named(st)(_UU0393_u)(fn(y) { assoc(y, combine(names, _UU03c4_s)) })(upds), fn(upds_) {
-                                              let state = map(fn(j) {
-                                                match assoc(nth(j, names, String0::EmptyString), upds_) {
-                                                  Some(u) => u
-                                                  None => Expr::EVar(add(add(add(Nat::S(Nat::O), d), length(ivs)), j))
-                                                }
-                                              }, seq(Nat::O, length(names)))
-                                              let blk = eblock(Ty::TTuple(_UU03c4_s), Expr::ELet(eblock(Ty::TBase(Base_ty::BUnit), body_), Expr::ETuple(state)))
-                                              let vv = Expr::EVar(add(Nat::S(Nat::O), d))
-                                              let bb = Expr::EVar(add(add(Nat::S(Nat::O), d), n))
-                                              let next_iv = match it {
-                                                Iter_src::IRange(rk, kk) => match rk {
-                                                  Range_kind::RUpExcl => List::Cons(iarith(Arith_op::AAdd, kk, vv, int1(kk)), List::Nil)
-                                                  Range_kind::RUpIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk, vv, bb), vv, iarith(Arith_op::AAdd, kk, vv, int1(kk))), List::Cons(icmp(Cmp_op::CEq, kk, vv, bb), List::Nil))
-                                                  Range_kind::RDownExcl => List::Cons(iarith(Arith_op::ASub, kk, vv, int1(kk)), List::Nil)
-                                                  Range_kind::RDownIncl => List::Cons(Expr::EIf(icmp(Cmp_op::CEq, kk, vv, bb), vv, iarith(Arith_op::ASub, kk, vv, int1(kk))), List::Cons(icmp(Cmp_op::CEq, kk, vv, bb), List::Nil))
-                                                }
-                                                Iter_src::IArray(_, _) => List::Cons(iarith(Arith_op::AAdd, Int_kind::I32, vv, int1(Int_kind::I32)), List::Nil)
-                                              }
-                                              let next = app(next_iv, map(fn(j) { Expr::EProj(Expr::EVar(Nat::O), j) }, seq(Nat::O, length(names))))
-                                              let step = Expr::ELet(blk, Expr::EJump(Ctl::CCont, Nat::O, Expr::ETuple(next), _UU03c4_))
-                                              bind(match nb {
-                                                Some(e0) => elab(tys, hdr, sinfo, tps, gx, hd(_UU03c4_), _UU0393_l, Some(_UU03c4_), e0)
-                                                None => Result0::Ok(Expr::ELit(Lit::LUnit))
-                                              }, fn(nb_) {
-                                                let init0 = app(match incl {
-                                                  true => List::Cons(start, List::Cons(e_false, List::Nil))
-                                                  false => List::Cons(start, List::Nil)
-                                                }, map(fn(x2) { snd(x2) }, inits_))
-                                                Result0::Ok(Expr::ELet(e1, Expr::ELet(e2, Expr::ELoop(Expr::ETuple(init0), ps, _UU03c4_, Expr::EIf(cond, Expr::EMatch(scrut, _UU03c4_, List::Cons((q, step), List::Nil)), nb_)))))
-                                              })
-                                            })
-                                          })
-                                        }
-                                      }
-                                    }
-                                  })
-                                }
-                              }
-                            }
-                          })
+          }
+          match onb {
+            Some(nb) => match m {
+              Mode::Syn => bind(elab(e, nb, hd_env(_UU03c4_s, Ty::TBase(Base_ty::BUnit), l), _UU0393__, Mode::Syn), fn(x1) {
+                match x1 {
+                  SigT::ExistT(_UU03c4_, _) => bind(parts(_UU03c4_), fn(x2) {
+                    match x2 {
+                      (p0, us) => match p0 {
+                        (c_, b_) => bind(cres(e, hd_env(_UU03c4_s, _UU03c4_, l), _UU0393__, nb, _UU03c4_, elab(e, nb, hd_env(_UU03c4_s, _UU03c4_, l), _UU0393__, Mode::Chk(_UU03c4_))), fn(x3) {
+                          Result0::Ok(SigT::ExistT(_UU03c4_, for_loop(s0, _UU03c4_s, _UU03c4_, c_, b_, map(fn(x4) { fst(x4) }, inits), us, x3)))
                         })
-                      })
+                      }
                     }
+                  })
+                }
+              })
+              Mode::Chk(_UU03c4_) => bind(parts(_UU03c4_), fn(x1) {
+                match x1 {
+                  (p0, us) => match p0 {
+                    (c_, b_) => bind(cres(e, hd_env(_UU03c4_s, _UU03c4_, l), _UU0393__, nb, _UU03c4_, elab(e, nb, hd_env(_UU03c4_s, _UU03c4_, l), _UU0393__, Mode::Chk(_UU03c4_))), fn(x2) {
+                      okc(e, l, _UU0393_, Sexpr::SFor(p, x, inits, oc0, upds, body, Some(nb)), _UU03c4_, for_loop(s0, _UU03c4_s, _UU03c4_, c_, b_, map(fn(x3) { fst(x3) }, inits), us, x2))
+                    })
                   }
                 }
-              }
+              })
             }
-          }
-        }
-      })
-    }
-    Sexpr::SRaise(p, e0) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, match (match l {
-      Cenv::Mk_cenv(_, ce_exn) => ce_exn
-    }) {
-      Ty::TError => None
-      x => Some(x)
-    }, e0), fn(e0_) {
-      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) { Result0::Ok(raise_val(l, _UU03c4_, e0_, jty(exp))) })
-    })
-    Sexpr::STry(p, body, cases, nr) => {
-      let bexp = match nr {
-        Some(_) => None
-        None => exp
-      }
-      let info = fold_left(fn(acc) {
-        fn(c) {
-          let one = fn(t) {
-            match acc {
-              Catch_info::CINone => Catch_info::CIOne(t)
-              Catch_info::CIOne(t_) => match eqDec_ident(t)(t_) {
-                true => acc
-                false => Catch_info::CIMany
-              }
-              Catch_info::CIMany => Catch_info::CIMany
-            }
-          }
-          match fst(c) {
-            Spat::SPConstr(_, t0, cn, _, _) => match t0 {
-              Some(t) => one(t)
-              None => match filter(fn(td) {
-                match (match td {
-                  Tdef::Mk_tdef(_, _, _, td_err) => td_err
-                }) {
-                  true => has_ctor(cn, td)
-                  false => false
+            None => {
+              let syn_f = bind(parts(Ty::TBase(Base_ty::BUnit)), fn(x1) {
+                match x1 {
+                  (p0, us) => match p0 {
+                    (c_, b_) => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), for_loop(s0, _UU03c4_s, Ty::TBase(Base_ty::BUnit), c_, b_, map(fn(x2) { fst(x2) }, inits), us, Expr::ELit(Lit::LUnit))))
+                  }
                 }
-              }, match hdr {
-                Genv::Mk_genv(ge_types, _) => ge_types
-              }) {
-                List::Nil => acc
-                List::Cons(td, l0) => match l0 {
-                  List::Nil => one(match td {
-                    Tdef::Mk_tdef(td_name, _, _, _) => td_name
+              })
+              match m {
+                Mode::Syn => syn_f
+                Mode::Chk(_UU03c4_) => match oc0 {
+                  Some(c0) => bind(cres(e, l, _UU0393_, Sexpr::SFor(p, x, inits, oc0, upds, body, None), _UU03c4_, fin(e, p, l, _UU0393_, Sexpr::SFor(p, x, inits, oc0, upds, body, None), Mode::Chk(_UU03c4_), syn_f)), fn(x1) {
+                    okc(e, l, _UU0393_, Sexpr::SFor(p, x, inits, Some(c0), upds, body, None), _UU03c4_, x1)
                   })
-                  List::Cons(_, _) => acc
-                }
-              }
-            }
-            _ => acc
-          }
-        }
-      }, cases, Catch_info::CINone)
-      let errs = filter(fn(t) {
-        match t {
-          Tdef::Mk_tdef(_, _, _, td_err) => td_err
-        }
-      }, match hdr {
-        Genv::Mk_genv(ge_types, _) => ge_types
-      })
-      bind(match info {
-        Catch_info::CINone => {
-          let ok = fn(td) {
-            let lt = set_exn(Ty::TData(match td {
-              Tdef::Mk_tdef(td_name, _, _, _) => td_name
-            }, List::Nil), l)
-            match elab(tys, hdr, sinfo, tps, gx, lt, _UU0393_, bexp, body) {
-              Result0::Ok(b_) => match type_of(hdr, p, lt, _UU0393_, b_) {
-                Result0::Ok(_) => true
-                Result0::Err(_) => false
-              }
-              Result0::Err(_) => false
-            }
-          }
-          match filter(ok, errs) {
-            List::Nil => Result0::Ok(Ty::TError)
-            List::Cons(td, l0) => match l0 {
-              List::Nil => Result0::Ok(Ty::TData(match td {
-                Tdef::Mk_tdef(td_name, _, _, _) => td_name
-              }, List::Nil))
-              List::Cons(_, _) => Result0::Ok(Ty::TError)
-            }
-          }
-        }
-        Catch_info::CIOne(t) => Result0::Ok(Ty::TData(t, List::Nil))
-        Catch_info::CIMany => Result0::Ok(Ty::TError)
-      }, fn(_UU03c4_e) {
-        let lb = set_exn(_UU03c4_e, l)
-        bind(elab(tys, hdr, sinfo, tps, gx, lb, _UU0393_, bexp, body), fn(body_) {
-          bind(type_of(hdr, p, lb, _UU0393_, body_), fn(_UU03c4_0) {
-            let _UU0393_h = List::Cons((None, _UU03c4_e), _UU0393_)
-            bind(match exp {
-              Some(t) => Result0::Ok(Some(t))
-              None => match nr {
-                Some(_) => first_arm(l)(_UU0393_h)(_UU03c4_e)(cases)
-                None => Result0::Ok(Some(_UU03c4_0))
-              }
-            }, fn(hexp) {
-              bind(arms(l)(_UU0393_h)(_UU03c4_e)(cases)(hexp), fn(x) {
-                match x {
-                  (hbs, r) => bind(of_opt(r, Elab_error::EE_EmptyMatch(p)), fn(_UU03c4_) {
-                    bind(match nr {
-                      Some(ncs) => bind(arms(l)(List::Cons((None, _UU03c4_0), _UU0393_))(_UU03c4_0)(ncs)(Some(_UU03c4_)), fn(x0) {
-                        match x0 {
-                          (kbs, _) => Result0::Ok(Expr::EMatch(Expr::EVar(Nat::O), _UU03c4_, kbs))
-                        }
-                      })
-                      None => Result0::Ok(Expr::EVar(Nat::O))
-                    }, fn(k) {
-                      Result0::Ok(Expr::ETry(body_, _UU03c4_e, Expr::EMatch(Expr::EVar(Nat::O), _UU03c4_, hbs), k))
+                  None => bind(cres(e, push_lab(Lab::Mk_lab(x, Lab_kind::LKForBody, List::Nil, Ty::TBase(Base_ty::BUnit)), hd_env(_UU03c4_s, _UU03c4_, l)), _UU0393__, body, Ty::TBase(Base_ty::BUnit), elab(e, body, push_lab(Lab::Mk_lab(x, Lab_kind::LKForBody, List::Nil, Ty::TBase(Base_ty::BUnit)), hd_env(_UU03c4_s, _UU03c4_, l)), _UU0393__, Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x1) {
+                    bind(supds_dec(e, fn(x5) { fn(x2) { fn(x3) { fn(x4) { elab(e, x5, x2, x3, x4) } } } }, p, hd_env(_UU03c4_s, _UU03c4_, l), List::Cons((None, Ty::TBase(Base_ty::BUnit)), _UU0393__), names, _UU03c4_s, upds), fn(x2) {
+                      okc(e, l, _UU0393_, Sexpr::SFor(p, x, inits, None, upds, body, None), _UU03c4_, for_loop(s0, _UU03c4_s, _UU03c4_, None, x1, map(fn(x3) { fst(x3) }, inits), x2, Expr::ELit(Lit::LUnit)))
                     })
                   })
                 }
-              })
+              }
+            }
+          }
+        }
+      }
+    })
+    Sexpr::SBlock(p, x, body) => match m {
+      Mode::Syn => bind(cres(e, push_lab(Lab::Mk_lab(Some(x), Lab_kind::LKBlock, List::Nil, Ty::TBase(Base_ty::BUnit)), l), _UU0393_, body, Ty::TBase(Base_ty::BUnit), elab(e, body, push_lab(Lab::Mk_lab(Some(x), Lab_kind::LKBlock, List::Nil, Ty::TBase(Base_ty::BUnit)), l), _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x0) {
+        Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), eblock(Ty::TBase(Base_ty::BUnit), x0)))
+      })
+      Mode::Chk(_UU03c4_) => bind(cres(e, push_lab(Lab::Mk_lab(Some(x), Lab_kind::LKBlock, List::Nil, _UU03c4_), l), _UU0393_, body, _UU03c4_, elab(e, body, push_lab(Lab::Mk_lab(Some(x), Lab_kind::LKBlock, List::Nil, _UU03c4_), l), _UU0393_, Mode::Chk(_UU03c4_))), fn(x0) {
+        okc(e, l, _UU0393_, Sexpr::SBlock(p, x, body), _UU03c4_, eblock(_UU03c4_, x0))
+      })
+    }
+    Sexpr::SBreak(p, x, oa) => {
+      let jmp = fn(_UU03c4_) {
+        bind(of_option(break_target(x, match l {
+          Cenv::Mk_cenv(ce_labs, _) => ce_labs
+        }, Nat::O), Elab_error::EE_NoTarget(p)), fn(x0) {
+          match x0 {
+            (k, _UU03c4_t) => bind(label_at(p, l, k), fn(x1) {
+              match x1 {
+                (_, r) => match ty_eq_dec(r)(_UU03c4_t) {
+                  true => match oa {
+                    Some(a) => bind(cres(e, l, _UU0393_, a, _UU03c4_t, elab(e, a, l, _UU0393_, Mode::Chk(_UU03c4_t))), fn(x2) { Result0::Ok(Expr::EJump(Ctl::CBreak, k, x2, _UU03c4_)) })
+                    None => match ty_eq_dec(_UU03c4_t)(Ty::TBase(Base_ty::BUnit)) {
+                      true => Result0::Ok(Expr::EJump(Ctl::CBreak, k, Expr::ELit(Lit::LUnit), _UU03c4_))
+                      false => Result0::Err(Elab_error::EE_Annot(p, _UU03c4_t, Ty::TBase(Base_ty::BUnit)))
+                    }
+                  }
+                  false => Result0::Err(Elab_error::EE_NoTarget(p))
+                }
+              }
             })
+          }
+        })
+      }
+      match m {
+        Mode::Syn => bind(jmp(Ty::TBase(Base_ty::BUnit)), fn(x0) { Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), x0)) })
+        Mode::Chk(_UU03c4_) => bind(jmp(_UU03c4_), fn(r) { okc(e, l, _UU0393_, Sexpr::SBreak(p, x, oa), _UU03c4_, r) })
+      }
+    }
+    Sexpr::SContinue(p, x, args) => {
+      let jmp = fn(_UU03c4_) {
+        bind(of_option(cont_target_of(x, match l {
+          Cenv::Mk_cenv(ce_labs, _) => ce_labs
+        }, Nat::O), Elab_error::EE_NoTarget(p)), fn(x0) {
+          match x0 {
+            Cont_target::CTWhile(k) => match args {
+              List::Nil => bind(label_at(p, l, k), fn(x1) {
+                match x1 {
+                  (ps, _) => match list_eq_dec(ty_eq_dec, ps, List::Nil) {
+                    true => Result0::Ok(Expr::EJump(Ctl::CCont, k, Expr::ETuple(List::Nil), _UU03c4_))
+                    false => Result0::Err(Elab_error::EE_NoTarget(p))
+                  }
+                }
+              })
+              List::Cons(_, _) => Result0::Err(Elab_error::EE_BadContinue(p, Nat::O, length(args)))
+            }
+            Cont_target::CTFor(k, ps) => match args {
+              List::Nil => bind(label_at(p, l, k), fn(x1) {
+                match x1 {
+                  (_, r) => match ty_eq_dec(r)(Ty::TBase(Base_ty::BUnit)) {
+                    true => Result0::Ok(Expr::EJump(Ctl::CBreak, k, Expr::ELit(Lit::LUnit), _UU03c4_))
+                    false => Result0::Err(Elab_error::EE_NoTarget(p))
+                  }
+                }
+              })
+              List::Cons(a, a_) => bind(bcheck(eqb0(length(ps), length(List::Cons(a, a_))), Elab_error::EE_BadContinue(p, length(ps), length(List::Cons(a, a_)))), fn(_) {
+                bind(label_at(p, l, Nat::S(k)), fn(x1) {
+                  match x1 {
+                    (ps_, _) => match list_eq_dec(ty_eq_dec, ps_, ps) {
+                      true => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+                        fn(_UU03c4__) {
+                          cres(e, l, _UU0393_, s_, _UU03c4__, elab(e, s_, l, _UU0393_, Mode::Chk(_UU03c4__)))
+                        }
+                      }, List::Cons(a, a_), ps), fn(x2) {
+                        Result0::Ok(Expr::EJump(Ctl::CCont, Nat::S(k), Expr::ETuple(x2), _UU03c4_))
+                      })
+                      false => Result0::Err(Elab_error::EE_NoTarget(p))
+                    }
+                  }
+                })
+              })
+            }
+            Cont_target::CTForIn(k, ss) => match args {
+              List::Nil => bind(label_at(p, l, k), fn(x1) {
+                match x1 {
+                  (_, r) => match ty_eq_dec(r)(Ty::TBase(Base_ty::BUnit)) {
+                    true => Result0::Ok(Expr::EJump(Ctl::CBreak, k, Expr::ELit(Lit::LUnit), _UU03c4_))
+                    false => Result0::Err(Elab_error::EE_NoTarget(p))
+                  }
+                }
+              })
+              List::Cons(a, a_) => bind(bcheck(eqb0(length(ss), length(List::Cons(a, a_))), Elab_error::EE_BadContinue(p, length(ss), length(List::Cons(a, a_)))), fn(_) {
+                bind(label_at(p, l, Nat::S(k)), fn(x1) {
+                  match x1 {
+                    (_, r) => match ty_eq_dec(r)(Ty::TTuple(ss)) {
+                      true => bind(chk_list(e, p, l, _UU0393_, fn(s_) {
+                        fn(_UU03c4__) {
+                          cres(e, l, _UU0393_, s_, _UU03c4__, elab(e, s_, l, _UU0393_, Mode::Chk(_UU03c4__)))
+                        }
+                      }, List::Cons(a, a_), ss), fn(x2) {
+                        Result0::Ok(Expr::EJump(Ctl::CBreak, Nat::S(k), Expr::ETuple(x2), _UU03c4_))
+                      })
+                      false => Result0::Err(Elab_error::EE_NoTarget(p))
+                    }
+                  }
+                })
+              })
+            }
+          }
+        })
+      }
+      match m {
+        Mode::Syn => bind(jmp(Ty::TBase(Base_ty::BUnit)), fn(x0) { Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), x0)) })
+        Mode::Chk(_UU03c4_) => bind(jmp(_UU03c4_), fn(r) { okc(e, l, _UU0393_, Sexpr::SContinue(p, x, args), _UU03c4_, r) })
+      }
+    }
+    Sexpr::SReturn(p, oa) => {
+      let jmp = fn(_UU03c4_) {
+        bind(of_option(return_target(match l {
+          Cenv::Mk_cenv(ce_labs, _) => ce_labs
+        }, Nat::O), Elab_error::EE_NoTarget(p)), fn(x) {
+          match x {
+            (k, r) => bind(label_at(p, l, k), fn(x0) {
+              match x0 {
+                (_, r_) => match ty_eq_dec(r_)(r) {
+                  true => match oa {
+                    Some(a) => bind(cres(e, l, _UU0393_, a, r, elab(e, a, l, _UU0393_, Mode::Chk(r))), fn(x1) { Result0::Ok(Expr::EJump(Ctl::CBreak, k, x1, _UU03c4_)) })
+                    None => match ty_eq_dec(r)(Ty::TBase(Base_ty::BUnit)) {
+                      true => Result0::Ok(Expr::EJump(Ctl::CBreak, k, Expr::ELit(Lit::LUnit), _UU03c4_))
+                      false => Result0::Err(Elab_error::EE_Annot(p, r, Ty::TBase(Base_ty::BUnit)))
+                    }
+                  }
+                  false => Result0::Err(Elab_error::EE_NoTarget(p))
+                }
+              }
+            })
+          }
+        })
+      }
+      match m {
+        Mode::Syn => bind(jmp(Ty::TBase(Base_ty::BUnit)), fn(x) { Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), x)) })
+        Mode::Chk(_UU03c4_) => bind(jmp(_UU03c4_), fn(r) { okc(e, l, _UU0393_, Sexpr::SReturn(p, oa), _UU03c4_, r) })
+      }
+    }
+    Sexpr::SForIn(p, x, pats, src, inits, upds, body, onb) => bind(fsrc_dec(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, l, _UU0393_, src), fn(x0) {
+      match x0 {
+        SigT::ExistT(e1, s0) => match s0 {
+          SigT::ExistT(e2, s1) => bind(sinits_dec(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, fo_ctx(s1, _UU0393_), inits), fn(x1) {
+            match x1 {
+              SigT::ExistT(_UU03c4_s, s2) => {
+                let names = map(fn(x2) { fst(x2) }, inits)
+                let _UU0393_l = fl_ctx(s1, names, _UU03c4_s, _UU0393_)
+                bind(fi_pat_dec(e, p, s1, _UU03c4_s, pats), fn(x2) {
+                  match x2 {
+                    SigT::ExistT(q, s3) => match s3 {
+                      SigT::ExistT(_UU0394_, s4) => match s4 {
+                        SigT::ExistT(scrut, _) => {
+                          let parts = fn(_UU03c4_) {
+                            bind(cres(e, fi_body_env(x, s1, _UU03c4_s, _UU03c4_, l), app(_UU0394_, _UU0393_l), body, Ty::TBase(Base_ty::BUnit), elab(e, body, fi_body_env(x, s1, _UU03c4_s, _UU03c4_, l), app(_UU0394_, _UU0393_l), Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x3) {
+                              bind(supds_dec(e, fn(x7) { fn(x6) { fn(x5) { fn(x4) { elab(e, x7, x6, x5, x4) } } } }, p, fi_state_env(s1, _UU03c4_s, _UU03c4_, l), List::Cons((None, Ty::TBase(Base_ty::BUnit)), app(_UU0394_, _UU0393_l)), names, _UU03c4_s, upds), fn(x4) { Result0::Ok((x3, x4)) })
+                            })
+                          }
+                          match onb {
+                            Some(nb) => match m {
+                              Mode::Syn => bind(elab(e, nb, fi_loop_env(s1, _UU03c4_s, Ty::TBase(Base_ty::BUnit), l), _UU0393_l, Mode::Syn), fn(x3) {
+                                match x3 {
+                                  SigT::ExistT(_UU03c4_, _) => bind(parts(_UU03c4_), fn(x4) {
+                                    match x4 {
+                                      (b_, us) => bind(cres(e, fi_loop_env(s1, _UU03c4_s, _UU03c4_, l), _UU0393_l, nb, _UU03c4_, elab(e, nb, fi_loop_env(s1, _UU03c4_s, _UU03c4_, l), _UU0393_l, Mode::Chk(_UU03c4_))), fn(x5) {
+                                        Result0::Ok(SigT::ExistT(_UU03c4_, forin_loop(s1, e1, e2, s2, _UU03c4_s, _UU03c4_, q, scrut, length(_UU0394_), b_, map(fn(x6) { fst(x6) }, inits), us, x5)))
+                                      })
+                                    }
+                                  })
+                                }
+                              })
+                              Mode::Chk(_UU03c4_) => bind(parts(_UU03c4_), fn(x3) {
+                                match x3 {
+                                  (b_, us) => bind(cres(e, fi_loop_env(s1, _UU03c4_s, _UU03c4_, l), _UU0393_l, nb, _UU03c4_, elab(e, nb, fi_loop_env(s1, _UU03c4_s, _UU03c4_, l), _UU0393_l, Mode::Chk(_UU03c4_))), fn(x4) {
+                                    okc(e, l, _UU0393_, Sexpr::SForIn(p, x, pats, src, inits, upds, body, Some(nb)), _UU03c4_, forin_loop(s1, e1, e2, s2, _UU03c4_s, _UU03c4_, q, scrut, length(_UU0394_), b_, map(fn(x5) { fst(x5) }, inits), us, x4))
+                                  })
+                                }
+                              })
+                            }
+                            None => fin(e, p, l, _UU0393_, Sexpr::SForIn(p, x, pats, src, inits, upds, body, None), m, bind(parts(Ty::TBase(Base_ty::BUnit)), fn(x3) {
+                              match x3 {
+                                (b_, us) => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), forin_loop(s1, e1, e2, s2, _UU03c4_s, Ty::TBase(Base_ty::BUnit), q, scrut, length(_UU0394_), b_, map(fn(x4) { fst(x4) }, inits), us, Expr::ELit(Lit::LUnit))))
+                              }
+                            }))
+                          }
+                        }
+                      }
+                    }
+                  }
+                })
+              }
+            }
           })
-        })
-      })
-    }
-    Sexpr::STryBang(p, body) => {
-      let l_ = set_exn(Ty::TError, l)
-      bind(elab(tys, hdr, sinfo, tps, gx, l_, _UU0393_, exp, body), fn(body_) {
-        bind(type_of(hdr, p, l_, _UU0393_, body_), fn(_UU03c4_0) {
-          Result0::Ok(Expr::ETry(body_, Ty::TError, Expr::EAbort(_UU03c4_0), Expr::EVar(Nat::O)))
-        })
-      })
-    }
-    Sexpr::SDefer(p, onerr, c, body) => {
-      let lc = Cenv::Mk_cenv(List::Nil, match l {
-        Cenv::Mk_cenv(_, ce_exn) => ce_exn
-      })
-      bind(elab(tys, hdr, sinfo, tps, gx, lc, _UU0393_, Some(Ty::TBase(Base_ty::BUnit)), c), fn(c_) {
-        bind(type_of(hdr, p, lc, _UU0393_, c_), fn(_UU03c4_c) {
-          bind(match eqDec_ty(_UU03c4_c)(Ty::TBase(Base_ty::BUnit)) {
-            true => Result0::Ok(())
-            false => Result0::Err(Elab_error::EE_Annot(sexpr_pos(c), Ty::TBase(Base_ty::BUnit), _UU03c4_c))
-          }, fn(_) {
-            bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, exp, body), fn(body_) { Result0::Ok(Expr::EDefer(onerr, c_, body_)) })
-          })
-        })
-      })
-    }
-    Sexpr::SAs(p, e0, tr) => bind(elab(tys, hdr, sinfo, tps, gx, l, _UU0393_, None, e0), fn(e0_) {
-      bind(type_of(hdr, p, l, _UU0393_, e0_), fn(_UU03c4_) {
-        match existsb(eqDec_ident(tr), match gx {
-          Xenv::Mk_xenv(_, _, _, _, x_objs, _) => x_objs
-        }) {
-          true => make_obj(gx, p, _UU0393_, tr, _UU03c4_, e0_)
-          false => Result0::Err(Elab_error::EE_NotObjectSafe(p, tr))
+        }
+      }
+    })
+    Sexpr::SRaise(p, s0) => bind(cres(e, l, _UU0393_, s0, match l {
+      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+    }, elab(e, s0, l, _UU0393_, Mode::Chk(match l {
+      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+    }))), fn(x) {
+      match m {
+        Mode::Syn => Result0::Ok(SigT::ExistT(Ty::TBase(Base_ty::BUnit), Expr::ERaise(x, Ty::TBase(Base_ty::BUnit))))
+        Mode::Chk(_UU03c4_) => okc(e, l, _UU0393_, Sexpr::SRaise(p, s0), _UU03c4_, Expr::ERaise(x, _UU03c4_))
+      }
+    })
+    Sexpr::STry(p, body, cases, onr) => match onr {
+      Some(ncs) => bind(try_pick(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, l, _UU0393_, cases, body, Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(_UU03c4_e, p0) => match p0 {
+            (_, o) => match o {
+              SigT::ExistT(_UU03c4_0, s0) => match m {
+                Mode::Syn => bind(pick_syn(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, l, List::Cons((None, _UU03c4_e), _UU0393_), _UU03c4_e, cases), fn(x0) {
+                  bind(arms_list(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, List::Cons((None, _UU03c4_e), _UU0393_), _UU03c4_e, x0, cases), fn(x1) {
+                    bind(arms_list(e, fn(x5) { fn(x2) { fn(x3) { fn(x4) { elab(e, x5, x2, x3, x4) } } } }, l, List::Cons((None, _UU03c4_0), _UU0393_), _UU03c4_0, x0, ncs), fn(x2) {
+                      Result0::Ok(SigT::ExistT(x0, Expr::ETry(s0, _UU03c4_e, Expr::EMatch(Expr::EVar(Nat::O), x0, x1), Expr::EMatch(Expr::EVar(Nat::O), x0, x2))))
+                    })
+                  })
+                })
+                Mode::Chk(_UU03c4_) => bind(arms_list(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, List::Cons((None, _UU03c4_e), _UU0393_), _UU03c4_e, _UU03c4_, cases), fn(x0) {
+                  bind(arms_list(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, List::Cons((None, _UU03c4_0), _UU0393_), _UU03c4_0, _UU03c4_, ncs), fn(x1) {
+                    okc(e, l, _UU0393_, Sexpr::STry(p, body, cases, Some(ncs)), _UU03c4_, Expr::ETry(s0, _UU03c4_e, Expr::EMatch(Expr::EVar(Nat::O), _UU03c4_, x0), Expr::EMatch(Expr::EVar(Nat::O), _UU03c4_, x1)))
+                  })
+                })
+              }
+            }
+          }
         }
       })
+      None => match m {
+        Mode::Syn => bind(try_pick(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, l, _UU0393_, cases, body, Mode::Syn), fn(x) {
+          match x {
+            SigT::ExistT(_UU03c4_e, p0) => match p0 {
+              (_, o) => match o {
+                SigT::ExistT(_UU03c4_, s0) => bind(arms_list(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, List::Cons((None, _UU03c4_e), _UU0393_), _UU03c4_e, _UU03c4_, cases), fn(x0) {
+                  Result0::Ok(SigT::ExistT(_UU03c4_, Expr::ETry(s0, _UU03c4_e, Expr::EMatch(Expr::EVar(Nat::O), _UU03c4_, x0), Expr::EVar(Nat::O))))
+                })
+              }
+            }
+          }
+        })
+        Mode::Chk(_UU03c4_) => bind(try_pick(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, p, l, _UU0393_, cases, body, Mode::Chk(_UU03c4_)), fn(x) {
+          match x {
+            SigT::ExistT(_UU03c4_e, p0) => match p0 {
+              (_, o) => match o {
+                SigT::ExistT(_, s0) => bind(arms_list(e, fn(x1) { fn(x2) { fn(x3) { fn(x4) { elab(e, x1, x2, x3, x4) } } } }, l, List::Cons((None, _UU03c4_e), _UU0393_), _UU03c4_e, _UU03c4_, cases), fn(x0) {
+                  okc(e, l, _UU0393_, Sexpr::STry(p, body, cases, None), _UU03c4_, Expr::ETry(s0, _UU03c4_e, Expr::EMatch(Expr::EVar(Nat::O), _UU03c4_, x0), Expr::EVar(Nat::O)))
+                })
+              }
+            }
+          }
+        })
+      }
+    }
+    Sexpr::STryBang(p, body) => match m {
+      Mode::Syn => bind(elab(e, body, set_exn(Ty::TError, l), _UU0393_, Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(_UU03c4_, s0) => Result0::Ok(SigT::ExistT(_UU03c4_, Expr::ETry(s0, Ty::TError, Expr::EAbort(_UU03c4_), Expr::EVar(Nat::O))))
+        }
+      })
+      Mode::Chk(_UU03c4_) => bind(cres(e, set_exn(Ty::TError, l), _UU0393_, body, _UU03c4_, elab(e, body, set_exn(Ty::TError, l), _UU0393_, Mode::Chk(_UU03c4_))), fn(x) {
+        okc(e, l, _UU0393_, Sexpr::STryBang(p, body), _UU03c4_, Expr::ETry(x, Ty::TError, Expr::EAbort(_UU03c4_), Expr::EVar(Nat::O)))
+      })
+    }
+    Sexpr::SDefer(p, d, c, body) => bind(cres(e, Cenv::Mk_cenv(List::Nil, match l {
+      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+    }), _UU0393_, c, Ty::TBase(Base_ty::BUnit), elab(e, c, Cenv::Mk_cenv(List::Nil, match l {
+      Cenv::Mk_cenv(_, ce_exn) => ce_exn
+    }), _UU0393_, Mode::Chk(Ty::TBase(Base_ty::BUnit)))), fn(x) {
+      match m {
+        Mode::Syn => bind(elab(e, body, l, _UU0393_, Mode::Syn), fn(x0) {
+          match x0 {
+            SigT::ExistT(_UU03c4_, s0) => Result0::Ok(SigT::ExistT(_UU03c4_, Expr::EDefer(d, x, s0)))
+          }
+        })
+        Mode::Chk(_UU03c4_) => bind(cres(e, l, _UU0393_, body, _UU03c4_, elab(e, body, l, _UU0393_, Mode::Chk(_UU03c4_))), fn(x0) {
+          okc(e, l, _UU0393_, Sexpr::SDefer(p, d, c, body), _UU03c4_, Expr::EDefer(d, x, x0))
+        })
+      }
     })
+    Sexpr::SAs(p, s0, tr) => fin(e, p, l, _UU0393_, Sexpr::SAs(p, s0, tr), m, bind(bcheck(existsb(fn(x1) { eqb4(tr, x1) }, match (match e {
+      Senv::Mk_senv(_, _, _, _, se_x) => se_x
+    }) {
+      Xenv::Mk_xenv(_, _, _, _, x_objs, _) => x_objs
+    }), Elab_error::EE_NotObjectSafe(p, tr)), fn(_) {
+      bind(elab(e, s0, l, _UU0393_, Mode::Syn), fn(x) {
+        match x {
+          SigT::ExistT(_UU03c4_, s1) => bind(coerce(e, p, _UU0393_, s1, _UU03c4_, Ty::TData(obj_name(tr), List::Nil)), fn(x0) { Result0::Ok(SigT::ExistT(Ty::TData(obj_name(tr), List::Nil), x0)) })
+        }
+      })
+    }))
   }
 }
 
@@ -6464,83 +9247,106 @@ pub fn elab_sig(tys : List[(Ident, Nat)], f : Sfun) -> Result0[Fdef, Elab_error]
   })
 }
 
-pub fn elab_body(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], tps : List[String0], gx : Xenv, ctx : List[(Ident, Nat)], _UU0393_p : Lctx, r : Ty, _UU03b5_ : Ty, body : Sexpr) -> Result0[Expr, Elab_error] {
-  let named0 = map(fn(c) { ((fst(c), nth(snd(c), tps, String0::EmptyString)), snd(c)) }, ctx)
-  let lets = super_lets(match gx {
-    Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-  }, mul(length(match gx {
-    Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-  }), Nat::S(length(ctx))), List::Nil, named0)
-  let _UU0393_d = map(fn(c) {
+pub fn dict_ctx(tps : List[Ident], ctx : List[(Ident, Nat)]) -> Lctx {
+  map(fn(c) {
     (Some(dict_var(fst(c), nth(snd(c), tps, String0::EmptyString))), dict_ty(c))
   }, ctx)
-  let _UU0393_0 = app(_UU0393_d, _UU0393_p)
-  let bind0 = {
-    letrec bind0 = fn(ls) {
-      fn(_UU0393_) {
-        match ls {
-          List::Nil => Result0::Ok((List::Nil, _UU0393_))
-          List::Cons(p, ls_) => match p {
-            (p0, j) => match p0 {
-              (p1, t) => match p1 {
-                (p2, i) => match p2 {
-                  (sn, x) => bind(of_opt(lookup_local(dict_var(t, x), _UU0393_), Elab_error::EE_Unbound(Pos::Mk_pos(N::N0, N::N0), dict_var(t, x))), fn(k) {
-                    bind(of_opt(find_trait(match gx {
-                      Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-                    }, t), Elab_error::EE_UnknownType(Pos::Mk_pos(N::N0, N::N0), t)), fn(ti) {
-                      let e = field_of(t, nfields(ti), j, Expr::EVar(k), Ty::TData(sn, List::Cons(Ty::TVar(i), List::Nil)))
-                      bind(bind0(ls_)(List::Cons((Some(dict_var(sn, x)), Ty::TData(sn, List::Cons(Ty::TVar(i), List::Nil))), _UU0393_)), fn(x0) {
-                        match x0 {
-                          (es, _UU0393__) => Result0::Ok((List::Cons(e, es), _UU0393__))
+}
+
+pub fn body_lets(e : Senv, tps : List[Ident], ctx : List[(Ident, Nat)]) -> List[((((Ident, Ident), Nat), Ident), Nat)] {
+  super_lets(trs(e), mul(length(trs(e)), Nat::S(length(ctx))), List::Nil, map(fn(c) { ((fst(c), nth(snd(c), tps, String0::EmptyString)), snd(c)) }, ctx))
+}
+
+pub fn body_asm(e : Senv, tps : List[Ident], ctx : List[(Ident, Nat)]) -> List[((Ident, Ty), Ident)] {
+  app(map(fn(c) {
+    ((fst(c), Ty::TVar(snd(c))), dict_var(fst(c), nth(snd(c), tps, String0::EmptyString)))
+  }, ctx), map(fn(l) {
+    match l {
+      (y, _) => match y {
+        (y1, _) => match y1 {
+          (y3, i) => match y3 {
+            (sn, x) => ((sn, Ty::TVar(i)), dict_var(sn, x))
+          }
+        }
+      }
+    }
+  }, body_lets(e, tps, ctx)))
+}
+
+pub fn with_asm(e : Senv, tps : List[Ident], asm0 : List[((Ident, Ty), Ident)]) -> Senv {
+  let x = match e {
+    Senv::Mk_senv(_, _, _, _, se_x) => se_x
+  }
+  Senv::Mk_senv(match e {
+    Senv::Mk_senv(se_tys, _, _, _, _) => se_tys
+  }, match e {
+    Senv::Mk_senv(_, se_hdr, _, _, _) => se_hdr
+  }, match e {
+    Senv::Mk_senv(_, _, se_sinfo, _, _) => se_sinfo
+  }, tps, Xenv::Mk_xenv(match x {
+    Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
+  }, match x {
+    Xenv::Mk_xenv(_, x_insts, _, _, _, _) => x_insts
+  }, match x {
+    Xenv::Mk_xenv(_, _, x_bounds, _, _, _) => x_bounds
+  }, match x {
+    Xenv::Mk_xenv(_, _, _, x_meths, _, _) => x_meths
+  }, match x {
+    Xenv::Mk_xenv(_, _, _, _, x_objs, _) => x_objs
+  }, asm0))
+}
+
+pub fn sup_lets_dec(e : Senv, ls : List[((((Ident, Ident), Nat), Ident), Nat)], _UU0393_ : Lctx) -> Result0[SigT[List[Expr], Lctx], Elab_error] {
+  match ls {
+    List::Nil => Result0::Ok(SigT::ExistT(List::Nil, _UU0393_))
+    List::Cons(p, ls_) => match p {
+      (p0, j) => match p0 {
+        (p1, t) => match p1 {
+          (p2, i) => match p2 {
+            (sn, x) => {
+              let p3 = Pos::Mk_pos(N::N0, N::N0)
+              bind(of_option(lookup_local(dict_var(t, x), _UU0393_), Elab_error::EE_Unbound(p3, dict_var(t, x))), fn(x0) {
+                bind(of_option(nth_error(ctx_of(_UU0393_), x0), Elab_error::EE_Unbound(p3, dict_var(t, x))), fn(x1) {
+                  match ty_eq_dec(x1)(Ty::TData(t, List::Cons(Ty::TVar(i), List::Nil))) {
+                    true => bind(field_proj_dec(e, p3, t, List::Cons(Ty::TVar(i), List::Nil), j, Expr::EVar(x0)), fn(x2) {
+                      match x2 {
+                        (e0, u) => match ty_eq_dec(u)(Ty::TData(sn, List::Cons(Ty::TVar(i), List::Nil))) {
+                          true => bind(sup_lets_dec(e, ls_, List::Cons((Some(dict_var(sn, x)), Ty::TData(sn, List::Cons(Ty::TVar(i), List::Nil))), _UU0393_)), fn(x3) {
+                            match x3 {
+                              SigT::ExistT(es, s) => Result0::Ok(SigT::ExistT(List::Cons(e0, es), s))
+                            }
+                          })
+                          false => Result0::Err(Elab_error::EE_NoInstance(p3, sn, Ty::TVar(i)))
                         }
-                      })
+                      }
                     })
-                  })
-                }
-              }
+                    false => Result0::Err(Elab_error::EE_NoInstance(p3, t, Ty::TVar(i)))
+                  }
+                })
+              })
             }
           }
         }
       }
     }
-    bind0
   }
-  bind(bind0(lets)(_UU0393_0), fn(x) {
+}
+
+pub fn body_dec(e : Senv, tps : List[Ident], ctx : List[(Ident, Nat)], _UU0393_p : Lctx, r : Ty, _UU03b5_ : Ty, body : Sexpr) -> Result0[Expr, Elab_error] {
+  bind(sup_lets_dec(e, body_lets(e, tps, ctx), app(dict_ctx(tps, ctx), _UU0393_p)), fn(x) {
     match x {
-      (es, _UU0393_) => {
-        let asm0 = app(map(fn(c) {
-          ((fst(c), Ty::TVar(snd(c))), dict_var(fst(c), nth(snd(c), tps, String0::EmptyString)))
-        }, ctx), map(fn(l) {
-          match l {
-            (y, _) => match y {
-              (y1, _) => match y1 {
-                (y3, i) => match y3 {
-                  (sn, x0) => ((sn, Ty::TVar(i)), dict_var(sn, x0))
-                }
-              }
-            }
-          }
-        }, lets))
-        let gx_ = Xenv::Mk_xenv(match gx {
-          Xenv::Mk_xenv(x_traits, _, _, _, _, _) => x_traits
-        }, match gx {
-          Xenv::Mk_xenv(_, x_insts, _, _, _, _) => x_insts
-        }, match gx {
-          Xenv::Mk_xenv(_, _, x_bounds, _, _, _) => x_bounds
-        }, match gx {
-          Xenv::Mk_xenv(_, _, _, x_meths, _, _) => x_meths
-        }, match gx {
-          Xenv::Mk_xenv(_, _, _, _, x_objs, _) => x_objs
-        }, asm0)
-        bind(elab(tys, hdr, sinfo, tps, gx_, Cenv::Mk_cenv(List::Cons(Lab::Mk_lab(None, Lab_kind::LKFun, List::Nil, r), List::Nil), _UU03b5_), _UU0393_, Some(r), body), fn(b) {
-          Result0::Ok(fold_right(fn(x0) { fn(x1) { Expr::ELet(x0, x1) } }, eblock(r, b), es))
-        })
-      }
+      SigT::ExistT(es, s) => bind(cres(with_asm(e, tps, body_asm(e, tps, ctx)), fun_env(r, _UU03b5_), s, body, r, elab(with_asm(e, tps, body_asm(e, tps, ctx)), body, fun_env(r, _UU03b5_), s, Mode::Chk(r))), fn(x0) {
+        Result0::Ok(fold_right(fn(x1) { fn(x2) { Expr::ELet(x1, x2) } }, eblock(r, x0), es))
+      })
     }
   })
 }
 
-pub fn elab_fun(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], gx : Xenv, f : Sfun, sig : Fdef) -> Result0[Fdef, Elab_error] {
+pub fn elab_body(e : Senv, tps : List[Ident], ctx : List[(Ident, Nat)], _UU0393_p : Lctx, r : Ty, _UU03b5_ : Ty, body : Sexpr) -> Result0[Expr, Elab_error] {
+  bind(body_dec(e, tps, ctx, _UU0393_p, r, _UU03b5_, body), fn(x) { Result0::Ok(x) })
+}
+
+pub fn elab_fun(e : Senv, f : Sfun, sig : Fdef) -> Result0[Fdef, Elab_error] {
   let tps = sig_tparams(f)
   bind(bound_ctx(match f {
     Sfun::Mk_sfun(sf_pos, _, _, _, _, _, _, _, _) => sf_pos
@@ -6552,7 +9358,7 @@ pub fn elab_fun(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[
     }), skipn(length(ctx), match sig {
       Fdef::Mk_fdef(_, _, fd_params, _, _, _) => fd_params
     }))
-    bind(elab_body(tys, hdr, sinfo, tps, gx, ctx, _UU0393_p, match sig {
+    bind(elab_body(e, tps, ctx, _UU0393_p, match sig {
       Fdef::Mk_fdef(_, _, _, fd_ret, _, _) => fd_ret
     }, match sig {
       Fdef::Mk_fdef(_, _, _, _, fd_eff, _) => fd_eff
@@ -6574,13 +9380,13 @@ pub fn elab_fun(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[
   })
 }
 
-pub fn elab_funs(tys : List[(Ident, Nat)], hdr : Genv, sinfo : List[(Ident, List[Ident])], gx : Xenv, fs : List[Sfun], sigs : List[Fdef]) -> Result0[List[Fdef], Elab_error] {
+pub fn elab_funs(e : Senv, fs : List[Sfun], sigs : List[Fdef]) -> Result0[List[Fdef], Elab_error] {
   match fs {
     List::Nil => Result0::Ok(List::Nil)
     List::Cons(f, fs_) => match sigs {
       List::Nil => Result0::Ok(List::Nil)
-      List::Cons(sig, sigs_) => bind(elab_fun(tys, hdr, sinfo, gx, f, sig), fn(fd) {
-        bind(elab_funs(tys, hdr, sinfo, gx, fs_, sigs_), fn(fds) { Result0::Ok(List::Cons(fd, fds)) })
+      List::Cons(sig, sigs_) => bind(elab_fun(e, f, sig), fn(fd) {
+        bind(elab_funs(e, fs_, sigs_), fn(fds) { Result0::Ok(List::Cons(fd, fds)) })
       })
     }
   }
@@ -6680,14 +9486,14 @@ pub(all) enum Iinfo {
   Mk_iinfo(Igroup, Trinfo, Ident, List[(Ident, Nat)], Idef)
 }
 
-pub fn check_group(trs : List[Trinfo], g : Igroup) -> Result0[Iinfo, Elab_error] {
+pub fn check_group(trs0 : List[Trinfo], g : Igroup) -> Result0[Iinfo, Elab_error] {
   let p = match g {
     Igroup::Mk_igroup(ig_pos, _, _, _, _, _) => ig_pos
   }
   let n = length(match g {
     Igroup::Mk_igroup(_, _, _, ig_tparams, _, _) => ig_tparams
   })
-  bind(of_opt(find_trait(trs, match g {
+  bind(of_opt(find_trait(trs0, match g {
     Igroup::Mk_igroup(_, ig_trait, _, _, _, _) => ig_trait
   }), Elab_error::EE_UnknownType(p, match g {
     Igroup::Mk_igroup(_, ig_trait, _, _, _, _) => ig_trait
@@ -6846,7 +9652,7 @@ pub fn inst_body(insts : List[Idef], _ : List[Trinfo], _ : List[(Ident, Ident)],
   let nc = length(match ii {
     Iinfo::Mk_iinfo(_, _, _, ii_ctx, _) => ii_ctx
   })
-  let tvars0 = map(fn(x) { Ty::TVar(x) }, seq(Nat::O, n))
+  let tvars = map(fn(x) { Ty::TVar(x) }, seq(Nat::O, n))
   let _UU03c4_h = match g {
     Igroup::Mk_igroup(_, _, ig_head, _, _, _) => ig_head
   }
@@ -6891,13 +9697,13 @@ pub fn inst_body(insts : List[Idef], _ : List[Trinfo], _ : List[(Ident, Ident)],
           Iinfo::Mk_iinfo(_, _, ii_name, _, _) => ii_name
         }, match s {
           Msig::Mk_msig(ms_name, _, _, _) => ms_name
-        }), tvars0), app(dvars, lvars))))
+        }), tvars), app(dvars, lvars))))
         false => {
           let self0 = Expr::EApp(Expr::EGlobal(inst_name(match g {
             Igroup::Mk_igroup(_, ig_trait, _, _, _, _) => ig_trait
           }, match ii {
             Iinfo::Mk_iinfo(_, _, ii_name, _, _) => ii_name
-          }), tvars0), dvars)
+          }), tvars), dvars)
           Result0::Ok(Expr::ELam(ps, _UU03c3_(match s {
             Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
           }), _UU03c3_(match s {
@@ -6921,18 +9727,18 @@ pub fn inst_body(insts : List[Idef], _ : List[Trinfo], _ : List[(Ident, Ident)],
   })
 }
 
-pub fn obj_insts(trs : List[Trinfo], tr : Ident) -> List[(Idef, Fdef)] {
+pub fn obj_insts(trs0 : List[Trinfo], tr : Ident) -> List[(Idef, Fdef)] {
   let on = obj_name(tr)
   map(fn(sn) {
     (Idef::Mk_idef(sn, Head::HData(on), Nat::O, List::Nil, inst_name(sn, on)), Fdef::Mk_fdef(inst_name(sn, on), Nat::O, List::Nil, Ty::TData(sn, List::Cons(Ty::TData(on, List::Nil), List::Nil)), Ty::TBase(Base_ty::BNever), Expr::ELit(Lit::LUnit)))
-  }, closure(trs, tr))
+  }, closure(trs0, tr))
 }
 
-pub fn obj_inst_body(insts : List[Idef], trs : List[Trinfo], tr : Ident, sn : Ident) -> Result0[Expr, Elab_error] {
+pub fn obj_inst_body(insts : List[Idef], trs0 : List[Trinfo], tr : Ident, sn : Ident) -> Result0[Expr, Elab_error] {
   let on = obj_name(tr)
   let _UU03c4_o = Ty::TData(on, List::Nil)
-  let fs = obj_fields(trs, tr)
-  bind(of_opt(find_trait(trs, sn), Elab_error::EE_UnknownType(Pos::Mk_pos(N::N0, N::N0), sn)), fn(ti) {
+  let fs = obj_fields(trs0, tr)
+  bind(of_opt(find_trait(trs0, sn), Elab_error::EE_UnknownType(Pos::Mk_pos(N::N0, N::N0), sn)), fn(ti) {
     bind(mapM(fn(s_) {
       match entails_dec(insts, List::Nil, s_, _UU03c4_o) {
         Sumor::Inleft(s) => Result0::Ok(s)
@@ -7000,12 +9806,12 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
   }))
   bind(mapM(fn(x1) { elab_trait(tys, x1) }, match sp {
     Sprog::Mk_sprog(_, sp_traits, _, _, _) => sp_traits
-  }), fn(trs) {
-    let objs = filter(fn(x1) { obj_safe(trs, x1) }, trnames)
+  }), fn(trs0) {
+    let objs = filter(fn(x1) { obj_safe(trs0, x1) }, trnames)
     bind(mapM(fn(x1) { elab_tdef(tys, x1) }, match sp {
       Sprog::Mk_sprog(sp_types, _, _, _, _) => sp_types
     }), fn(tds) {
-      let types = app(List::Cons(option_tdef, List::Cons(ref_tdef, List::Cons(result_tdef, List::Cons(failure_tdef, List::Nil)))), app(tds, app(map(fn(x1) { dict_tdef(x1) }, trs), map(fn(x1) { obj_tdef(trs, x1) }, objs))))
+      let types = app(List::Cons(option_tdef, List::Cons(ref_tdef, List::Cons(result_tdef, List::Cons(failure_tdef, List::Nil)))), app(tds, app(map(fn(x1) { dict_tdef(x1) }, trs0), map(fn(x1) { obj_tdef(trs0, x1) }, objs))))
       bind(fold_left(fn(acc) {
         fn(i) {
           bind(acc, fn(gs) {
@@ -7034,7 +9840,7 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
       }, match sp {
         Sprog::Mk_sprog(_, _, sp_impls, _, _) => sp_impls
       }, Result0::Ok(List::Nil)), fn(groups) {
-        bind(mapM(fn(x1) { check_group(trs, x1) }, groups), fn(iis) {
+        bind(mapM(fn(x1) { check_group(trs0, x1) }, groups), fn(iis) {
           let defaults = flat_map(fn(i) {
             match (match i {
               Simpl::Mk_simpl(_, _, _, _, si_self, _) => si_self
@@ -7054,7 +9860,7 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
           })
           bind(mapM(fn(tm) {
             match tm {
-              (tr, im) => bind(of_opt(find_trait(trs, tr), Elab_error::EE_UnknownType(Pos::Mk_pos(N::N0, N::N0), tr)), fn(ti) {
+              (tr, im) => bind(of_opt(find_trait(trs0, tr), Elab_error::EE_UnknownType(Pos::Mk_pos(N::N0, N::N0), tr)), fn(ti) {
                 bind(of_opt(method_of(ti, match im {
                   Simethod::Mk_simethod(sim_name, _, _, _, _) => sim_name
                 }), Elab_error::EE_NoMethod(Pos::Mk_pos(N::N0, N::N0), match im {
@@ -7075,7 +9881,7 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
               })
             }
           }, defaults), fn(dsigs) {
-            let oinsts = flat_map(fn(x1) { obj_insts(trs, x1) }, objs)
+            let oinsts = flat_map(fn(x1) { obj_insts(trs0, x1) }, objs)
             let insts = app(map(fn(i) {
               match i {
                 Iinfo::Mk_iinfo(_, _, _, _, ii_idef) => ii_idef
@@ -7142,8 +9948,9 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
                 }, match sp {
                   Sprog::Mk_sprog(_, _, _, sp_funs, _) => sp_funs
                 })
-                let gx = Xenv::Mk_xenv(trs, insts, bounds, meths, objs, List::Nil)
-                bind(elab_funs(tys, hdr, sinfo, gx, match sp {
+                let gx = Xenv::Mk_xenv(trs0, insts, bounds, meths, objs, List::Nil)
+                let e = Senv::Mk_senv(tys, hdr, sinfo, List::Nil, gx)
+                bind(elab_funs(e, match sp {
                   Sprog::Mk_sprog(_, _, _, sp_funs, _) => sp_funs
                 }, sigs), fn(funs) {
                   bind(mapM(fn(ii) {
@@ -7187,9 +9994,9 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
                               let _UU0393_p = combine(map(fn(x0) { Some(fst(x0)) }, match im {
                                 Simethod::Mk_simethod(_, sim_params, _, _, _) => sim_params
                               }), ps)
-                              bind(elab_body(tys, hdr, sinfo, match g {
+                              bind(elab_body(e, match g {
                                 Igroup::Mk_igroup(_, _, _, ig_tparams, _, _) => ig_tparams
-                              }, gx, match ii {
+                              }, match ii {
                                 Iinfo::Mk_iinfo(_, _, _, ii_ctx, _) => ii_ctx
                               }, _UU0393_p, _UU03c3_(match s {
                                 Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
@@ -7226,7 +10033,7 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
                       let g = match ii {
                         Iinfo::Mk_iinfo(ii_group, _, _, _, _) => ii_group
                       }
-                      bind(inst_body(insts, trs, List::Nil, ii), fn(b) {
+                      bind(inst_body(insts, trs0, List::Nil, ii), fn(b) {
                         Result0::Ok(Fdef::Mk_fdef(inst_name(match g {
                           Igroup::Mk_igroup(_, ig_trait, _, _, _, _) => ig_trait
                         }, match ii {
@@ -7244,7 +10051,7 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
                     }, iis), fn(ifs) {
                       bind(mapM(fn(tm) {
                         match tm {
-                          (tr, im) => bind(of_opt(find_trait(trs, tr), Elab_error::EE_UnknownType(Pos::Mk_pos(N::N0, N::N0), tr)), fn(ti) {
+                          (tr, im) => bind(of_opt(find_trait(trs0, tr), Elab_error::EE_UnknownType(Pos::Mk_pos(N::N0, N::N0), tr)), fn(ti) {
                             bind(of_opt(method_of(ti, match im {
                               Simethod::Mk_simethod(sim_name, _, _, _, _) => sim_name
                             }), Elab_error::EE_NoMethod(Pos::Mk_pos(N::N0, N::N0), match im {
@@ -7257,7 +10064,7 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
                                   }), match s {
                                     Msig::Mk_msig(_, ms_params, _, _) => ms_params
                                   })
-                                  bind(elab_body(tys, hdr, sinfo, List::Cons(String0::String1(Ascii::Ascii0(true, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))), List::Nil), gx, List::Cons((tr, Nat::O), List::Nil), _UU0393_p, match s {
+                                  bind(elab_body(e, List::Cons(String0::String1(Ascii::Ascii0(true, true, false, false, true, false, true, false), String0::String1(Ascii::Ascii0(true, false, true, false, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, true, true, false, false, true, true, false), String0::EmptyString)))), List::Nil), List::Cons((tr, Nat::O), List::Nil), _UU0393_p, match s {
                                     Msig::Mk_msig(_, _, ms_ret, _) => ms_ret
                                   }, match s {
                                     Msig::Mk_msig(_, _, _, ms_eff) => ms_eff
@@ -7282,15 +10089,15 @@ pub fn elab_prog(sp : Sprog) -> Result0[(Genv, Expr), Elab_error] {
                       }, defaults), fn(dfs) {
                         bind(mapM(fn(tr) {
                           mapM(fn(sn) {
-                            bind(obj_inst_body(insts, trs, tr, sn), fn(b) {
+                            bind(obj_inst_body(insts, trs0, tr, sn), fn(b) {
                               Result0::Ok(Fdef::Mk_fdef(inst_name(sn, obj_name(tr)), Nat::O, List::Nil, Ty::TData(sn, List::Cons(Ty::TData(obj_name(tr), List::Nil), List::Nil)), Ty::TBase(Base_ty::BNever), b))
                             })
-                          }, closure(trs, tr))
+                          }, closure(trs0, tr))
                         }, objs), fn(ofs) {
                           bind(match (match sp {
                             Sprog::Mk_sprog(_, _, _, _, sp_main) => sp_main
                           }) {
-                            Some(e) => elab_body(tys, hdr, sinfo, List::Nil, gx, List::Nil, List::Nil, Ty::TBase(Base_ty::BUnit), Ty::TBase(Base_ty::BNever), Sexpr::SAnnot(sexpr_pos(e), e, Sty::SName(sexpr_pos(e), String0::String1(Ascii::Ascii0(true, false, true, false, true, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))), List::Nil)))
+                            Some(e0) => elab_body(e, List::Nil, List::Nil, List::Nil, Ty::TBase(Base_ty::BUnit), Ty::TBase(Base_ty::BNever), Sexpr::SAnnot(sexpr_pos(e0), e0, Sty::SName(sexpr_pos(e0), String0::String1(Ascii::Ascii0(true, false, true, false, true, false, true, false), String0::String1(Ascii::Ascii0(false, true, true, true, false, true, true, false), String0::String1(Ascii::Ascii0(true, false, false, true, false, true, true, false), String0::String1(Ascii::Ascii0(false, false, true, false, true, true, true, false), String0::EmptyString)))), List::Nil)))
                             None => Result0::Ok(Expr::ELit(Lit::LUnit))
                           }, fn(main0) {
                             Result0::Ok((Genv::Mk_genv(types, app(funs, app(concat(imfs), app(ifs, app(dfs, concat(ofs)))))), main0))

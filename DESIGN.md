@@ -178,9 +178,8 @@ ref/moonbit-docs   语言文档（不入库）
   就有 `program_ok ge main τ`，从而 progress/preservation 成立。这个定理不依赖 parser、
   胶水和 elaborator 的任何性质。它目前**还不能**说明 Core 程序忠实于源程序，那是 M6
   （elaboration 规范 + 证明）的任务。
-- **临时 elaborator**（`Surface/Elab.v`）：名字解析、运算符按左操作数类型选原语、期望类型传播、
-  泛型调用的类型实参用一阶**匹配**求出；参数类型未知的 lambda 实参推迟到其他实参之后再处理。
-  需要子项类型时调用 Core 的 `infer`（在只含签名的“头部环境”里），所以类型的定义只有一份。
+- **elaborator**：M1.5 时是无规范的临时实现 `Surface/Elab.v`；M6a 起换成有规范的 certified elaborator
+  （`ElabSpec.v`/`Elaborate.v`/`ElabProg.v`，见第 12 节），旧文件已删除。
 - **版本**：MoonBit 工具链 moonc v0.10.20（2026-11），parser 用 `moonbitlang/parser@0.4.7`。
   parser 升级后要重跑 `extract.sh`（重新生成 `Parser.v`）和 `test_frontend.sh`；
   胶水按构造子匹配 `@syntax` AST，AST 变了要相应修改 `lower.mbt`。
@@ -351,4 +350,11 @@ M6 用有规范、有证明的 elaborator 取代 `Surface/Elab.v`，分四个阶
   （`Tr::m`、类型参数 `X::m`、点调用）从字典取出，`Self` 在 `Tr::m` 中由规范存在量化，算法取第一个实参或期望
   类型；trait object 由隐式转换 `Co_Obj` 构造（转换因此带上 Γ），其方法调用取对象的字段。方法和对象的
   Core 类型都取自头部中的数据类型定义（`field_proj`），不依赖 trait 信息与头部一致。
-- 待做：顶层定义与程序（函数体、impl、实例函数、对象实例），然后替换旧 Elab。
+- 顶层 ✅（`ElabProg.v`）：函数、方法、impl 方法与默认方法的体由规范 `fun_body` 给出（字典参数在前，超 trait
+  字典用 `let` 绑定，体按返回类型检查），定理 `body_typed` 说明它是良类型的 Core 函数体（`fdef_ok` 的内容）；
+  `body_dec` 是 certified 的实现。数据类型、签名、impl 分组、实例字典函数、对象实例等生成代码没有源程序，
+  只由 Core 复检保证（`check_program`）。
+- 新 elaborator 已接入 Driver，旧的 `Surface/Elab.v` 已删除；`test_frontend.sh` 的 49 个差分例子全部通过。
+- 抽取：elaborator 的返回类型 `out L Γ s m` 的形状不随模式 `m` 变化（`{τ & {e | outP m τ e}}`，只有命题部分
+  分情况），否则 rocq2mbt 要用 `rocq_magic`，而 native 后端不支持它。计算部分不要出现按值计算出的类型。
+- M6a 完成。

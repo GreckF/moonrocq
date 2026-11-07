@@ -374,38 +374,8 @@ Record cenv : Type := mk_cenv {
 Definition push_lab (l : lab) (L : cenv) : cenv := mk_cenv (l :: ce_labs L) (ce_exn L).
 Definition set_exn (ε : ty) (L : cenv) : cenv := mk_cenv (ce_labs L) ε.
 
-(** An error value of type [τ] where [Error] is expected is promoted. *)
-Definition up_err (τ : ty) (e : expr) : expr :=
-  match τ with
-  | TData E [] => EUp E e
-  | _ => e
-  end.
-
-Definition coerce (exp : option ty) (τ : ty) (e : expr) : expr :=
-  match exp with
-  | Some TError => up_err τ e
-  | _ => e
-  end.
-
-(** [raise v] where [v : τ]. *)
-Definition raise_val (L : cenv) (τ : ty) (v : expr) (τr : ty) : expr :=
-  match ce_exn L with
-  | TError => ERaise (up_err τ v) τr
-  | _ => ERaise v τr
-  end.
-
-(** A call that raises [ε] where [Error] may escape: catch and promote. *)
-Definition promote (L : cenv) (ε r : ty) (call : expr) : expr :=
-  match ε, ce_exn L with
-  | TData E [], TError => ETry call ε (ERaise (EUp E (EVar 0)) r) (EVar 0)
-  | _, _ => call
-  end.
-
 (** What the patterns of a [catch] say about the error type of its body. *)
 Inductive catch_info : Type := CINone | CIOne (T : ident) | CIMany.
-
-(** The type given to a jump expression (it does not return). *)
-Definition jty (exp : option ty) : ty := match exp with Some t => t | None => TUnit end.
 
 (** A block-like Core loop without arguments. *)
 Definition eblock (τ : ty) (b : expr) : expr := ELoop (ETuple []) [] τ b.
