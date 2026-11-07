@@ -339,5 +339,7 @@ M6 用有规范、有证明的 elaborator 取代 `Surface/Elab.v`，分四个阶
   `Array::make`/`Array::new`、`while`/`for`（含 `nobreak`）、带标签的块、`break`/`continue`/`return`。
   跳转的目标由名字解析函数找到，规则中再写明目标标签的 Core 类型；带 `nobreak` 的循环在综合模式下，
   类型取 `nobreak` 在 `Unit` 标签下综合出的类型（与旧算法相同，规范保持确定）。
-- 待做：`for .. in`（整数范围与数组）、
+- `for .. in` ✅（整数范围与数组）：源绑定到两个隐藏变量，循环变量是迭代变量加状态变量；生成的 Core 项由
+  `forin_loop` 给出，下标运算集中在 `forin_typed` 一条引理里。M6d 换成一般的 `Iter` 时重写。
+- 待做：
   M4（`raise`/`try`/`defer`）、M5（trait、方法、对象）、顶层定义与程序，然后替换旧 Elab。

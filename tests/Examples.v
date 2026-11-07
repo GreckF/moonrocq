@@ -456,3 +456,23 @@ Example ex_elab_reject3 :
    ty2 (SFor P0 None [("i", int_s 0)] None [] (SContinue P0 None [int_s 1; int_s 2]) None)) =
   (None, None, None, None).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- for .. in in the certified elaborator ---- *)
+Definition range_s (op : ident) (a b : sexpr) : sexpr := SInfix P0 op a b.
+
+Example ex_elab_forin :
+  (* for i in 0..<3; s = 0; s = s + i { } nobreak { s } *)
+  (ty2 (SForIn P0 None [pv "i"] (range_s "..<" (int_s 0) (int_s 3)) [("s", int_s 0)]
+          [("s", add_s (var_s "s") (var_s "i"))] (SLit P0 SLUnit) (Some (var_s "s"))),
+   (* for i, x in [1, 2] { ignore(x + i) } *)
+   ty2 (SForIn P0 None [pv "i"; pv "x"] (SArray P0 [int_s 1; int_s 2]) [] []
+          (SApp P0 (var_s "ignore") [add_s (var_s "x") (var_s "i")]) None),
+   (* for i in 3>=..0 { continue } *)
+   ty2 (SForIn P0 None [pv "i"] (range_s ">=.." (int_s 3) (int_s 0)) [] [] (SContinue P0 None []) None),
+   (* for x in [1]; s = 0; s = s { continue s + x } nobreak { s } *)
+   ty2 (SForIn P0 None [pv "x"] (SArray P0 [int_s 1]) [("s", int_s 0)] [("s", var_s "s")]
+          (SContinue P0 None [add_s (var_s "s") (var_s "x")]) (Some (var_s "s"))),
+   (* rejected: two patterns on a range *)
+   ty2 (SForIn P0 None [pv "i"; pv "x"] (range_s "..<" (int_s 0) (int_s 3)) [] [] (SLit P0 SLUnit) None)) =
+  (Some (TInt I32), Some TUnit, Some TUnit, Some (TInt I32), None).
+Proof. vm_compute. reflexivity. Qed.

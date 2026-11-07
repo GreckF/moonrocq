@@ -31,8 +31,8 @@
     builtins [not], [ignore], [panic] and [abort], and from milestone M2
     constructors, records, patterns, [match], field access and the
     projections of tuple structs; from milestone M3 [let mut], assignment,
-    arrays, [Ref::new], [Array::make], [while], [for], labelled blocks and
-    [break]/[continue]/[return]. *)
+    arrays, [Ref::new], [Array::make], [while], [for], [for .. in] over
+    integer ranges and arrays, labelled blocks and [break]/[continue]/[return]. *)
 
 From Stdlib Require Import List ZArith String Bool.
 From MoonRocq.Prelude Require Import Result EqDec Ident.
@@ -342,22 +342,123 @@ Definition hd_env (ps : list ty) (τ : ty) (L : cenv) : cenv := push_lab (mk_lab
 Definition while_loop (τ : ty) (c b nb : expr) : expr :=
   ELoop (ETuple []) [] τ (EIf c (ELet b (EJump CCont 0 (ETuple []) τ)) nb).
 
-(** The next values of the variables of a [for] loop, under the binder of
-    the body's result: the update written for variable [i], else the
-    variable itself. *)
-Definition for_next (names : list ident) (us : list (ident * expr)) : list expr :=
+(** The next values of loop variables: the update written for variable
+    [i], else the variable itself, which is [EVar (off + i)]. *)
+Definition upd_next (off : nat) (names : list ident) (us : list (ident * expr)) : list expr :=
   map (fun i => match find (fun yu => match index_of (fst yu) names with
                                       | Some j => Nat.eqb j i
                                       | None => false
                                       end) us with
                 | Some (_, u) => u
-                | None => EVar (S i)
+                | None => EVar (off + i)
                 end) (seq 0 (List.length names)).
+
+(** The next values of the variables of a [for] loop, under the binder of
+    the body's result. *)
+Definition for_next (names : list ident) (us : list (ident * expr)) : list expr :=
+  upd_next 1 names us.
 
 Definition for_loop (es : list expr) (τs : list ty) (τ : ty) (c : option expr) (b : expr)
     (names : list ident) (us : list (ident * expr)) (nb : expr) : expr :=
   let step := ELet (eblock TUnit b) (EJump CCont 0 (ETuple (for_next names us)) τ) in
   ELoop (ETuple es) τs τ (match c with Some c0 => EIf c0 step nb | None => step end).
+
+(** *** [for .. in]
+
+    A source (integer range or array) is bound to two hidden variables
+    before the loop: a range to its start and bound, an array to itself
+    and its length.  The loop variables are the iteration variables
+    ([fi_ivs]: the position, and for an inclusive range a [done] flag),
+    then the state variables.  Inside, the body is a block within the
+    block that computes the next state, as for [for]. *)
+
+Definition range_of (s : sexpr) : option range_kind :=
+  match s with SInfix _ op _ _ => range_op op | _ => None end.
+
+Definition fi_t1 (it : iter_src) : ty :=
+  match it with IRange _ kk => TInt kk | IArray k t => TArray k t end.
+Definition fi_t2 (it : iter_src) : ty :=
+  match it with IRange _ kk => TInt kk | IArray _ _ => TIndex end.
+
+Definition fi_ivs (it : iter_src) : list ty :=
+  match it with
+  | IRange RUpIncl kk | IRange RDownIncl kk => [TInt kk; TBool]
+  | IRange _ kk => [TInt kk]
+  | IArray _ _ => [TIndex]
+  end.
+
+(** Initial iteration variables, under the two hidden variables. *)
+Definition fi_init (it : iter_src) : list expr :=
+  match it with
+  | IRange RUpIncl _ | IRange RDownIncl _ => [EVar 1; e_false]
+  | IRange _ _ => [EVar 1]
+  | IArray _ _ => [ELit (LInt I32 0)]
+  end.
+
+(** Inside the loop the position is [EVar 0], the [done] flag [EVar 1],
+    the bound (or length) [EVar n] and the array [EVar (S n)], where [n]
+    is the number of loop variables. *)
+Definition fi_n (it : iter_src) (τs : list ty) : nat := List.length (fi_ivs it) + List.length τs.
+
+Definition fi_cond (it : iter_src) (n : nat) : expr :=
+  let v := EVar 0 in
+  let bound := EVar n in
+  match it with
+  | IRange RUpExcl kk => icmp CLt kk v bound
+  | IRange RUpIncl kk => EIf (EVar 1) e_false (icmp CLe kk v bound)
+  | IRange RDownExcl kk => icmp CGt kk v bound
+  | IRange RDownIncl kk => EIf (EVar 1) e_false (icmp CGe kk v bound)
+  | IArray _ _ => icmp CLt I32 v bound
+  end.
+
+Definition fi_elem (it : iter_src) (n : nat) : expr :=
+  match it with
+  | IRange RDownExcl kk => iarith ASub kk (EVar 0) (int1 kk)
+  | IRange _ _ => EVar 0
+  | IArray k t => EMem (MIndex k t) [EVar (S n); EVar 0]
+  end.
+
+Definition fi_elem_ty (it : iter_src) : ty :=
+  match it with IRange _ kk => TInt kk | IArray _ t => t end.
+
+(** The next iteration variables, after the state block's binder and the
+    pattern's [d] bindings; inclusive ranges stop at the bound without
+    stepping past it. *)
+Definition fi_next (it : iter_src) (d n : nat) : list expr :=
+  let vv := EVar (1 + d) in
+  let bb := EVar (1 + d + n) in
+  match it with
+  | IRange RUpExcl kk => [iarith AAdd kk vv (int1 kk)]
+  | IRange RDownExcl kk => [iarith ASub kk vv (int1 kk)]
+  | IRange RUpIncl kk => [EIf (icmp CEq kk vv bb) vv (iarith AAdd kk vv (int1 kk)); icmp CEq kk vv bb]
+  | IRange RDownIncl kk => [EIf (icmp CEq kk vv bb) vv (iarith ASub kk vv (int1 kk)); icmp CEq kk vv bb]
+  | IArray _ _ => [iarith AAdd I32 vv (int1 I32)]
+  end.
+
+(** The contexts: outside the loop (two hidden variables), and inside. *)
+Definition fo_ctx (it : iter_src) (Γ : lctx) : lctx := (None, fi_t2 it) :: (None, fi_t1 it) :: Γ.
+Definition fl_ctx (it : iter_src) (names : list ident) (τs : list ty) (Γ : lctx) : lctx :=
+  List.app (map (fun t => (None, t)) (fi_ivs it)) (List.app (names_ctx names τs) (fo_ctx it Γ)).
+
+(** The control environments: the loop, the state block, the body. *)
+Definition fi_loop_env (it : iter_src) (τs : list ty) (τ : ty) (L : cenv) : cenv :=
+  hd_env (List.app (fi_ivs it) τs) τ L.
+Definition fi_state_env (it : iter_src) (τs : list ty) (τ : ty) (L : cenv) : cenv :=
+  push_lab (mk_lab None LKHead [] (TTuple τs)) (fi_loop_env it τs τ L).
+Definition fi_body_env (x : option ident) (it : iter_src) (τs : list ty) (τ : ty) (L : cenv) : cenv :=
+  push_lab (mk_lab x LKForInBody [] TUnit) (fi_state_env it τs τ L).
+
+Definition forin_loop (it : iter_src) (e1 e2 : expr) (es : list expr) (τs : list ty) (τ : ty)
+    (q : pat) (scrut : expr) (d : nat) (b : expr) (names : list ident) (us : list (ident * expr))
+    (nb : expr) : expr :=
+  let n := fi_n it τs in
+  let state := upd_next (1 + d + List.length (fi_ivs it)) names us in
+  let blk := eblock (TTuple τs) (ELet (eblock TUnit b) (ETuple state)) in
+  let next := List.app (fi_next it d n) (map (fun j => EProj (EVar 0) j) (seq 0 (List.length names))) in
+  let step := ELet blk (EJump CCont 0 (ETuple next) τ) in
+  ELet e1 (ELet e2
+    (ELoop (ETuple (List.app (fi_init it) es)) (List.app (fi_ivs it) τs) τ
+           (EIf (fi_cond it n) (EMatch scrut τ [(q, step)]) nb))).
 
 Definition is_jump (s : sexpr) : bool :=
   match s with SBreak _ _ _ | SContinue _ _ _ | SReturn _ _ => true | _ => false end.
@@ -465,6 +566,18 @@ Scheme spat_ok_mut := Minimality for spat_ok Sort Prop
   with named_ok_mut := Minimality for named_ok Sort Prop.
 Combined Scheme spat_mutind from spat_ok_mut, fpat_ok_mut, fpats_ok_mut, named_ok_mut.
 
+(** The patterns of [for p in src] (the element) or [for i, x in array]
+    (index and element): Core pattern, bindings, scrutinee and its type. *)
+Inductive fi_pat (E : senv) (it : iter_src) : list spat -> expr -> pat -> lctx -> expr -> ty -> Prop :=
+| FIP_One sp elem q Δ :
+    ⊩ᵖ[E] sp : fi_elem_ty it ⇝ q ⊣ Δ ->
+    fi_pat E it [sp] elem q Δ elem (fi_elem_ty it)
+| FIP_Two k t sp1 sp2 elem q1 q2 Δ1 Δ2 :
+    it = IArray k t ->
+    ⊩ᵖ[E] sp1 : TIndex ⇝ q1 ⊣ Δ1 ->
+    ⊩ᵖ[E] sp2 : t ⇝ q2 ⊣ Δ2 ->
+    fi_pat E it [sp1; sp2] elem (PTuple [q1; q2]) (List.app Δ1 Δ2) (ETuple [EVar 0; elem]) (TTuple [TIndex; t]).
+
 (** ** Expressions *)
 
 Reserved Notation "Γ ⊩[ E ; L ] s ⇒ τ ⇝ e"
@@ -495,6 +608,10 @@ Reserved Notation "Γ ⊩ᵘ[ E ; L ] upds : names ; τs ⇝ us"
   (at level 70, E at level 200, L at level 200, upds at level 60, names at level 60,
    τs at level 60, us at level 60, no associativity,
    format "Γ  ⊩ᵘ[ E ; L ]  upds  :  names ;  τs  ⇝  us").
+Reserved Notation "Γ ⊩ˢ[ E ; L ] src ⇝ e1 ; e2 ; it"
+  (at level 70, E at level 200, L at level 200, src at level 60, e1 at level 60,
+   e2 at level 60, it at level 60, no associativity,
+   format "Γ  ⊩ˢ[ E ; L ]  src  ⇝  e1 ;  e2 ;  it").
 Reserved Notation "Γ ⊩ᵒ[ E ; L ] os ⇐ τ ⇝ oe"
   (at level 70, E at level 200, L at level 200, os at level 60, τ at level 60,
    oe at level 60, no associativity, format "Γ  ⊩ᵒ[ E ; L ]  os  ⇐  τ  ⇝  oe").
@@ -779,6 +896,26 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     List.app (names_ctx (map fst inits) τs) Γ ⊩[E;hd_env τs τ L] nb ⇐ τ ⇝ nb' ->
     Γ ⊩[E;L] SFor p x inits c upds body (Some nb) ⇒ τ
       ⇝ for_loop es τs τ c' b' (map fst inits) us nb'
+| S_ForIn L Γ p x pats src inits upds body e1 e2 it τs es q Δ scrut sty b' us :
+    Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it ->
+    fo_ctx it Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+    fi_pat E it pats (fi_elem it (fi_n it τs)) q Δ scrut sty ->
+    List.app Δ (fl_ctx it (map fst inits) τs Γ) ⊩[E;fi_body_env x it τs TUnit L] body ⇐ TUnit ⇝ b' ->
+    (None, TUnit) :: List.app Δ (fl_ctx it (map fst inits) τs Γ)
+      ⊩ᵘ[E;fi_state_env it τs TUnit L] upds : map fst inits ; τs ⇝ us ->
+    Γ ⊩[E;L] SForIn p x pats src inits upds body None ⇒ TUnit
+      ⇝ forin_loop it e1 e2 es τs TUnit q scrut (List.length Δ) b' (map fst inits) us (ELit LUnit)
+| S_ForInNb L Γ p x pats src inits upds body nb e1 e2 it τs es τ nb0 q Δ scrut sty b' us nb' :
+    Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it ->
+    fo_ctx it Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+    fl_ctx it (map fst inits) τs Γ ⊩[E;fi_loop_env it τs TUnit L] nb ⇒ τ ⇝ nb0 ->
+    fi_pat E it pats (fi_elem it (fi_n it τs)) q Δ scrut sty ->
+    List.app Δ (fl_ctx it (map fst inits) τs Γ) ⊩[E;fi_body_env x it τs τ L] body ⇐ TUnit ⇝ b' ->
+    (None, TUnit) :: List.app Δ (fl_ctx it (map fst inits) τs Γ)
+      ⊩ᵘ[E;fi_state_env it τs τ L] upds : map fst inits ; τs ⇝ us ->
+    fl_ctx it (map fst inits) τs Γ ⊩[E;fi_loop_env it τs τ L] nb ⇐ τ ⇝ nb' ->
+    Γ ⊩[E;L] SForIn p x pats src inits upds body (Some nb) ⇒ τ
+      ⇝ forin_loop it e1 e2 es τs τ q scrut (List.length Δ) b' (map fst inits) us nb'
 | S_Block L Γ p x body b :
     Γ ⊩[E;push_lab (mk_lab (Some x) LKBlock [] TUnit) L] body ⇐ TUnit ⇝ b ->
     Γ ⊩[E;L] SBlock p x body ⇒ TUnit ⇝ eblock TUnit b
@@ -919,6 +1056,16 @@ with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
       ⊩ᵘ[E;hd_env τs τ L] upds : map fst inits ; τs ⇝ us ->
     Γ ⊩[E;L] SFor p x inits None upds body None ⇐ τ
       ⇝ for_loop es τs τ None b' (map fst inits) us (ELit LUnit)
+| C_ForInNb L Γ p x pats src inits upds body nb e1 e2 it τs es τ q Δ scrut sty b' us nb' :
+    Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it ->
+    fo_ctx it Γ ⊩ⁱ[E;L] inits ⇒ τs ⇝ es ->
+    fi_pat E it pats (fi_elem it (fi_n it τs)) q Δ scrut sty ->
+    List.app Δ (fl_ctx it (map fst inits) τs Γ) ⊩[E;fi_body_env x it τs τ L] body ⇐ TUnit ⇝ b' ->
+    (None, TUnit) :: List.app Δ (fl_ctx it (map fst inits) τs Γ)
+      ⊩ᵘ[E;fi_state_env it τs τ L] upds : map fst inits ; τs ⇝ us ->
+    fl_ctx it (map fst inits) τs Γ ⊩[E;fi_loop_env it τs τ L] nb ⇐ τ ⇝ nb' ->
+    Γ ⊩[E;L] SForIn p x pats src inits upds body (Some nb) ⇐ τ
+      ⇝ forin_loop it e1 e2 es τs τ q scrut (List.length Δ) b' (map fst inits) us nb'
 | C_Block L Γ p x body τ b :
     Γ ⊩[E;push_lab (mk_lab (Some x) LKBlock [] τ) L] body ⇐ τ ⇝ b ->
     Γ ⊩[E;L] SBlock p x body ⇐ τ ⇝ eblock τ b
@@ -1031,6 +1178,20 @@ with supds (E : senv) : cenv -> lctx -> list (ident * sexpr) -> list ident -> li
     Γ ⊩ᵘ[E;L] upds : names ; τs ⇝ us ->
     Γ ⊩ᵘ[E;L] (y, s) :: upds : names ; τs ⇝ (y, u) :: us
 
+(** the source of a [for .. in] loop *)
+with fsrc (E : senv) : cenv -> lctx -> sexpr -> expr -> expr -> iter_src -> Prop :=
+(** a range: its start fixes the integer type *)
+| Fs_Range L Γ q op lo hi rk kk lo' hi' :
+    range_op op = Some rk ->
+    Γ ⊩[E;L] lo ⇒ TInt kk ⇝ lo' ->
+    (None, TInt kk) :: Γ ⊩[E;L] hi ⇐ TInt kk ⇝ hi' ->
+    Γ ⊩ˢ[E;L] SInfix q op lo hi ⇝ lo' ; hi' ; IRange rk kk
+(** an array, and its length *)
+| Fs_Array L Γ src k t a :
+    range_of src = None ->
+    Γ ⊩[E;L] src ⇒ TArray k t ⇝ a ->
+    Γ ⊩ˢ[E;L] src ⇝ a ; EMem (MLength k t) [EVar 0] ; IArray k t
+
 (** an optional expression *)
 with ochk (E : senv) : cenv -> lctx -> option sexpr -> ty -> option expr -> Prop :=
 | Oc_None L Γ τ :
@@ -1062,6 +1223,7 @@ where "Γ ⊩[ E ; L ] s ⇒ τ ⇝ e" := (syn E L Γ s τ e)
   and "Γ ⊩ʳ[ E ; L ] fes : names ; fs ⇝ es ; ixs" := (rfields E L Γ fes names fs es ixs)
   and "Γ ⊩ⁱ[ E ; L ] inits ⇒ τs ⇝ es" := (sinits E L Γ inits τs es)
   and "Γ ⊩ᵘ[ E ; L ] upds : names ; τs ⇝ us" := (supds E L Γ upds names τs us)
+  and "Γ ⊩ˢ[ E ; L ] src ⇝ e1 ; e2 ; it" := (fsrc E L Γ src e1 e2 it)
   and "Γ ⊩ᵒ[ E ; L ] os ⇐ τ ⇝ oe" := (ochk E L Γ os τ oe)
   and "Γ ⊩*[ E ; L ] ss ⇒ τs ⇝ es" := (syns E L Γ ss τs es)
   and "Γ ⊩*[ E ; L ] ss ⇐ τs ⇝ es" := (chks E L Γ ss τs es).
@@ -1073,8 +1235,9 @@ Scheme syn_mut := Minimality for syn Sort Prop
   with rfields_mut := Minimality for rfields Sort Prop
   with sinits_mut := Minimality for sinits Sort Prop
   with supds_mut := Minimality for supds Sort Prop
+  with fsrc_mut := Minimality for fsrc Sort Prop
   with ochk_mut := Minimality for ochk Sort Prop
   with syns_mut := Minimality for syns Sort Prop
   with chks_mut := Minimality for chks Sort Prop.
 Combined Scheme elab_mutind from syn_mut, chk_mut, sbind_mut, arms_mut, rfields_mut,
-  sinits_mut, supds_mut, ochk_mut, syns_mut, chks_mut.
+  sinits_mut, supds_mut, fsrc_mut, ochk_mut, syns_mut, chks_mut.

@@ -333,21 +333,32 @@ Section Typed.
     - apply IH; intros i τ' Hi. replace (S k + i) with (k + S i) by lia; apply (H (S i)); exact Hi.
   Qed.
 
-  Lemma for_next_typed Λ G names τs us :
+  Lemma upd_next_typed Λ G off names τs us :
     List.length names = List.length τs ->
+    (forall i τ, nth_error τs i = Some τ -> nth_error G (off + i) = Some τ) ->
     Forall (fun yu => exists j τ, index_of (fst yu) names = Some j /\ nth_error τs j = Some τ /\
-                                  TUnit :: List.app τs G ⊢[ge;[];Λ] snd yu : τ) us ->
-    TUnit :: List.app τs G ⊢*[ge;[];Λ] for_next names us : τs.
+                                  G ⊢[ge;[];Λ] snd yu : τ) us ->
+    G ⊢*[ge;[];Λ] upd_next off names us : τs.
   Proof.
-    intros Hl Hus; unfold for_next; rewrite Hl.
+    intros Hl Hoff Hus; unfold upd_next; rewrite Hl.
     apply has_types_seq; intros i τ Hi; simpl.
     destruct (find _ us) as [[y u]|] eqn:Hf.
     - apply find_some in Hf as [Hin Hj].
       rewrite Forall_forall in Hus; destruct (Hus _ Hin) as (j & τ' & Hy & Hτ' & Hu); simpl in *.
       rewrite Hy in Hj; apply Nat.eqb_eq in Hj; subst j.
       rewrite Hi in Hτ'; injection Hτ' as <-; exact Hu.
-    - constructor; simpl. rewrite nth_error_app1; auto.
-      apply nth_error_Some; congruence.
+    - constructor; apply Hoff; exact Hi.
+  Qed.
+
+  Lemma for_next_typed Λ G names τs us :
+    List.length names = List.length τs ->
+    Forall (fun yu => exists j τ, index_of (fst yu) names = Some j /\ nth_error τs j = Some τ /\
+                                  TUnit :: List.app τs G ⊢[ge;[];Λ] snd yu : τ) us ->
+    TUnit :: List.app τs G ⊢*[ge;[];Λ] for_next names us : τs.
+  Proof.
+    intros Hl Hus; apply upd_next_typed; auto.
+    intros i τ Hi; simpl. rewrite nth_error_app1; auto.
+    apply nth_error_Some; congruence.
   Qed.
 
   Lemma while_loop_typed Λ Γ τ c b nb :
@@ -434,6 +445,140 @@ Section Typed.
     pose proof (binop_typed _ _ _ _ _ _ _ _ Hb Hc Hv) as He; rewrite Hr in He; exact He.
   Qed.
 
+  (** *** [for .. in] *)
+
+  Lemma nth_skip (A R : list ty) i : nth_error (List.app A R) (List.length A + i) = nth_error R i.
+  Proof. rewrite nth_error_app2 by lia; f_equal; lia. Qed.
+
+  Lemma nth_at_len (A R : list ty) x : nth_error (List.app A (x :: R)) (List.length A) = Some x.
+  Proof. rewrite <- (Nat.add_0_r (List.length A)), nth_skip; reflexivity. Qed.
+
+  Lemma nth_at_len1 (A R : list ty) x y : nth_error (List.app A (x :: y :: R)) (S (List.length A)) = Some y.
+  Proof. rewrite <- Nat.add_1_r, nth_skip; reflexivity. Qed.
+
+  Definition fi_inner (it : iter_src) (τs : list ty) (G : ctx) : ctx :=
+    List.app (fi_ivs it) (List.app τs (fi_t2 it :: fi_t1 it :: G)).
+
+  Lemma fl_ctx_ctx it names τs Γ :
+    List.length names = List.length τs ->
+    ctx_of (fl_ctx it names τs Γ) = fi_inner it τs (ctx_of Γ).
+  Proof.
+    intros Hl; unfold fl_ctx, fi_inner; rewrite ctx_of_app, names_ctx_ctx by exact Hl.
+    f_equal. unfold ctx_of; rewrite map_map; simpl; apply map_id.
+  Qed.
+
+  Lemma inner_bound it τs G : nth_error (fi_inner it τs G) (fi_n it τs) = Some (fi_t2 it).
+  Proof.
+    unfold fi_inner, fi_n. rewrite nth_skip. apply nth_at_len.
+  Qed.
+
+  Lemma inner_src it τs G : nth_error (fi_inner it τs G) (S (fi_n it τs)) = Some (fi_t1 it).
+  Proof.
+    unfold fi_inner, fi_n. rewrite <- Nat.add_succ_r, nth_skip. apply nth_at_len1.
+  Qed.
+
+  Ltac var_tac :=
+    match goal with
+    | |- _ ⊢[_;_;_] EVar ?n : _ => constructor; first [reflexivity | apply inner_bound | apply inner_src | eassumption]
+    end.
+
+  Ltac fi_tac := repeat (first [var_tac | prim | econstructor]; simpl).
+
+  Lemma fi_cond_typed Λ it τs G : fi_inner it τs G ⊢[ge;[];Λ] fi_cond it (fi_n it τs) : TBool.
+  Proof.
+    destruct it as [rk kk|k t]; [destruct rk|]; cbn [fi_cond].
+    all: try (apply (T_Prim _ _ _ _ (PIntCmp _ _) [_; _]); cbn [prim_sig fst snd];
+              constructor; [constructor; reflexivity|constructor; [constructor; apply inner_bound|constructor]]).
+    all: constructor; [constructor; reflexivity|constructor; reflexivity|].
+    all: apply (T_Prim _ _ _ _ (PIntCmp _ _) [_; _]); cbn [prim_sig fst snd];
+         constructor; [constructor; reflexivity|constructor; [constructor; apply inner_bound|constructor]].
+  Qed.
+
+  Lemma fi_elem_typed Λ it τs G : fi_inner it τs G ⊢[ge;[];Λ] fi_elem it (fi_n it τs) : fi_elem_ty it.
+  Proof.
+    destruct it as [rk kk|k t]; [destruct rk|]; cbn [fi_elem fi_elem_ty].
+    all: try (constructor; reflexivity).
+    - apply (T_Prim _ _ _ _ (PIntArith _ _) [_; _]); cbn [prim_sig fst snd].
+      constructor; [constructor; reflexivity|constructor; [constructor|constructor]].
+    - apply (T_Mem _ _ _ _ (MIndex _ _) [_; _]); cbn [mem_sig fst snd].
+      constructor; [constructor; apply inner_src|constructor; [constructor; reflexivity|constructor]].
+  Qed.
+
+  Lemma fi_init_typed Λ it G : fi_t2 it :: fi_t1 it :: G ⊢*[ge;[];Λ] fi_init it : fi_ivs it.
+  Proof.
+    destruct it as [rk kk|k t]; [destruct rk|]; cbn [fi_init fi_ivs].
+    all: repeat constructor.
+  Qed.
+
+  Lemma fi_next_typed Λ it τs G D X :
+    X :: List.app D (fi_inner it τs G) ⊢*[ge;[];Λ] fi_next it (List.length D) (fi_n it τs) : fi_ivs it.
+  Proof.
+    assert (Hv : forall τ, nth_error (fi_inner it τs G) 0 = Some τ ->
+                 X :: List.app D (fi_inner it τs G) ⊢[ge;[];Λ] EVar (1 + List.length D) : τ).
+    { intros τ H; constructor; simpl; rewrite <- (Nat.add_0_r (List.length D)), nth_skip; exact H. }
+    assert (Hb : X :: List.app D (fi_inner it τs G) ⊢[ge;[];Λ] EVar (1 + List.length D + fi_n it τs) : fi_t2 it).
+    { constructor; simpl; rewrite nth_skip; apply inner_bound. }
+    destruct it as [rk kk|k t]; [destruct rk|]; cbn [fi_next fi_ivs fi_t2] in *.
+    all: repeat (first [ apply Hv; reflexivity | exact Hb
+                       | apply (T_Prim _ _ _ _ (PIntCmp _ _) [_; _]); cbn [prim_sig fst snd]
+                       | apply (T_Prim _ _ _ _ (PIntArith _ _) [_; _]); cbn [prim_sig fst snd]
+                       | constructor ]).
+  Qed.
+
+  Lemma fi_pat_scrut Λ it pats q Δ scrut sty τs G :
+    fi_pat E it pats (fi_elem it (fi_n it τs)) q Δ scrut sty ->
+    fi_inner it τs G ⊢[ge;[];Λ] scrut : sty.
+  Proof.
+    intros H; inversion H; subst.
+    - apply fi_elem_typed.
+    - constructor. constructor; [constructor; reflexivity|].
+      constructor; [apply (fi_elem_typed Λ (IArray k t))|constructor].
+  Qed.
+
+  Lemma fi_pat_pat it pats elem q Δ scrut sty :
+    fi_pat E it pats elem q Δ scrut sty -> ⊢ᵖ[ge] q : sty ⇝ ctx_of Δ.
+  Proof.
+    destruct 1 as [sp elem q Δ Hp|k t sp1 sp2 elem q1 q2 Δ1 Δ2 Hit Hp1 Hp2].
+    - exact (proj1 pat_typed_el _ _ _ _ Hp).
+    - constructor. rewrite ctx_of_app, <- (app_nil_r (ctx_of Δ2)).
+      constructor; [exact (proj1 pat_typed_el _ _ _ _ Hp1)|].
+      constructor; [exact (proj1 pat_typed_el _ _ _ _ Hp2)|constructor].
+  Qed.
+
+  Lemma forin_typed Λ G it e1 e2 es τs τ q scrut sty D b names us nb :
+    G ⊢[ge;[];Λ] e1 : fi_t1 it ->
+    fi_t1 it :: G ⊢[ge;[];Λ] e2 : fi_t2 it ->
+    fi_t2 it :: fi_t1 it :: G ⊢*[ge;[];Λ] es : τs ->
+    fi_inner it τs G ⊢[ge;[];push_lbl (List.app (fi_ivs it) τs, τ) Λ] scrut : sty ->
+    ⊢ᵖ[ge] q : sty ⇝ D ->
+    List.app D (fi_inner it τs G)
+      ⊢[ge;[];push_lbl ([], TUnit) (push_lbl ([], TTuple τs) (push_lbl (List.app (fi_ivs it) τs, τ) Λ))] b : TUnit ->
+    Forall (fun yu => exists j τ', index_of (fst yu) names = Some j /\ nth_error τs j = Some τ' /\
+              TUnit :: List.app D (fi_inner it τs G)
+                ⊢[ge;[];push_lbl ([], TTuple τs) (push_lbl (List.app (fi_ivs it) τs, τ) Λ)] snd yu : τ') us ->
+    fi_inner it τs G ⊢[ge;[];push_lbl (List.app (fi_ivs it) τs, τ) Λ] nb : τ ->
+    List.length names = List.length τs ->
+    G ⊢[ge;[];Λ] forin_loop it e1 e2 es τs τ q scrut (List.length D) b names us nb : τ.
+  Proof.
+    intros H1 H2 Hes Hs Hq Hb Hus Hnb Hl; unfold forin_loop.
+    eapply T_Let; [exact H1|]; eapply T_Let; [exact H2|].
+    eapply T_Loop; [constructor; apply has_types_app; [apply fi_init_typed|exact Hes]|].
+    rewrite <- app_assoc; fold (fi_inner it τs G).
+    constructor; [apply fi_cond_typed| |exact Hnb].
+    eapply T_Match; [exact Hs|].
+    apply Bs_cons with (Δ := D); [exact Hq| |constructor].
+    eapply T_Let.
+    - apply eblock_typed'. eapply T_Let; [apply eblock_typed'; exact Hb|].
+      constructor. apply upd_next_typed; auto.
+      intros i τ' Hi. simpl. unfold fi_inner.
+      rewrite <- Nat.add_assoc, nth_skip, nth_skip.
+      rewrite nth_error_app1; [exact Hi|apply nth_error_Some; congruence].
+    - eapply T_Jump; [reflexivity|]; simpl.
+      constructor; apply has_types_app; [apply fi_next_typed|].
+      rewrite Hl. apply has_types_seq; intros i τ' Hi; simpl.
+      eapply T_Proj; [constructor; reflexivity|exact Hi].
+  Qed.
+
   Theorem elab_typed :
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇒ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇐ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
@@ -447,6 +592,8 @@ Section Typed.
     (forall L Γ upds names τs us, Γ ⊩ᵘ[E;L] upds : names ; τs ⇝ us ->
        Forall (fun yu => exists j τ, index_of (fst yu) names = Some j /\ nth_error τs j = Some τ /\
                                      ctx_of Γ ⊢[ge;[];cc_of L] snd yu : τ) us) /\
+    (forall L Γ src e1 e2 it, Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it ->
+       ctx_of Γ ⊢[ge;[];cc_of L] e1 : fi_t1 it /\ fi_t1 it :: ctx_of Γ ⊢[ge;[];cc_of L] e2 : fi_t2 it) /\
     (forall L Γ os τ oe, Γ ⊩ᵒ[E;L] os ⇐ τ ⇝ oe ->
        forall e, oe = Some e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ ss τs es, Γ ⊩*[E;L] ss ⇒ τs ⇝ es -> ctx_of Γ ⊢*[ge;[];cc_of L] es : τs) /\
@@ -463,6 +610,11 @@ Section Typed.
                 | Hl : List.length ?l = List.length ?τs,
                   H : context [ctx_of (List.app (names_ctx (map fst ?l) ?τs) ?Γ)] |- _ =>
                     rewrite names_ctx_ctx in H by (rewrite length_map; exact Hl)
+                | Hl : List.length ?l = List.length ?τs,
+                  H : context [ctx_of (fl_ctx ?it (map fst ?l) ?τs ?Γ)] |- _ =>
+                    rewrite fl_ctx_ctx in H by (rewrite length_map; exact Hl)
+                | H : context [map snd (fl_ctx ?it ?xs ?τs ?Γ)] |- _ =>
+                    change (map snd (fl_ctx it xs τs Γ)) with (ctx_of (fl_ctx it xs τs Γ)) in H
                 | H : context [map snd (List.app (names_ctx ?xs ?τs) ?Γ)] |- _ =>
                     change (map snd (List.app (names_ctx xs τs) Γ))
                       with (ctx_of (List.app (names_ctx xs τs) Γ)) in H
@@ -507,6 +659,18 @@ Section Typed.
                     eapply for_loop_typed; eauto; try (rewrite length_map; assumption);
                     simpl; try split; first [solve [eauto] | constructor]].
     all: try solve [constructor; apply eblock_typed'; assumption].
+    (* for .. in *)
+    all: try solve [split; [eassumption|];
+                    apply (T_Mem _ _ _ _ (MLength _ _) [_]); simpl; constructor; [constructor; reflexivity|constructor]].
+    all: try solve [split; eassumption].
+    all: try solve [match goal with Hs : _ /\ _ |- _ ⊢[_;_;_] forin_loop _ _ _ _ _ _ _ _ _ _ _ _ _ : _ =>
+                      destruct Hs end;
+                    match goal with Hp : fi_pat _ _ _ _ _ ?Δ _ _ |- _ =>
+                      replace (List.length Δ) with (List.length (ctx_of Δ)) by apply length_map;
+                      eapply forin_typed;
+                      [eassumption | eassumption | eassumption | eapply fi_pat_scrut; exact Hp
+                      | eapply fi_pat_pat; exact Hp | eassumption | eassumption
+                      | first [eassumption | constructor] | rewrite length_map; assumption] end].
     all: try solve [apply eblock_typed'; assumption].
     all: try solve [eapply T_Jump; [eassumption|]; simpl; tc].
     (* conversions and calls *)

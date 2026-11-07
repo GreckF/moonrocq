@@ -1075,6 +1075,68 @@ Section Elaborate.
   Lemma ty_data_eq (R : ident) ts : R = "Ref" -> TData "Ref" ts = TData R ts.
   Proof. intros ->; reflexivity. Qed.
 
+  (** *** [for .. in] *)
+
+  Lemma fsrc_cast L Γ s s' e1 e2 it :
+    s = s' -> Γ ⊩ˢ[E;L] s ⇝ e1 ; e2 ; it -> Γ ⊩ˢ[E;L] s' ⇝ e1 ; e2 ; it.
+  Proof. intros ->; auto. Qed.
+
+  Definition array_src (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (src : sexpr)
+      (Hr : range_of src = None) :
+      result {e1 : expr & {e2 : expr & {it : iter_src | Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it}}} elab_error :=
+    '(existT _ τ (exist _ a Ha)) <- rec src L Γ Syn ;;
+    match τ as t return Γ ⊩[E;L] src ⇒ t ⇝ a ->
+                        result {e1 : expr & {e2 : expr & {it : iter_src | Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it}}} elab_error with
+    | TArray k t => fun Ha =>
+        Ok (existT _ a (existT _ _ (exist _ (IArray k t) (Fs_Array E L Γ src k t a Hr Ha))))
+    | t => fun _ => Err (EE_NoMethod p "iter" t)
+    end Ha.
+
+  Definition fsrc_dec (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (src : sexpr) :
+      result {e1 : expr & {e2 : expr & {it : iter_src | Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it}}} elab_error :=
+    match src as s0 return s0 = src ->
+          result {e1 : expr & {e2 : expr & {it : iter_src | Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it}}} elab_error with
+    | SInfix q op lo hi => fun Heq =>
+        match range_op op as r return range_op op = r ->
+              result {e1 : expr & {e2 : expr & {it : iter_src | Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it}}} elab_error with
+        | Some rk => fun Hr =>
+            '(existT _ τ (exist _ lo' Hlo)) <- rec lo L Γ Syn ;;
+            match τ as t return Γ ⊩[E;L] lo ⇒ t ⇝ lo' ->
+                  result {e1 : expr & {e2 : expr & {it : iter_src | Γ ⊩ˢ[E;L] src ⇝ e1 ; e2 ; it}}} elab_error with
+            | TBase (BInt kk) => fun Hlo =>
+                '(exist _ hi' Hhi) <- rec hi L ((None, TInt kk) :: Γ) (Chk (TInt kk)) ;;
+                Ok (existT _ lo' (existT _ hi' (exist _ (IRange rk kk)
+                      (fsrc_cast L Γ _ _ _ _ _ Heq (Fs_Range E L Γ q op lo hi rk kk lo' hi' Hr Hlo Hhi)))))
+            | t => fun _ => Err (EE_NoOperator q op t)
+            end Hlo
+        | None => fun Hr =>
+            array_src rec p L Γ src (eq_ind (SInfix q op lo hi) (fun s1 => range_of s1 = None) Hr src Heq)
+        end eq_refl
+    | s0 => fun Heq => array_src rec p L Γ src (eq_ind s0 (fun s1 => range_of s1 = None) eq_refl src Heq)
+    end eq_refl.
+
+  Definition fi_pat_dec (p : pos) (it : iter_src) (τs : list ty) (pats : list spat) :
+      result {q : pat & {Δ : lctx & {scrut : expr & {sty : ty |
+                fi_pat E it pats (fi_elem it (fi_n it τs)) q Δ scrut sty}}}} elab_error :=
+    match pats as ps0 return result {q : pat & {Δ : lctx & {scrut : expr & {sty : ty |
+                fi_pat E it ps0 (fi_elem it (fi_n it τs)) q Δ scrut sty}}}} elab_error with
+    | [sp] =>
+        '(existT _ q (exist _ Δ H)) <- epat sp (fi_elem_ty it) ;;
+        Ok (existT _ q (existT _ Δ (existT _ _ (exist _ _ (FIP_One E it sp _ q Δ H)))))
+    | [sp1; sp2] =>
+        match it as i0 return it = i0 ->
+              result {q : pat & {Δ : lctx & {scrut : expr & {sty : ty |
+                fi_pat E it [sp1; sp2] (fi_elem it (fi_n it τs)) q Δ scrut sty}}}} elab_error with
+        | IArray k t => fun Hit =>
+            '(existT _ q1 (exist _ Δ1 H1)) <- epat sp1 TIndex ;;
+            '(existT _ q2 (exist _ Δ2 H2)) <- epat sp2 t ;;
+            Ok (existT _ _ (existT _ _ (existT _ _ (exist _ _
+                  (FIP_Two E it k t sp1 sp2 _ q1 q2 Δ1 Δ2 Hit H1 H2)))))
+        | _ => fun _ => Err (EE_PatType p (fi_elem_ty it))
+        end eq_refl
+    | _ => Err (EE_PatType p (fi_elem_ty it))
+    end.
+
   (** ** Heads of calls *)
 
   Inductive head (Γ : lctx) (f : sexpr) : Type :=
@@ -1730,6 +1792,41 @@ Section Elaborate.
                 '(exist _ (c', b', us) (conj Hc (conj Hb Hu))) <- parts τ ;;
                 '(exist _ nb' Hn) <- elab nb (hd_env τs τ L) Γ' (Chk τ) ;;
                 Ok (exist _ _ (C_ForNb E L Γ p x inits oc upds body nb τs es τ c' b' us nb' Hi Hc Hb Hu Hn))
+            end
+        end
+    | SForIn p x pats src inits upds body onb =>
+        '(existT _ e1 (existT _ e2 (exist _ it Hs))) <- fsrc_dec elab p L Γ src ;;
+        '(existT _ τs (exist _ es Hi)) <- sinits_dec elab L (fo_ctx it Γ) inits ;;
+        let names := map fst inits in
+        let Γl := fl_ctx it names τs Γ in
+        '(existT _ q (existT _ Δ (existT _ scrut (exist _ sty Hp)))) <- fi_pat_dec p it τs pats ;;
+        let parts (τ : ty) :=
+          '(exist _ b' Hb) <- elab body (fi_body_env x it τs τ L) (List.app Δ Γl) (Chk TUnit) ;;
+          '(exist _ us Hu) <- supds_dec elab p (fi_state_env it τs τ L) ((None, TUnit) :: List.app Δ Γl) names τs upds ;;
+          Ok (exist (fun r : expr * list (ident * expr) =>
+                       let '(b', us) := r in
+                       List.app Δ Γl ⊩[E;fi_body_env x it τs τ L] body ⇐ TUnit ⇝ b' /\
+                       (None, TUnit) :: List.app Δ Γl ⊩ᵘ[E;fi_state_env it τs τ L] upds : names ; τs ⇝ us)
+                    (b', us) (conj Hb Hu)) in
+        match onb as o return result (out L Γ (SForIn p x pats src inits upds body o) m) elab_error with
+        | None =>
+            fin p L Γ (SForIn p x pats src inits upds body None) m
+              ('(exist _ (b', us) (conj Hb Hu)) <- parts TUnit ;;
+               Ok (existT _ _ (exist _ _ (S_ForIn E L Γ p x pats src inits upds body e1 e2 it τs es q Δ scrut sty
+                                                  b' us Hs Hi Hp Hb Hu))))
+        | Some nb =>
+            match m as m0 return result (out L Γ (SForIn p x pats src inits upds body (Some nb)) m0) elab_error with
+            | Syn =>
+                '(existT _ τ (exist _ nb0 H0)) <- elab nb (fi_loop_env it τs TUnit L) Γl Syn ;;
+                '(exist _ (b', us) (conj Hb Hu)) <- parts τ ;;
+                '(exist _ nb' Hn) <- elab nb (fi_loop_env it τs τ L) Γl (Chk τ) ;;
+                Ok (existT _ _ (exist _ _ (S_ForInNb E L Γ p x pats src inits upds body nb e1 e2 it τs es τ nb0
+                                                     q Δ scrut sty b' us nb' Hs Hi H0 Hp Hb Hu Hn)))
+            | Chk τ =>
+                '(exist _ (b', us) (conj Hb Hu)) <- parts τ ;;
+                '(exist _ nb' Hn) <- elab nb (fi_loop_env it τs τ L) Γl (Chk τ) ;;
+                Ok (exist _ _ (C_ForInNb E L Γ p x pats src inits upds body nb e1 e2 it τs es τ
+                                         q Δ scrut sty b' us nb' Hs Hi Hp Hb Hu Hn))
             end
         end
     | SBlock p x body =>
