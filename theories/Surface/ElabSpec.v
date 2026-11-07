@@ -29,8 +29,8 @@
     Covered so far: the core language of milestone M1 (variables,
     literals, operators, [let], [if], tuples, functions and calls), the
     builtins [not], [ignore], [panic] and [abort], and from milestone M2
-    constructors, patterns, [match], field access and the projections of
-    tuple structs. *)
+    constructors, records, patterns, [match], field access and the
+    projections of tuple structs. *)
 
 From Stdlib Require Import List ZArith String Bool.
 From MoonRocq.Prelude Require Import Result EqDec Ident.
@@ -264,6 +264,34 @@ Fixpoint assemble (op : bool) (given : list (nat * pat * lctx)) (j : nat) (fs : 
       end
   end.
 
+(** The record struct built by [{ fields }] when nothing is expected: the
+    named one, or the only record struct with exactly these field names. *)
+Definition same_fields (declared written : list ident) : bool :=
+  Nat.eqb (List.length declared) (List.length written) &&
+  forallb (fun f => match index_of f declared with Some _ => true | None => false end) written.
+
+Definition rec_pick (E : senv) (tq : option ident) (written : list ident) (T : ident) : Prop :=
+  match tq with
+  | Some T' => T' = T
+  | None => map fst (filter (fun tf => same_fields (snd tf) written) (se_sinfo E)) = [T]
+  end.
+
+(** The first position of [j] in [is]. *)
+Fixpoint pos_of (j : nat) (ixs : list nat) : option nat :=
+  match ixs with
+  | [] => None
+  | i :: ixs' => if Nat.eqb i j then Some 0 else option_map S (pos_of j ixs')
+  end.
+
+(** A record [{ f1: e1, .., fm: em }] evaluates its fields in source order,
+    into a tuple bound to [EVar 0]; field [j] of the constructor is the
+    component of the field written for it.  [ixs] are the field indices in
+    source order; every field must be written ([m = n]). *)
+Definition rec_vars (ixs : list nat) (n : nat) : option (list expr) :=
+  if Nat.eqb (List.length ixs) n then
+    all_some (map (fun j => option_map (fun k => EProj (EVar 0) k) (pos_of j ixs)) (seq 0 n))
+  else None.
+
 (** The arm of a [match] that gives its type: the first one that does not
     certainly jump away, else the first one. *)
 Definition pick_arm (cases : list (spat * sexpr)) : option (spat * sexpr) :=
@@ -394,6 +422,10 @@ Reserved Notation "Γ ⊩ᵇ[ E ; L ] cs : τs ⇐ τ ⇝ bs"
   (at level 70, E at level 200, L at level 200, cs at level 60, τs at level 60,
    τ at level 60, bs at level 60, no associativity,
    format "Γ  ⊩ᵇ[ E ; L ]  cs  :  τs  ⇐  τ  ⇝  bs").
+Reserved Notation "Γ ⊩ʳ[ E ; L ] fes : names ; fs ⇝ es ; ixs"
+  (at level 70, E at level 200, L at level 200, fes at level 60, names at level 60,
+   fs at level 60, es at level 60, ixs at level 60, no associativity,
+   format "Γ  ⊩ʳ[ E ; L ]  fes  :  names ;  fs  ⇝  es ;  ixs").
 Reserved Notation "Γ ⊩*[ E ; L ] ss ⇐ τs ⇝ es"
   (at level 70, E at level 200, L at level 200, ss at level 60, τs at level 60,
    es at level 60, no associativity, format "Γ  ⊩*[ E ; L ]  ss  ⇐  τs  ⇝  es").
@@ -570,6 +602,17 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     Γ ⊩[E;L] s ⇒ TData T ts ⇝ e ->
     field_proj E T ts i e = Some (e', τ) ->
     Γ ⊩[E;L] SProj p s i ⇒ τ ⇝ e'
+(** a record [T::{ fields }] *)
+| S_Record L Γ p tq fes T ts names td cd es ixs vs :
+    rec_pick E tq (map fst fes) T ->
+    assoc T (se_sinfo E) = Some names ->
+    lookup_ty (se_hdr E) T = Some td ->
+    td_ctors td = [cd] ->
+    List.length ts = td_tparams td ->
+    List.length (cd_fields cd) = List.length names ->
+    Γ ⊩ʳ[E;L] fes : names ; map (tsubst (inst ts)) (cd_fields cd) ⇝ es ; ixs ->
+    rec_vars ixs (List.length names) = Some vs ->
+    Γ ⊩[E;L] SRecord p tq fes ⇒ TData T ts ⇝ ELet (ETuple es) (EConstr T (cd_name cd) ts (ETuple vs))
 (** the type of a [match] is that of the arm chosen by [pick_arm] *)
 | S_Match L Γ p s cases τs τ e bs sp b q Δ b' :
     Γ ⊩[E;L] s ⇒ τs ⇝ e ->
@@ -648,6 +691,16 @@ with chk (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
     List.length ts = td_tparams td ->
     cd_fields cd = [] ->
     Γ ⊩[E;L] SConstr p tq c ⇐ TData T ts ⇝ EConstr T c ts (ETuple [])
+| C_Record L Γ p tq fes T ts names td cd es ixs vs :
+    tq_ok tq T ->
+    assoc T (se_sinfo E) = Some names ->
+    lookup_ty (se_hdr E) T = Some td ->
+    td_ctors td = [cd] ->
+    List.length ts = td_tparams td ->
+    List.length (cd_fields cd) = List.length names ->
+    Γ ⊩ʳ[E;L] fes : names ; map (tsubst (inst ts)) (cd_fields cd) ⇝ es ; ixs ->
+    rec_vars ixs (List.length names) = Some vs ->
+    Γ ⊩[E;L] SRecord p tq fes ⇐ TData T ts ⇝ ELet (ETuple es) (EConstr T (cd_name cd) ts (ETuple vs))
 | C_Match L Γ p s cases τs τ e bs :
     Γ ⊩[E;L] s ⇒ τs ⇝ e ->
     Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
@@ -671,6 +724,25 @@ with arms (E : senv) : cenv -> lctx -> list (spat * sexpr) -> ty -> ty -> list (
     Γ ⊩ᵇ[E;L] cases : τs ⇐ τ ⇝ bs ->
     Γ ⊩ᵇ[E;L] (sp, b) :: cases : τs ⇐ τ ⇝ (q, b') :: bs
 
+(** the fields of a record, in source order; a [mut] field gets a new cell *)
+with rfields (E : senv) : cenv -> lctx -> list (ident * sexpr) -> list ident -> list ty ->
+                          list expr -> list nat -> Prop :=
+| RF_nil L Γ names fs :
+    Γ ⊩ʳ[E;L] [] : names ; fs ⇝ [] ; []
+| RF_cell L Γ f fe fes names fs i t e es ixs :
+    index_of f names = Some i ->
+    nth_error fs i = Some (TRef t) ->
+    Γ ⊩[E;L] fe ⇐ t ⇝ e ->
+    Γ ⊩ʳ[E;L] fes : names ; fs ⇝ es ; ixs ->
+    Γ ⊩ʳ[E;L] (f, fe) :: fes : names ; fs ⇝ EMem (MRef t) [e] :: es ; i :: ixs
+| RF_plain L Γ f fe fes names fs i τ e es ixs :
+    index_of f names = Some i ->
+    nth_error fs i = Some τ ->
+    is_cell τ = false ->
+    Γ ⊩[E;L] fe ⇐ τ ⇝ e ->
+    Γ ⊩ʳ[E;L] fes : names ; fs ⇝ es ; ixs ->
+    Γ ⊩ʳ[E;L] (f, fe) :: fes : names ; fs ⇝ e :: es ; i :: ixs
+
 with syns (E : senv) : cenv -> lctx -> list sexpr -> list ty -> list expr -> Prop :=
 | Ss_nil L Γ :
     Γ ⊩*[E;L] [] ⇒ [] ⇝ []
@@ -691,6 +763,7 @@ where "Γ ⊩[ E ; L ] s ⇒ τ ⇝ e" := (syn E L Γ s τ e)
   and "Γ ⊩[ E ; L ] s ⇐ τ ⇝ e" := (chk E L Γ s τ e)
   and "Γ ⊩[ E ; L ] s ⦂ a ⇒ τ ⇝ e" := (sbind E L Γ s a τ e)
   and "Γ ⊩ᵇ[ E ; L ] cs : τs ⇐ τ ⇝ bs" := (arms E L Γ cs τs τ bs)
+  and "Γ ⊩ʳ[ E ; L ] fes : names ; fs ⇝ es ; ixs" := (rfields E L Γ fes names fs es ixs)
   and "Γ ⊩*[ E ; L ] ss ⇒ τs ⇝ es" := (syns E L Γ ss τs es)
   and "Γ ⊩*[ E ; L ] ss ⇐ τs ⇝ es" := (chks E L Γ ss τs es).
 
@@ -698,6 +771,7 @@ Scheme syn_mut := Minimality for syn Sort Prop
   with chk_mut := Minimality for chk Sort Prop
   with sbind_mut := Minimality for sbind Sort Prop
   with arms_mut := Minimality for arms Sort Prop
+  with rfields_mut := Minimality for rfields Sort Prop
   with syns_mut := Minimality for syns Sort Prop
   with chks_mut := Minimality for chks Sort Prop.
-Combined Scheme elab_mutind from syn_mut, chk_mut, sbind_mut, arms_mut, syns_mut, chks_mut.
+Combined Scheme elab_mutind from syn_mut, chk_mut, sbind_mut, arms_mut, rfields_mut, syns_mut, chks_mut.

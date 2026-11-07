@@ -332,10 +332,10 @@ Proof. vm_compute. reflexivity. Qed.
 Definition hdr2 : genv :=
   mk_genv [ mk_tdef "Shape" 0 [mk_cdef "Circle" [TInt I32]; mk_cdef "Rect" [TInt I32; TInt I32]] false;
             mk_tdef "P" 0 [mk_cdef "P" [TInt I32; TRef (TInt I32)]] false;
-            option_tdef ] [].
+            option_tdef; mk_tdef "Box" 1 [mk_cdef "Box" [TVar 0]] false ] [].
 
 Definition E2 : senv :=
-  mk_senv [("Shape", 0); ("P", 0); ("Option", 1)] hdr2 [("P", ["x"; "y"])] []
+  mk_senv [("Shape", 0); ("P", 0); ("Option", 1); ("Box", 1)] hdr2 [("P", ["x"; "y"]); ("Box", ["v"])] []
           (mk_xenv [] [] [] [] [] []).
 
 Definition syn2 (s : sexpr) : option (ty * expr) :=
@@ -389,4 +389,19 @@ Example ex_elab_reject2 :
           (SMatch P0 (var_s "p") [(SPRecord P0 [("x", pv "x")] false, var_s "x")])),
    ty2 (SAnnot P0 (ctor_s "Circle" [int_s 1]) (SName P0 "P" []))) =
   (None, None).
+Proof. vm_compute. reflexivity. Qed.
+
+(* records: fields evaluated in source order into a tuple, mut fields get a cell *)
+Example ex_elab_record :
+  (syn2 (SRecord P0 (Some "P") [("x", int_s 1); ("y", int_s 2)]),
+   option_map snd (syn2 (SRecord P0 None [("y", int_s 2); ("x", int_s 1)])),
+   ty2 (SRecord P0 None [("v", SLit P0 (SLBool true))]),
+   ty2 (SRecord P0 None [("x", int_s 1)])) =
+  (Some (TData "P" [],
+         ELet (ETuple [ELit (LInt I32 1); EMem (MRef (TInt I32)) [ELit (LInt I32 2)]])
+              (EConstr "P" "P" [] (ETuple [EProj (EVar 0) 0; EProj (EVar 0) 1]))),
+   Some (ELet (ETuple [EMem (MRef (TInt I32)) [ELit (LInt I32 2)]; ELit (LInt I32 1)])
+              (EConstr "P" "P" [] (ETuple [EProj (EVar 0) 1; EProj (EVar 0) 0]))),
+   Some (TData "Box" [TBool]),
+   None).
 Proof. vm_compute. reflexivity. Qed.

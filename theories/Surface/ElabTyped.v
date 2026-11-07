@@ -233,11 +233,78 @@ Section Typed.
     destruct τ0; injection H as <- <-; apply Hpat; repeat constructor.
   Qed.
 
+  (** *** Records *)
+
+  Lemma Forall2_nth {A B} (R : A -> B -> Prop) l1 l2 k x :
+    Forall2 R l1 l2 -> nth_error l1 k = Some x -> exists y, nth_error l2 k = Some y /\ R x y.
+  Proof.
+    intros H; revert k; induction H as [|a b l1 l2 Hab H IH]; intros [|k] Hk; simpl in *;
+      try discriminate.
+    - injection Hk as <-; eauto.
+    - eauto.
+  Qed.
+
+  Lemma pos_of_spec j ixs k : pos_of j ixs = Some k -> nth_error ixs k = Some j.
+  Proof.
+    revert k; induction ixs as [|i ixs IH]; intros k H; simpl in *; [discriminate|].
+    destruct (Nat.eqb_spec i j).
+    - injection H as <-; subst; reflexivity.
+    - destruct (pos_of j ixs) as [k'|]; simpl in H; [|discriminate].
+      injection H as <-; simpl; auto.
+  Qed.
+
+  Lemma rec_vars_typed Λ Γ ixs taus fs vs :
+    Forall2 (fun i τ => nth_error fs i = Some τ) ixs taus ->
+    rec_vars ixs (List.length fs) = Some vs ->
+    TTuple taus :: Γ ⊢*[ge;[];Λ] vs : fs.
+  Proof.
+    unfold rec_vars; intros Hf H.
+    destruct (Nat.eqb (List.length ixs) (List.length fs)); [|discriminate].
+    assert (Hgen : forall fsl a vs,
+               (forall d, nth_error fsl d = nth_error fs (a + d)) ->
+               all_some (map (fun j => option_map (fun k => EProj (EVar 0) k) (pos_of j ixs))
+                             (seq a (List.length fsl))) = Some vs ->
+               TTuple taus :: Γ ⊢*[ge;[];Λ] vs : fsl).
+    { induction fsl as [|τ fsl IH]; intros a vs0 Hd Ha; simpl in Ha.
+      - injection Ha as <-; constructor.
+      - destruct (pos_of a ixs) as [k|] eqn:Hp; simpl in Ha; [|discriminate].
+        destruct (all_some (map _ (seq (S a) (Datatypes.length fsl)))) as [vs'|] eqn:Hr;
+          simpl in Ha; [|discriminate].
+        injection Ha as <-.
+        apply pos_of_spec in Hp.
+        destruct (Forall2_nth _ _ _ _ _ Hf Hp) as (τk & Hτk & Hfa).
+        specialize (Hd 0) as H0; simpl in H0; rewrite Nat.add_0_r, Hfa in H0.
+        injection H0 as ->.
+        constructor.
+        + eapply T_Proj; [constructor; reflexivity|exact Hτk].
+        + eapply IH; [|exact Hr]. intros d; specialize (Hd (S d)); simpl in Hd; rewrite Hd; f_equal; lia. }
+    eapply Hgen; [|exact H]. intros d; reflexivity.
+  Qed.
+
+  Lemma record_typed Λ Γ T ts td cd (names : list ident) es ixs vs taus :
+    lookup_ty ge T = Some td -> td_ctors td = [cd] ->
+    List.length (cd_fields cd) = List.length names ->
+    Γ ⊢*[ge;[];Λ] es : taus ->
+    Forall2 (fun i τ => nth_error (map (tsubst (inst ts)) (cd_fields cd)) i = Some τ) ixs taus ->
+    rec_vars ixs (List.length names) = Some vs ->
+    List.length ts = td_tparams td ->
+    Γ ⊢[ge;[];Λ] ELet (ETuple es) (EConstr T (cd_name cd) ts (ETuple vs)) : TData T ts.
+  Proof.
+    intros Htd Hc Hlen Hes Hf Hv Hts.
+    eapply T_Let; [constructor; exact Hes|].
+    eapply T_Constr; eauto using lookup_ctor_single.
+    constructor. eapply rec_vars_typed; eauto.
+    rewrite length_map, Hlen; exact Hv.
+  Qed.
+
   Theorem elab_typed :
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇒ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ s τ e, Γ ⊩[E;L] s ⇐ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ s a τ e, Γ ⊩[E;L] s ⦂ a ⇒ τ ⇝ e -> ctx_of Γ ⊢[ge;[];cc_of L] e : τ) /\
     (forall L Γ cs τs τ bs, Γ ⊩ᵇ[E;L] cs : τs ⇐ τ ⇝ bs -> ctx_of Γ ⊢ᵇ[ge;[];cc_of L] bs : τs ⇒ τ) /\
+    (forall L Γ fes names fs es ixs, Γ ⊩ʳ[E;L] fes : names ; fs ⇝ es ; ixs ->
+       exists taus, ctx_of Γ ⊢*[ge;[];cc_of L] es : taus /\
+                    Forall2 (fun i τ => nth_error fs i = Some τ) ixs taus) /\
     (forall L Γ ss τs es, Γ ⊩*[E;L] ss ⇒ τs ⇝ es -> ctx_of Γ ⊢*[ge;[];cc_of L] es : τs) /\
     (forall L Γ ss τs es, Γ ⊩*[E;L] ss ⇐ τs ⇝ es -> ctx_of Γ ⊢*[ge;[];cc_of L] es : τs).
   Proof.
@@ -259,6 +326,12 @@ Section Typed.
     (* lambdas *)
     all: try solve [constructor; apply eblock_typed; assumption].
     all: try solve [apply T_Lam; assumption].
+    (* records *)
+    all: try solve [exists []; split; constructor].
+    all: try solve [match goal with H : exists _, _ |- _ => destruct H as (taus & ? & ?) end;
+                    eexists; split; [constructor; [first [eassumption | tc] | eassumption] | constructor; eauto]].
+    all: try solve [match goal with H : exists _, _ |- _ => destruct H as (taus & ? & ?) end;
+                    eapply record_typed; eauto].
     (* data types *)
     all: try solve [eapply field_proj_typed; eauto].
     all: try solve [eapply T_Constr; eauto;

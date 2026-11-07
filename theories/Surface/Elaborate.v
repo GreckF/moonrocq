@@ -894,6 +894,86 @@ Section Elaborate.
     Γ ⊩[E;L] SApp p f args ⇐ TData T ts ⇝ EConstr T c ts (ETuple es).
   Proof. intros ->; apply C_Ctor. Qed.
 
+  (** *** Records *)
+
+  Definition rec_pick_dec (p : pos) (tq : option ident) (written : list ident) :
+      result {T | rec_pick E tq written T} elab_error :=
+    match tq as o return result {T | rec_pick E o written T} elab_error with
+    | Some T => Ok (exist _ T eq_refl)
+    | None =>
+        match map fst (filter (fun tf => same_fields (snd tf) written) (se_sinfo E)) as l
+              return map fst (filter (fun tf => same_fields (snd tf) written) (se_sinfo E)) = l ->
+                     result {T | rec_pick E None written T} elab_error with
+        | [T] => fun H => Ok (exist _ T H)
+        | _ => fun _ => Err (EE_NotRecord p TUnit)
+        end eq_refl
+    end.
+
+  Definition rfields_dec (rec : elab_ty_t) (p : pos) (L : cenv) (Γ : lctx) (names : list ident)
+      (fs : list ty) :
+      forall fes, result {es : list expr & {ixs : list nat | Γ ⊩ʳ[E;L] fes : names ; fs ⇝ es ; ixs}} elab_error :=
+    fix go fes :=
+      match fes as f0 return result {es : list expr & {ixs : list nat | Γ ⊩ʳ[E;L] f0 : names ; fs ⇝ es ; ixs}} elab_error with
+      | [] => Ok (existT _ [] (exist _ [] (RF_nil E L Γ names fs)))
+      | (f, fe) :: fes' =>
+          '(exist _ i Hi) <- of_option (index_of f names) (EE_UnknownField p f) ;;
+          '(exist _ τ Hτ) <- of_option (nth_error fs i) (EE_UnknownField p f) ;;
+          match τ as t return nth_error fs i = Some t ->
+                              result {es : list expr & {ixs : list nat |
+                                Γ ⊩ʳ[E;L] (f, fe) :: fes' : names ; fs ⇝ es ; ixs}} elab_error with
+          | TRef u => fun Hτ =>
+              '(exist _ e He) <- rec fe L Γ (Chk u) ;;
+              '(existT _ es (exist _ ixs Hr)) <- go fes' ;;
+              Ok (existT _ _ (exist _ _ (RF_cell E L Γ f fe fes' names fs i u e es ixs Hi Hτ He Hr)))
+          | t => fun Hτ =>
+              '(exist _ e He) <- rec fe L Γ (Chk t) ;;
+              '(existT _ es (exist _ ixs Hr)) <- go fes' ;;
+              Ok (existT _ _ (exist _ _ (RF_plain E L Γ f fe fes' names fs i t e es ixs Hi Hτ eq_refl He Hr)))
+          end Hτ
+      end.
+
+  Definition rec_vars_dec (p : pos) (names : list ident) (ixs : list nat) :
+      result {vs | rec_vars ixs (List.length names) = Some vs} elab_error :=
+    match rec_vars ixs (List.length names) as o
+          return rec_vars ixs (List.length names) = o -> result {vs | rec_vars ixs (List.length names) = Some vs} elab_error with
+    | Some vs => fun H => Ok (exist _ vs H)
+    | None => fun _ =>
+        match find (fun f => match index_of f names with
+                             | Some j => negb (existsb (Nat.eqb j) ixs)
+                             | None => false
+                             end) names with
+        | Some f => Err (EE_MissingField p f)
+        | None => Err (EE_UnknownField p "")
+        end
+    end eq_refl.
+
+  Definition len_dec (p : pos) (T : ident) (a b : nat) : result (a = b) elab_error :=
+    match Nat.eq_dec a b with
+    | left H => Ok H
+    | right _ => Err (EE_NotRecord p (TData T []))
+    end.
+
+  Definition content (t : ty) : ty := match t with TRef u => u | _ => t end.
+
+  (** The type arguments of a generic record struct, learned from the fields
+      whose type is not yet known (they are checked again afterwards). *)
+  Definition rpass (rec : elab_ty_t) (L : cenv) (Γ : lctx) (names : list ident) (fs0 : list ty) :
+      list (ident * sexpr) -> list (option ty) -> result (list (option ty)) elab_error :=
+    fix go fes st :=
+      match fes with
+      | [] => Ok st
+      | (f, fe) :: fes' =>
+          let pt := match index_of f names with
+                    | Some i => content (nth i fs0 TUnit)
+                    | None => TUnit
+                    end in
+          st' <- (match resolve st pt with
+                  | Some _ => Ok st
+                  | None => '(existT _ t _) <- rec fe L Γ Syn ;; Ok (tmatch pt t st)
+                  end) ;;
+          go fes' st'
+      end.
+
   (** ** Heads of calls *)
 
   Inductive head (Γ : lctx) (f : sexpr) : Type :=
@@ -1251,6 +1331,46 @@ Section Elaborate.
                 | None => fun _ => fin p L Γ (SConstr p tq c) (Chk (TData T ts)) syn_c
                 end eq_refl
             | t0 => fin p L Γ (SConstr p tq c) (Chk t0) syn_c
+            end
+        end
+    | SRecord p tq fes =>
+        let syn_r :=
+          '(exist _ T Hpick) <- rec_pick_dec p tq (map fst fes) ;;
+          '(exist _ names Hn) <- of_option (assoc T (se_sinfo E)) (EE_NotRecord p (TData T [])) ;;
+          '(exist _ td Htd) <- of_option (lookup_ty hdr T) (EE_UnknownType p T) ;;
+          '(exist _ cd Hc) <- single_ctor p td (TData T []) ;;
+          Hlen <- len_dec p T (List.length (cd_fields cd)) (List.length names) ;;
+          '(exist _ ts Hts) <-
+            (match td_tparams td as n return td_tparams td = n -> result {ts | List.length ts = td_tparams td} elab_error with
+             | 0 => fun H => Ok (exist _ [] (eq_sym H))
+             | _ => fun _ =>
+                 (* type arguments from the fields, as for a generic call *)
+                 st <- rpass elab L Γ names (cd_fields cd) fes (repeat None (td_tparams td)) ;;
+                 targs p T (td_tparams td) st
+             end eq_refl) ;;
+          '(existT _ es (exist _ ixs Hr)) <- rfields_dec elab p L Γ names (map (tsubst (inst ts)) (cd_fields cd)) fes ;;
+          '(exist _ vs Hv) <- rec_vars_dec p names ixs ;;
+          Ok (existT _ _ (exist _ _ (S_Record E L Γ p tq fes T ts names td cd es ixs vs
+                                              Hpick Hn Htd Hc Hts Hlen Hr Hv))) in
+        match m as m0 return result (out L Γ (SRecord p tq fes) m0) elab_error with
+        | Syn => syn_r
+        | Chk τ =>
+            match τ as t0 return result (out L Γ (SRecord p tq fes) (Chk t0)) elab_error with
+            | TData T ts =>
+                match assoc T (se_sinfo E) as o
+                      return assoc T (se_sinfo E) = o -> result (out L Γ (SRecord p tq fes) (Chk (TData T ts))) elab_error with
+                | Some names => fun Hn =>
+                    Htq <- tq_dec p tq T (EE_NotRecord p (TData T ts)) ;;
+                    '(exist _ td Htd) <- of_option (lookup_ty hdr T) (EE_UnknownType p T) ;;
+                    '(exist _ cd Hc) <- single_ctor p td (TData T ts) ;;
+                    Hts <- len_dec p T (List.length ts) (td_tparams td) ;;
+                    Hlen <- len_dec p T (List.length (cd_fields cd)) (List.length names) ;;
+                    '(existT _ es (exist _ ixs Hr)) <- rfields_dec elab p L Γ names (map (tsubst (inst ts)) (cd_fields cd)) fes ;;
+                    '(exist _ vs Hv) <- rec_vars_dec p names ixs ;;
+                    Ok (exist _ _ (C_Record E L Γ p tq fes T ts names td cd es ixs vs Htq Hn Htd Hc Hts Hlen Hr Hv))
+                | None => fun _ => fin p L Γ (SRecord p tq fes) (Chk (TData T ts)) syn_r
+                end eq_refl
+            | t0 => fin p L Γ (SRecord p tq fes) (Chk t0) syn_r
             end
         end
     | SField p s0 f =>
