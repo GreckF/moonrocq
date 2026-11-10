@@ -691,7 +691,7 @@ Section Elaborate.
         '(exist _ τ Hn) <- of_option (nth_error (ctx_of Γ) i) (EE_Unbound p x) ;;
         match τ as t return nth_error (ctx_of Γ) i = Some t -> result (sout L Γ (SVar p x)) elab_error with
         | TRef u => fun Hn => Ok (existT _ u (exist _ _ (S_VarMut E L Γ p x i u Hl Hn)))
-        | t => fun Hn => Ok (existT _ t (exist _ _ (S_Var E L Γ p x i t Hl Hn eq_refl)))
+        | t => fun Hn => Ok (existT _ t (exist _ _ (S_Var E L Γ p x i t Hl Hn)))
         end Hn
     | None => fun Hl =>
         '(exist _ fd Hf) <- of_option (lookup_fn hdr x) (EE_Unbound p x) ;;
@@ -1745,10 +1745,10 @@ Section Elaborate.
           | Some t =>
               '(exist _ r Hr) <- ety_dec t ;;
               '(exist _ b Hb) <- cres (elab body (fun_env r ε) (List.app (lam_ctx ps τs) Γ) (Chk r)) ;;
-              Ok (existT _ _ (exist _ _ (S_LamRet E L Γ p ps t a body τs r ε b Hps Hr Hε Hb)))
+              Ok (existT _ _ (exist _ _ (S_LamRet E L Γ p ps t a body τs r ε b (params_syn_ann E ps τs Hps) Hr Hε Hb)))
           | None =>
               '(existT _ r (exist _ b Hb)) <- elab body (mk_cenv [] ε) (List.app (lam_ctx ps τs) Γ) Syn ;;
-              Ok (existT _ _ (exist _ _ (S_Lam E L Γ p ps a body τs r ε b Hps Hε Hb)))
+              Ok (existT _ _ (exist _ _ (S_Lam E L Γ p ps a body τs r ε b (params_syn_ann E ps τs Hps) Hε Hb)))
           end in
         match m as m0 return result (out L Γ (SLam p ps ret a body) m0) elab_error with
         | Syn => syn_l

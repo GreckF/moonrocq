@@ -114,6 +114,11 @@ Definition params_ann (E : senv) (ps : list (ident * option sty)) (τs : list ty
 Definition params_syn (E : senv) (ps : list (ident * option sty)) (τs : list ty) : Prop :=
   Forall2 (fun xa τ => exists t, snd xa = Some t /\ ety E t = Ok τ) ps τs.
 
+Lemma params_syn_ann E ps τs : params_syn E ps τs -> params_ann E ps τs.
+Proof.
+  apply Forall2_impl; intros [x a] τ (t & Ha & Ht); simpl in *; subst; exact Ht.
+Qed.
+
 (** The type of the global function [fd] at type arguments [ts]. *)
 Definition fn_inst (fd : fdef) (ts : list ty) : ty :=
   TArrow (map (tsubst (inst ts)) (fd_params fd)) (tsubst (inst ts) (fd_ret fd))
@@ -808,7 +813,6 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
 | S_Var L Γ p x i τ :
     lookup_local x Γ = Some i ->
     nth_error (ctx_of Γ) i = Some τ ->
-    is_cell τ = false ->
     Γ ⊩[E;L] SVar p x ⇒ τ ⇝ EVar i
 (** a [let mut] variable is read from its cell *)
 | S_VarMut L Γ p x i τ :
@@ -900,7 +904,7 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
 (** a lambda with annotated parameters and result: the body is a block,
     the target of [return] *)
 | S_LamRet L Γ p ps t a body τs r ε b :
-    params_syn E ps τs ->
+    params_ann E ps τs ->
     ety E t = Ok r ->
     eff_syn E a ε ->
     List.app (lam_ctx ps τs) Γ ⊩[E;fun_env r ε] body ⇐ r ⇝ b ->
@@ -908,7 +912,7 @@ Inductive syn (E : senv) : cenv -> lctx -> sexpr -> ty -> expr -> Prop :=
 (** without a result annotation, the result type is synthesized (and
     [return] is not available) *)
 | S_Lam L Γ p ps a body τs r ε b :
-    params_syn E ps τs ->
+    params_ann E ps τs ->
     eff_syn E a ε ->
     List.app (lam_ctx ps τs) Γ ⊩[E;mk_cenv [] ε] body ⇒ r ⇝ b ->
     Γ ⊩[E;L] SLam p ps None a body ⇒ TArrow τs r ε ⇝ ELam τs r ε b

@@ -23,3 +23,5 @@ From MoonRocq.Surface Require Import Unify.
 Print Assumptions Unify.unify_sound.
 Print Assumptions Unify.unify_mgu.
 Print Assumptions Unify.unify_complete.
+From MoonRocq.Surface Require Import ElabAlg.
+Print Assumptions ElabAlg.alg_sound.

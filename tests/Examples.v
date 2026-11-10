@@ -621,3 +621,32 @@ Example ex_unify :
    solve 0 (TArray AGrow (TVar 0)) (TArray AFixed TBool) (TVar 0)) =
   (Some (TTuple [TInt I32; TInt I32]), None, None, Some (TVar 0), None).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- M6b: algorithmic elaboration (M1) ---- *)
+From MoonRocq.Surface Require Import ElabAlg ElabInfer.
+
+Definition inf (s : sexpr) : option (ty * expr) :=
+  match infer_top E_ex s with Ok r => Some r | Err _ => None end.
+
+Definition infty (s : sexpr) : option ty := option_map fst (inf s).
+
+Example ex_infer :
+  (* let f = fn(x) { x + 1 }; f(41): x is found from its use *)
+  (infty (SLet P0 (Some "f") None (SLam P0 [("x", None)] None None (SInfix P0 "+" (var_s "x") (int_s 1)))
+                (SApp P0 (var_s "f") [int_s 41])),
+   (* id(1) *)
+   inf (SApp P0 (var_s "id") [int_s 1]),
+   (* apply(fn(x) { x + 1 }, 2) *)
+   infty (SApp P0 (var_s "apply") [SLam P0 [("x", None)] None None (SInfix P0 "+" (var_s "x") (int_s 1)); int_s 2]),
+   (* fn(x) { x } alone: the parameter type defaults to Unit *)
+   infty (SLam P0 [("x", None)] None None (var_s "x")),
+   (* rejected: fn(x) { x.0 } (the type of x is not known there) *)
+   infty (SLam P0 [("x", None)] None None (SProj P0 (var_s "x") 0)),
+   (* rejected: 1 + true *)
+   infty (SInfix P0 "+" (int_s 1) (SLit P0 (SLBool true)))) =
+  (Some (TInt I32),
+   Some (TInt I32, EApp (EGlobal "id" [TInt I32]) [ELit (LInt I32 1)]),
+   Some (TInt I32),
+   Some (TArrow [TUnit] TUnit TNever),
+   None, None).
+Proof. vm_compute. reflexivity. Qed.
