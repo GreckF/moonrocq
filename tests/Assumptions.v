@@ -19,3 +19,7 @@ From MoonRocq.Surface Require Import ElabTyped.
 Print Assumptions ElabTyped.elab_typed.
 From MoonRocq.Surface Require Import ElabProg.
 Print Assumptions ElabProg.body_typed.
+From MoonRocq.Surface Require Import Unify.
+Print Assumptions Unify.unify_sound.
+Print Assumptions Unify.unify_mgu.
+Print Assumptions Unify.unify_complete.

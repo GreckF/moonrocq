@@ -601,3 +601,23 @@ Example ex_elab_methods :
                         [ELet (ETuple [ELit (LInt I32 1)]) (EConstr "P" "P" [] (ETuple [EProj (EVar 0) 0]))]),
    Some (TInt I32), Some (TInt I32), Some (TData "&Show" []), None).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ---- M6b: unification ---- *)
+From MoonRocq.Surface Require Import Unify.
+
+Definition solve (nt : nat) (a b t : ty) : option ty :=
+  option_map (fun θ => sapp θ t) (unify nt 10 [] a b).
+
+Example ex_unify :
+  (* (?0) -> ?1  ~  (Int) -> ?0 : both are Int *)
+  (solve 0 (TArrow [TVar 0] (TVar 1) TNever) (TArrow [TInt I32] (TVar 0) TNever) (TTuple [TVar 0; TVar 1]),
+   (* a rigid type parameter is not solved *)
+   solve 1 (TVar 0) TBool (TVar 0),
+   (* occurs check *)
+   solve 0 (TVar 0) (TTuple [TVar 0]) (TVar 0),
+   (* a metavariable against a type parameter *)
+   solve 1 (TData "Option" [TVar 1]) (TData "Option" [TVar 0]) (TVar 1),
+   (* clash *)
+   solve 0 (TArray AGrow (TVar 0)) (TArray AFixed TBool) (TVar 0)) =
+  (Some (TTuple [TInt I32; TInt I32]), None, None, Some (TVar 0), None).
+Proof. vm_compute. reflexivity. Qed.

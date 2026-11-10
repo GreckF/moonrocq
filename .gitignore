@@ -11,3 +11,4 @@ mbt/_build/
 mbt/.mooncakes/
 mbt/target/
 CLAUDE.md
+pkg.generated.mbti
