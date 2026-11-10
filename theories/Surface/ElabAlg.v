@@ -853,3 +853,142 @@ Section Sound.
       constructor; auto.
   Qed.
 End Sound.
+
+(** ** Determinism
+
+    An algorithmic derivation is determined by its inputs: the rules apply
+    in disjoint cases, and their side computations are functions. *)
+
+Section Det.
+  Variable E : senv.
+
+  Lemma acoerce_det θ n e τ' τ e1 θ1 e2 θ2 :
+    acoerce E θ n e τ' τ e1 θ1 -> acoerce E θ n e τ' τ e2 θ2 -> e1 = e2 /\ θ1 = θ2.
+  Proof. intros H1 H2; inversion H1; inversion H2; subst; split; congruence. Qed.
+
+  Lemma eff_syn_det a ε1 ε2 : eff_syn E a ε1 -> eff_syn E a ε2 -> ε1 = ε2.
+  Proof. destruct a as [[t|]|]; simpl; intros H1 H2; congruence. Qed.
+
+  Lemma binop_and p τ a b e : elab_binop p "&&" τ a b = Ok e -> False.
+  Proof. unfold elab_binop; simpl; destruct τ as [[]| | | | | | |]; discriminate. Qed.
+
+  Lemma binop_or p τ a b e : elab_binop p "||" τ a b = Ok e -> False.
+  Proof. unfold elab_binop; simpl; destruct τ as [[]| | | | | | |]; discriminate. Qed.
+
+  Lemma cs_bin Γ p op a b τ o :
+    assoc op arith_ops = Some o -> binop_res op τ = τ -> chk_spec E Γ (SInfix p op a b) τ = true.
+  Proof.
+    intros Ho Hr.
+    change (match assoc op arith_ops with Some _ => ty_eqb (binop_res op τ) τ | None => false end = true).
+    rewrite Ho; apply ty_eqb_eq; exact Hr.
+  Qed.
+
+  Lemma cs_tuple Γ p ss τ ts :
+    τ = TTuple ts -> List.length ts = List.length ss -> chk_spec E Γ (STup p ss) τ = true.
+  Proof. intros -> Hl; simpl; rewrite Hl; apply Nat.eqb_refl. Qed.
+
+  Lemma cs_lam Γ p ps ret a body τ τs r ε :
+    τ = TArrow τs r ε -> List.length τs = List.length ps -> chk_spec E Γ (SLam p ps ret a body) τ = true.
+  Proof. intros -> Hl; simpl; rewrite Hl; apply Nat.eqb_refl. Qed.
+
+  Lemma cs_panic Γ p q τ : builtin E Γ "panic" -> chk_spec E Γ (SApp p (SVar q "panic") []) τ = true.
+  Proof. intros [H1 H2]; simpl; rewrite H1, H2; reflexivity. Qed.
+
+  Lemma cs_abort Γ p q a τ : builtin E Γ "abort" -> chk_spec E Γ (SApp p (SVar q "abort") [a]) τ = true.
+  Proof. intros [H1 H2]; simpl; rewrite H1, H2; reflexivity. Qed.
+
+  Ltac same :=
+    repeat match goal with
+    | IH : forall τ2 e2 θ2 n2, asyn E ?L ?Γ ?s ?θ ?n τ2 e2 θ2 n2 -> _,
+      H : asyn E ?L ?Γ ?s ?θ ?n _ _ _ _ |- _ =>
+        let a := fresh in let b := fresh in let c := fresh in let d := fresh in
+        destruct (IH _ _ _ _ H) as (a & b & c & d); clear H; try subst
+    | IH : forall e2 θ2 n2, achk E ?L ?Γ ?s ?τ ?θ ?n e2 θ2 n2 -> _,
+      H : achk E ?L ?Γ ?s ?τ ?θ ?n _ _ _ |- _ =>
+        let a := fresh in let b := fresh in let c := fresh in
+        destruct (IH _ _ _ H) as (a & b & c); clear H; try subst
+    | IH : forall τ2 e2 θ2 n2, abind E ?L ?Γ ?s ?t ?θ ?n τ2 e2 θ2 n2 -> _,
+      H : abind E ?L ?Γ ?s ?t ?θ ?n _ _ _ _ |- _ =>
+        let a := fresh in let b := fresh in let c := fresh in let d := fresh in
+        destruct (IH _ _ _ _ H) as (a & b & c & d); clear H; try subst
+    | IH : forall τs2 es2 θ2 n2, asyns E ?L ?Γ ?ss ?θ ?n τs2 es2 θ2 n2 -> _,
+      H : asyns E ?L ?Γ ?ss ?θ ?n _ _ _ _ |- _ =>
+        let a := fresh in let b := fresh in let c := fresh in let d := fresh in
+        destruct (IH _ _ _ _ H) as (a & b & c & d); clear H; try subst
+    | IH : forall es2 θ2 n2, achks E ?L ?Γ ?ss ?τs ?θ ?n es2 θ2 n2 -> _,
+      H : achks E ?L ?Γ ?ss ?τs ?θ ?n _ _ _ |- _ =>
+        let a := fresh in let b := fresh in let c := fresh in
+        destruct (IH _ _ _ H) as (a & b & c); clear H; try subst
+    | H1 : acoerce E ?θ ?n ?e ?τ' ?τ _ _, H2 : acoerce E ?θ ?n ?e ?τ' ?τ _ _ |- _ =>
+        let a := fresh in let b := fresh in
+        destruct (acoerce_det _ _ _ _ _ _ _ _ _ H1 H2) as (a & b); clear H2; try subst
+    | H1 : eff_syn E ?a ?x, H2 : eff_syn E ?a ?y |- _ =>
+        lazymatch x with y => fail | _ => pose proof (eff_syn_det _ _ _ H1 H2); clear H2; try subst end
+    | H1 : ?x = ?a, H2 : ?x = ?b |- _ =>
+        lazymatch a with b => fail | _ =>
+          rewrite H1 in H2; first [injection H2; clear H2; intros; try subst | discriminate H2 | clear H2]
+        end
+    end.
+
+  Ltac cs_contra :=
+    match goal with
+    | H : chk_spec _ _ (SInfix _ ?op _ _) ?t = false, Ho : assoc ?op arith_ops = Some ?o,
+      Hr : binop_res ?op ?t = ?t |- _ =>
+        rewrite (cs_bin _ _ _ _ _ _ _ Ho Hr) in H; discriminate
+    | H : chk_spec _ _ (STup _ ?ss) ?t = false, Ht : ?t = TTuple ?ts,
+      Hl : List.length ?ts = List.length ?ss |- _ =>
+        rewrite (cs_tuple _ _ _ _ _ Ht Hl) in H; discriminate
+    | H : chk_spec _ _ (SLam _ ?ps _ _ _) ?t = false, Ht : ?t = TArrow ?τs _ _,
+      Hl : List.length ?τs = List.length ?ps |- _ =>
+        rewrite (cs_lam _ _ _ _ _ _ _ _ _ _ Ht Hl) in H; discriminate
+    | H : chk_spec _ _ (SLit _ (SLInt None _)) ?t = false, Ht : ?t = TBase (BInt _) |- _ =>
+        rewrite Ht in H; discriminate
+    | H : chk_spec _ _ (SApp _ (SVar _ "panic") []) _ = false, Hb : builtin _ _ "panic" |- _ =>
+        rewrite cs_panic in H by exact Hb; discriminate
+    | H : chk_spec _ _ (SApp _ (SVar _ "abort") [_]) _ = false, Hb : builtin _ _ "abort" |- _ =>
+        rewrite cs_abort in H by exact Hb; discriminate
+    end.
+
+  Theorem alg_det :
+    (forall L Γ s θ n τ e θ' n', Γ ⊩ᵃ[E;L] s ⇒ τ ⇝ e ∣ θ ; n ↦ θ' ; n' ->
+       forall τ2 e2 θ2 n2, Γ ⊩ᵃ[E;L] s ⇒ τ2 ⇝ e2 ∣ θ ; n ↦ θ2 ; n2 ->
+       τ = τ2 /\ e = e2 /\ θ' = θ2 /\ n' = n2) /\
+    (forall L Γ s τ θ n e θ' n', Γ ⊩ᵃ[E;L] s ⇐ τ ⇝ e ∣ θ ; n ↦ θ' ; n' ->
+       forall e2 θ2 n2, Γ ⊩ᵃ[E;L] s ⇐ τ ⇝ e2 ∣ θ ; n ↦ θ2 ; n2 ->
+       e = e2 /\ θ' = θ2 /\ n' = n2) /\
+    (forall L Γ s a θ n τ e θ' n', Γ ⊩ᵃ[E;L] s ⦂ a ⇒ τ ⇝ e ∣ θ ; n ↦ θ' ; n' ->
+       forall τ2 e2 θ2 n2, Γ ⊩ᵃ[E;L] s ⦂ a ⇒ τ2 ⇝ e2 ∣ θ ; n ↦ θ2 ; n2 ->
+       τ = τ2 /\ e = e2 /\ θ' = θ2 /\ n' = n2) /\
+    (forall L Γ ss θ n τs es θ' n', Γ ⊩ᵃ*[E;L] ss ⇒ τs ⇝ es ∣ θ ; n ↦ θ' ; n' ->
+       forall τs2 es2 θ2 n2, Γ ⊩ᵃ*[E;L] ss ⇒ τs2 ⇝ es2 ∣ θ ; n ↦ θ2 ; n2 ->
+       τs = τs2 /\ es = es2 /\ θ' = θ2 /\ n' = n2) /\
+    (forall L Γ ss τs θ n es θ' n', Γ ⊩ᵃ*[E;L] ss ⇐ τs ⇝ es ∣ θ ; n ↦ θ' ; n' ->
+       forall es2 θ2 n2, Γ ⊩ᵃ*[E;L] ss ⇐ τs ⇝ es2 ∣ θ ; n ↦ θ2 ; n2 ->
+       es = es2 /\ θ' = θ2 /\ n' = n2).
+  Proof.
+    apply alg_mutind; intros;
+      lazymatch goal with H2 : _ |- _ => inversion H2; clear H2 end; subst;
+      try solve [exfalso; cs_contra];
+      repeat match goal with
+             | H : builtin _ _ _ |- _ => destruct H
+             | H : callee _ (SVar _ _) |- _ => simpl in H
+             end;
+      same;
+      try solve [match goal with
+                 | H : (?a && negb ?b)%bool = false, H1 : ?a = true, H2 : ?b = false |- _ =>
+                     rewrite H1, H2 in H; discriminate
+                 end];
+      repeat split; try reflexivity;
+      try discriminate; try congruence;
+      try solve [exfalso; eauto using binop_and, binop_or];
+      try solve [exfalso; match goal with
+                          | H : chk_spec _ _ _ _ = false |- _ =>
+                              first [ rewrite cs_bin in H by eauto
+                                    | rewrite cs_tuple in H by eauto
+                                    | rewrite cs_lam in H by eauto
+                                    | rewrite cs_panic in H by eauto
+                                    | rewrite cs_abort in H by eauto
+                                    | simpl in H ]; discriminate
+                          end].
+  Qed.
+End Det.

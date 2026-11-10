@@ -385,5 +385,12 @@ M6 用有规范、有证明的 elaborator 取代 `Surface/Elab.v`，分四个阶
     就是声明式推导（同时得到 `θ'` 幂等且扩展 `θ`）。
   - certified 的算法 `ElabInfer.infer`（返回类型形状统一，可抽取）；`infer_top` 在定义末尾把未定元变量默认为
     `Unit`。测试：`let f = fn(x) { x + 1 }; f(41)` 推出 `Int`，`fn(x) { x }` 得 `(Unit) -> Unit`。
-- 待做：确定性与完备性（算法成功当且仅当算法式判断成立）、`infer_top` 的闭合代换满足 `alg_sound` 的条件；
+- 确定性与完备性 ✅（M1 片段）：
+  - `alg_det`：算法式判断的结果由输入唯一确定（各规则适用条件互斥，副作用计算都是函数）；
+  - `infer_complete`：算法式判断成立时 `infer` 必定成功；`infer_iff`：两者等价（即可判定），
+    `infer_result`：成功时给出的正是那个结果。
+  - 为了能证完备性，`infer` 不在计算出的值上做依赖匹配（convoy），所有判断都经过返回证据的“视图”
+    （`oview`、`bview`、`int_view`、`tuple_view`、`arrow_view`、`ref_view`、`rview`），写法与 Core 的
+    `Check.v` 相同。以后扩展 `infer` 也要遵守。
+- 待做：`infer_top` 的闭合代换满足 `alg_sound` 的条件（需要“代换只绑定元变量”这一不变量）；
   然后扩展到 M2–M5，替换 `Elaborate`。

@@ -25,3 +25,7 @@ Print Assumptions Unify.unify_mgu.
 Print Assumptions Unify.unify_complete.
 From MoonRocq.Surface Require Import ElabAlg.
 Print Assumptions ElabAlg.alg_sound.
+Print Assumptions ElabAlg.alg_det.
+From MoonRocq.Surface Require Import ElabInfer.
+Print Assumptions ElabInfer.infer_complete.
+Print Assumptions ElabInfer.infer_iff.
